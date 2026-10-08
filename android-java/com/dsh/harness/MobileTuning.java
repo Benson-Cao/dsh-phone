@@ -169,11 +169,21 @@ public final class MobileTuning {
         + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
-        + "  #dsh-s-back{display:none !important;width:40px !important;height:40px !important;"
-        + "border:0 !important;border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
-        + "align-items:center !important;justify-content:center !important;cursor:pointer;"
-        + "-webkit-tap-highlight-color:transparent;}\n"
-        + "  body.dsh-s-l3 #dsh-s-back{display:inline-flex !important;}\n"
+        // 返回按钮挂在 body 上（避开 React 管辖），用 absolute 覆盖到 header 左侧。
+        // 顶栏 dsh-mtop 高度 48px；面板 header padding 14px 18px 8px 12px，
+        // 所以 left:12px + 40px 直径正好落在 header 左侧，与「打开配置文件」同行。
+        + "  #dsh-s-back{display:none !important;position:absolute !important;"
+        + "top:14px !important;left:12px !important;z-index:1001 !important;"
+        + "width:40px !important;height:40px !important;border:0 !important;"
+        + "border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
+        + "color:var(--ds-ink-900,#0d1b2e) !important;display:inline-flex !important;"
+        + "align-items:center !important;justify-content:center !important;"
+        + "cursor:pointer !important;-webkit-tap-highlight-color:transparent;"
+        + "box-shadow:var(--sh-sm,0 1px 3px rgba(13,27,46,.10)) !important;}\n"
+        + "  #dsh-s-back:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
+        + "  body.dsh-s-l2 #dsh-s-back,body:not(.dsh-s-l3) #dsh-s-back{display:none !important;}\n"
+        // 三级页的 header 左侧留出返回按钮的位置（否则标题会被压住）
+        + "  body.dsh-s-l3 [class*=\"_header\"]{padding-left:64px !important;}\n"
         // 二级页的面板/导航间距
         + "  body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}\n"
         // ===== 插件市场（三级页）· 对齐设计稿单列全宽风格 =====
@@ -278,12 +288,14 @@ public final class MobileTuning {
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
         + "        syncBack();\n"
         + "      }\n"
+        // ⚠️ **返回按钮必须挂在 body 上，不能插进dsh 的 _header**：
+        //   _header 是 React 管理的 DOM，dsh 每次重渲染都会把不属于它的节点清掉
+        //   -> 真机表现：进三级页后返回按钮**凭空消失**（r29 的 bug）。
+        //   挂在 body 上则不受 React 管辖，配合 absolute 定位覆盖到 header 左侧。
         + "      function syncBack(){\n"
-        + "        var hdr=document.querySelector('[class*=\"_header\"]');\n"
-        + "        if(!hdr){return;}\n"
-        + "        if(b.classList.contains('dsh-s-l3')){\n"
-        + "          if(!hdr.contains(back)){hdr.insertBefore(back,hdr.firstChild);}\n"
-        + "        }else if(hdr.contains(back)){hdr.removeChild(back);}\n"
+        + "        var on=b.classList.contains('dsh-s-l3');\n"
+        + "        if(on&&!back.parentNode){document.body.appendChild(back);}\n"
+        + "        if(!on&&back.parentNode){back.parentNode.removeChild(back);}\n"
         + "      }\n"
         // 唯一的事件入口（capture阶段，先于 dsh 自己的处理）
         + "      document.addEventListener('click',function(e){\n"

@@ -100,7 +100,10 @@ public class MainActivity extends Activity {
         // CENTER = CENTER_VERTICAL | CENTER_HORIZONTAL，配合 ScrollView.fillViewport
         // 才是真正的「整体垂直居中」（只给 CENTER_HORIZONTAL 时垂直方向贴顶）。
         loadingBox.setGravity(Gravity.CENTER);
-        loadingBox.setPadding(dp(32), dp(48), dp(32), dp(48));
+        // ⚠️ 上下不要留padding：fillViewport 会把 loadingBox 拉伸到一屏高，
+        //   但上下 padding 会让内容整体下移，鲸鱼看起来"靠上"。
+        //   垂直居中完全交给 gravity，padding 只留左右。
+        loadingBox.setPadding(dp(32), 0, dp(32), 0);
 
         // 品牌图标 36×36pt 透明底（设计稿「首页布局规格」）—— 复用 adaptive 前景。
         // 用 getIdentifier 而非 R.mipmap.*：纯 javac 校验时没有生成的 R 类。
