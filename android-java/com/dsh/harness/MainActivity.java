@@ -341,9 +341,21 @@ public class MainActivity extends Activity {
         chromeClient = new DshChromeClient(this);
         webView.setWebChromeClient(chromeClient);
         webView.setWebViewClient(new DshWebViewClient());
+        // JS bridge：设置页的「插件市场」入口靠它触发原生安装
+        // （dshmarket 要落盘到 $HOME/.dsh/profiles/web/，WebView 里的 JS 没有文件系统权限）
+        try {
+            webView.addJavascriptInterface(new DshBridge(this), "dshNative");
+        } catch (Exception e) {
+            Log.e("MainActivity", "注册 JS bridge 失败", e);
+        }
         webView.setBackgroundColor(INK_50);
         webView.loadUrl("about:blank");   // 仅预热，不显示
         Log.i("MainActivity", "WebView 已预热");
+    }
+
+    /** DshBridge 需要在安装完成后回调 JS，故暴露 webView 引用。 */
+    android.webkit.WebView webViewRef() {
+        return webView;
     }
 
     private void showWebView(String url) {
