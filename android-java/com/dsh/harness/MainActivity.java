@@ -117,15 +117,24 @@ public class MainActivity extends Activity {
                 }
 
                 setStatus("正在启动 dsh 服务…");
-                boolean ok = DshProcessManager.start(MainActivity.this);
-
-                if (!ok) {
-                    // 启动失败：把真实日志显示在界面上，省得必须连电脑看 logcat
-                    final String log = DshProcessManager.tailLog(MainActivity.this, 40);
-                    final String msg = log.isEmpty() ? "（无日志，node 可能未启动）" : log;
-                    setStatus("dsh 启动失败。日志：\n\n" + msg);
-                    return;   // 停在错误页，不进入空白 WebView
+                // 端口已监听 → dsh 进程还活着（切后台 / 重建 Activity 时常见），直接复用，
+                // 省掉 15s node 冷启动；否则才拉起。
+                if (DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT)) {
+                    Log.i("MainActivity", "dsh 端口已监听，复用现有进程，不重新拉起");
+                } else {
+                    boolean ok = DshProcessManager.start(MainActivity.this);
+                    if (!ok) {
+                        // 启动失败：把真实日志显示在界面上，省得必须连电脑看 logcat
+                        final String log = DshProcessManager.tailLog(MainActivity.this, 40);
+                        final String msg = log.isEmpty() ? "（无日志，node 可能未启动）" : log;
+                        setStatus("dsh 启动失败。日志：\n\n" + msg);
+                        return;   // 停在错误页，不进入空白 WebView
+                    }
                 }
+                // 预热 WebView（主线程）：渲染进程冷启动要 1~3s，与 node 启动并行，去掉串行等待
+                main.post(new Runnable() {
+                    @Override public void run() { prepareWebView(); }
+                });
 
                 // 统一等待：**只有「根路径真的返回 200」才算就绪**。
                 // 端口打开、打印 token 都不作数 —— dsh 可能在 frontend-static
@@ -157,7 +166,7 @@ public class MainActivity extends Activity {
                     final int sec = (int) ((System.currentTimeMillis() - t0) / 1000);
                     setStatus("正在启动 dsh 服务…"
                         + (sec >= 1 ? "（已用 " + sec + " 秒）" : ""));
-                    try { Thread.sleep(400); } catch (InterruptedException e) { return; }
+                    try { Thread.sleep(250); } catch (InterruptedException e) { return; }
                 }
 
                 // 超时：把原始证据摊在屏幕上（没有 adb 时唯一渠道）
@@ -215,7 +224,13 @@ public class MainActivity extends Activity {
         setContentView(scroll);
     }
 
-    private void showWebView(String url) {
+    /**
+     * 预热 WebView：提前创建并 load 空白页，让渲染进程在 node 启动期间就起来。
+     * 这样等轮询探测到 200 时，WebView 已经 ready，不必再串行等 1~3s 的渲染进程冷启动。
+     */
+    private void prepareWebView() {
+        if (webView != null) return;
+        if (isFinishing() || isDestroyed()) return;   // Activity 已退出就不必建了
         webView = new WebView(this);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -228,10 +243,15 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(chromeClient);
         webView.setWebViewClient(new DshWebViewClient());
         webView.setBackgroundColor(Color.parseColor("#0F1116"));
+        webView.loadUrl("about:blank");   // 仅预热，不显示
+        Log.i("MainActivity", "WebView 已预热");
+    }
+
+    private void showWebView(String url) {
+        if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
         setContentView(webView);
-
         webView.loadUrl(url);
-
+        Log.i("MainActivity", "已进入 dsh：loadUrl " + url);
         // 已进入 dsh 界面后，若服务其实没起来，onReceivedError 会显示友好页
     }
 

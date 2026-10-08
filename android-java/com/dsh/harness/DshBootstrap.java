@@ -574,6 +574,10 @@ public final class DshBootstrap {
         sb.append("export OPENSSL_CONF=\"$PREFIX/etc/tls/openssl.cnf\"\n");
         sb.append("export OPENSSL_MODULES=\"$PREFIX/lib/ossl-modules\"\n");
         sb.append("export NODE_OPTIONS=\"--require $PREFIX/libexec/dsh-node-shim.js\"\n");
+        // node 模块编译缓存：dsh 冷启动要 require 几百个模块，开启后可省 3~6s。
+        // node>=20.19/22.12 才真正生效；旧版本只是忽略这个环境变量，无副作用。
+        // 缓存目录写进 HOME/.cache（createLauncher 已 mkdirs）。
+        sb.append("export NODE_COMPILE_CACHE=\"$HOME/.cache/node-compile-cache\"\n");
         sb.append("cd \"").append(h).append("\"\n");
         // --expose-internals：web profile 的 patchReload=live 会创建 cordis-plugin-hmr，
         //   缺这个 flag 它会抛 "--expose-internals is required for HMR service" 并让整个进程退出。
