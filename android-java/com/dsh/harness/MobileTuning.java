@@ -120,29 +120,34 @@ public final class MobileTuning {
         + "justify-content:stretch !important;}\n"
         + "  [class*=\"_panel\"]{width:100vw !important;max-width:100vw !important;"
         + "height:100vh !important;border-radius:0 !important;flex-direction:column !important;}\n"
-        // 导航：188px 固定 -> 单列全宽（设计稿：列表项占满整行）
-        + "  [class*=\"_nav\"]{width:100% !important;max-width:100% !important;"
-        + "flex:0 0 auto !important;flex-direction:column !important;gap:0 !important;"
-        + "padding:8px 0 6px !important;overflow:visible !important;"
-        + "border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.18)) !important;}\n"
+        // ⚠️ 用 .dsh-s-nav 限定作用域，**不要再用 [class*="_nav"]**：
+        //   `_nav` 是 `_navTitle`/`_navList`/`_navCell`/`_navIcon`/`_navLabel`
+        //   的**共同前缀**。模糊匹配会把容器样式（width:100%、flex-direction:column）
+        //   套到图标和文字上 -> 图标独占一行、文字另起一行，每项撑到~100px
+        //   （真机反馈"布局太丑了"）。`.dsh-s-nav` 由 JS 打在导航容器上。
+        + "  .dsh-s-nav{width:100% !important;max-width:100% !important;"
+        + "flex:0 0 auto!important;flex-direction:column!important;gap:0!important;"
+        + "padding:8px 0 6px!important;overflow:visible!important;"
+        + "border-bottom:1px solid var(--ds-ink-200,#d8e1ea)!important;}\n"
         // 导航标题（"设置"）隐藏：面板 header 已有标题，避免重复
-        + "  [class*=\"_navTitle\"]{display:none !important;}\n"
-        // 导航列表：竖排，贴合设计稿的分组标签 + 列表项
-        + "  [class*=\"_navList\"]{flex-direction:column !important;gap:2px !important;}\n"
-        // 列表项：15.5px/#111、图标 21pt、圆角、占满整行
-        + "  [class*=\"_navCell\"]{width:100% !important;height:auto !important;"
-        + "min-height:46px !important;padding:0 26px !important;gap:12px !important;"
-        + "border-radius:0 !important;align-items:center !important;"
-        + "font-size:15.5px !important;white-space:normal !important;}\n"
-        // 导航项图标：设计稿 21pt
-        + "  [class*=\"_navIcon\"]{width:21px !important;height:21px !important;"
-        + "flex:none !important;}\n"
-        + "  div[class*=\"_navLabel\"]{font-size:15.5px !important;font-weight:600 !important;"
-        + "white-space:normal !important;overflow-wrap:normal !important;"
-        + "word-break:normal !important;}\n"
-        // 选中态：设计稿用 #F1F3F5 胶囊
-        + "  div[class*=\"_active\"]{background:var(--dsw-alias-bg-mask-1,#f1f3f5) !important;"
-        + "border-radius:14px !important;}\n"
+        + "  .dsh-s-nav [class*=\"_navTitle\"]{display:none!important;}\n"
+        // 导航列表：竖排
+        + "  .dsh-s-nav [class*=\"_navList\"]{flex-direction:column!important;gap:2px!important;}\n"
+        // 列表项：设计稿「设置页规格」15.5px + 图标 21pt + 行高 15px 内边距。
+        //关键是 flex-direction:row（图标与文字**同一行**）+ 上下 padding + 圆角。
+        + "  .dsh-s-nav [class*=\"_navCell\"]{width:100%!important;height:auto!important;"
+        + "min-height:46px!important;padding:12px 20px!important;gap:12px!important;"
+        + "flex-direction:row!important;align-items:center!important;"
+        + "border-radius:12px!important;font-size:15.5px!important;"
+        + "white-space:normal!important;text-align:left!important;}\n"
+        + "  .dsh-s-nav [class*=\"_navIcon\"]{width:21px!important;height:21px!important;"
+        + "flex:none!important;}\n"
+        + "  .dsh-s-nav [class*=\"_navLabel\"]{font-size:15.5px!important;"
+        + "font-weight:600!important;color:var(--ds-ink-900,#0d1b2e)!important;"
+        + "white-space:normal!important;overflow-wrap:normal!important;"
+        + "word-break:normal!important;flex:1 1 auto!important;min-width:0!important;}\n"
+        // 选中态：设计稿 #F1F3F5 胶囊（作用在 navCell 本身）
+        + "  .dsh-s-nav [class*=\"_active\"]{background:#f1f3f5!important;border-radius:12px!important;}\n"
         // 内容：全宽单列
         + "  [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
@@ -157,7 +162,7 @@ public final class MobileTuning {
         // ⚠️ 所有状态规则都必须**收窄到 _panel 内**：`_content`/`_nav` 是通用后缀，
         //    不限定作用域会误伤 dsh 主界面上同后缀的元素（r25 灰屏的放大器）。
         + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_content\"]{display:none !important;}\n"
-        + "  body.dsh-s-l3 [class*=\"_panel\"] [class*=\"_nav\"]{display:none !important;}\n"
+        + "  body.dsh-s-l3 .dsh-s-nav{display:none!important;}\n"
         // 三级页头部：显示返回箭头 + 标题
         + "  [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;align-items:center !important;"
         + "gap:10px !important;padding:14px 18px 8px 12px !important;}\n"
@@ -170,7 +175,7 @@ public final class MobileTuning {
         + "-webkit-tap-highlight-color:transparent;}\n"
         + "  body.dsh-s-l3 #dsh-s-back{display:inline-flex !important;}\n"
         // 二级页的面板/导航间距
-        + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_nav\"]{padding-top:4px !important;}\n"
+        + "  body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}\n"
         // ===== 插件市场（三级页）· 对齐设计稿单列全宽风格 =====
         // dsh-client-ui-settings-plugin-inventory 自带网格 `_cards`
         // (minmax(0,1fr) / repeat(2,...))，手机上两列会把插件名挤成竖排，
@@ -257,7 +262,17 @@ public final class MobileTuning {
         + "        +' stroke-linejoin=\"round\"><path d=\"M15 5l-7 7 7 7\"/></svg>';\n"
         + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();setL2();sync();});\n"
         // 单一 sync：面板开->按当前层级显示；面板关->清状态类
+        // 给导航**容器**打标记：CSS 靠它限定作用域，避免 [class*="_nav"]
+        // 过度匹配到 _navIcon/_navLabel（那会把图标和文字也变成 column 布局）。
+        // 定位方式：_navList 的父元素就是容器（结构 nav > navTitle + navList）。
+        + "      function tagNav(){\n"
+        + "        var nl=document.querySelector('[class*=\"_navList\"]');\n"
+        + "        if(nl&&nl.parentElement&&!nl.parentElement.classList.contains('dsh-s-nav')){\n"
+        + "          nl.parentElement.classList.add('dsh-s-nav');\n"
+        + "        }\n"
+        + "      }\n"
         + "      function sync(){\n"
+        + "        tagNav();\n"
         + "        var ov=overlay();\n"
         + "        if(!ov){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
