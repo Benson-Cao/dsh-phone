@@ -97,7 +97,9 @@ public class MainActivity extends Activity {
         // --- 加载界面（替代黑屏），按设计稿重写 ---
         loadingBox = new LinearLayout(this);
         loadingBox.setOrientation(LinearLayout.VERTICAL);
-        loadingBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        // CENTER = CENTER_VERTICAL | CENTER_HORIZONTAL，配合 ScrollView.fillViewport
+        // 才是真正的「整体垂直居中」（只给 CENTER_HORIZONTAL 时垂直方向贴顶）。
+        loadingBox.setGravity(Gravity.CENTER);
         loadingBox.setPadding(dp(32), dp(48), dp(32), dp(48));
 
         // 品牌图标 36×36pt 透明底（设计稿「首页布局规格」）—— 复用 adaptive 前景。
@@ -149,6 +151,12 @@ public class MainActivity extends Activity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(INK_50);
+        // ⚠️ 必须开 fillViewport：ScrollView 的子View 默认只按内容高度布局，
+        //    此时 LinearLayout 的 gravity(CENTER) **不会**产生垂直居中效果
+        //    （真机表现：整块内容贴在上方，图标刚好在状态栏下面）。
+        //    fillViewport 让子View 在内容不足一屏时**被拉伸到一屏高**，
+        //    gravity 生效；内容超过一屏时仍可正常滚动。
+        scroll.setFillViewport(true);
         scroll.addView(loadingBox);
         root.addView(scroll, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -171,8 +179,11 @@ public class MainActivity extends Activity {
         // --- 耗时工作全部丢后台线程 ---
         new Thread(new Runnable() {
             @Override public void run() {
+                final long tBoot = System.currentTimeMillis();
                 setStatus("正在解包运行环境（首次约需 1–3 分钟）…");
                 DshBootstrap.setupIfNeeded(MainActivity.this);
+                final long tBootDone = System.currentTimeMillis();
+                Log.i("MainActivity", "[计时] bootstrap " + (tBootDone - tBoot) + "ms");
 
                 // 解包失败：立刻把真实原因显示出来，别让用户对着黑屏猜
                 final String bootErr = DshBootstrap.getLastError();
@@ -193,7 +204,10 @@ public class MainActivity extends Activity {
                 setStatus("正在启动 dsh 服务…");
                 // 端口已监听 → dsh 进程还活着（切后台 / 重建 Activity 时常见），直接复用，
                 // 省掉 15s node 冷启动；否则才拉起。
-                if (DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT)) {
+                final boolean reused =
+                        DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT);
+                final long tStart = System.currentTimeMillis();
+                if (reused) {
                     Log.i("MainActivity", "dsh 端口已监听，复用现有进程，不重新拉起");
                 } else {
                     boolean ok = DshProcessManager.start(MainActivity.this);
@@ -220,8 +234,16 @@ public class MainActivity extends Activity {
                     DshProbe.Ready ready = DshProbe.tryReady(MainActivity.this);
                     if (ready != null) {
                         final String cookie = ready.cookiePair;
-                        Log.i("MainActivity", "dsh 就绪，用时 "
-                                + (System.currentTimeMillis() - t0) + "ms");
+                        final long tReady = System.currentTimeMillis();
+                        final long dBoot = tBootDone - tBoot;
+                        final long dWait = tReady - tStart;
+                        Log.i("MainActivity", "[计时] 总 " + (tReady - tBoot)
+                                + "ms | bootstrap " + dBoot
+                                + "ms | " + (reused ? "复用" : "冷启") + " " + dWait + "ms");
+                        // 直接显示在启动页上——真机没有 adb 时，这是唯一的取证渠道
+                        setStatus("已用 " + ((tReady - tBoot) / 1000) + " 秒"
+                                + "（环境 " + dBoot + "ms"
+                                + " / " + (reused ? "复用服务" : "启动服务") + " " + dWait + "ms）");
                         main.post(new Runnable() {
                             @Override public void run() {
                                 if (cookie != null) {

@@ -150,6 +150,25 @@ public final class MobileTuning {
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
         + "  div[class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
         + "  div[class*=\"_options\"] *{max-width:100% !important;}\n"
+        // ===== 设置页分级：二级列表 → 三级详情（对齐设计稿的两级页面）=====
+        // 二级页：只显示导航列表（通用设置/ 模型 / 插件 / Agent 预设…），标题为「设置」
+        // 三级页：点某个导航项后，内容全屏显示，顶部出现返回箭头
+        //实现：body 上挂 dsh-s-l2 / dsh-s-l3 两个状态类，由 JS 切换。
+        + "  body.dsh-s-l3 div[class*=\"_nav\"]{display:none !important;}\n"
+        + "  body.dsh-s-l2 div[class*=\"_content\"]{display:none !important;}\n"
+        // 三级页头部：显示返回箭头 + 标题
+        + "  div[class*=\"_header\"]{display:flex !important;align-items:center !important;"
+        + "gap:10px !important;padding:14px 18px 8px 12px !important;}\n"
+        + "  div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
+        + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
+        // 我们自建的返回按钮（仅三级页可见）
+        + "  #dsh-s-back{display:none !important;width:40px !important;height:40px !important;"
+        + "border:0 !important;border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
+        + "align-items:center !important;justify-content:center !important;cursor:pointer;"
+        + "-webkit-tap-highlight-color:transparent;}\n"
+        + "  body.dsh-s-l3 #dsh-s-back{display:inline-flex !important;}\n"
+        // 二级页的面板/导航间距
+        + "  body.dsh-s-l2 div[class*=\"_nav\"]{padding-top:4px !important;}\n"
         // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
@@ -198,6 +217,53 @@ public final class MobileTuning {
         + "    var st=document.createElement('style');st.id=SID+'-css';\n"
         + "    st.textContent=" + jsString(CSS) + ";\n"
         + "    (document.head||document.documentElement).appendChild(st);\n"
+        // ===== 设置页二级/三级分级逻辑 =====
+        // dsh 的设置面板是单页结构（导航与内容同容器）。这里用 CSS 变量类把
+        // 它拆成设计稿那样的两级页面：
+        //   二级（dsh-s-l2）：只显示导航列表（通用设置/模型/插件/Agent 预设）
+        //   三级（dsh-s-l3）：点导航项后内容全屏，左上角换成分级返回箭头
+        // 关键：**纯 CSS 做不了"点击切页"**，必须有 JS 记状态；但**定位用属性选择器前缀**，
+        // 不依赖 CSS module 哈希（r20 用文本定位失败过——文字被包在 _navLabel 里）。
+        + "    (function(){\n"
+        + "      if(!mq.matches){return;}\n"
+        + "      var b=document.body;\n"
+        + "      b.classList.add('dsh-s-l2');\n"
+        // 自建返回按钮（设计稿：40pt 圆底 #F1F3F5 + chevron-left）
+        + "      var back=document.createElement('button');back.id='dsh-s-back';\n"
+        + "      back.type='button';back.setAttribute('aria-label','返回');\n"
+        + "      back.innerHTML='<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"'\n"
+        + "        +' stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"'\n"
+        + "        +' stroke-linejoin=\"round\"><path d=\"M15 5l-7 7 7 7\"/></svg>';\n"
+        + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();\n"
+        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');});\n"
+        // 三级页时把返回按钮插进 header；二级页时移除
+        + "      function syncBack(){\n"
+        + "        var hdr=document.querySelector('div[class*=\"_header\"]');\n"
+        + "        if(!hdr){return;}\n"
+        + "        if(b.classList.contains('dsh-s-l3')){\n"
+        + "          if(!hdr.contains(back)){hdr.insertBefore(back,hdr.firstChild);}\n"
+        + "        }else if(hdr.contains(back)){hdr.removeChild(back);}\n"
+        + "      }\n"
+        // 拦截导航项点击 -> 进三级页（capture 阶段，先于 dsh 自己的切换）
+        + "      document.addEventListener('click',function(e){\n"
+        + "        if(!b.classList.contains('dsh-s-l2')){syncBack();return;}\n"
+        + "        var cell=e.target&&e.target.closest?e.target.closest('div[class*=\"_navCell\"]'):null;\n"
+        + "        if(!cell){syncBack();return;}\n"
+        + "        b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');\n"
+        + "        syncBack();\n"
+        + "      },true);\n"
+        // 三级页里点右上角原关闭按钮 -> 先回二级而不是直接关面板
+        + "      document.addEventListener('click',function(e){\n"
+        + "        if(!b.classList.contains('dsh-s-l3')){return;}\n"
+        + "        var t=e.target;\n"
+        + "        var btn=t&&t.closest?t.closest('div[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]'):null;\n"
+        + "        if(!btn){return;}\n"
+        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();\n"
+        + "        e.preventDefault();e.stopPropagation();\n"
+        + "      },true);\n"
+        + "      if(window.MutationObserver){new MutationObserver(syncBack).observe(b,{childList:true,subtree:true});}\n"
+        + "      syncBack();\n"
+        + "    })();\n"
         // 顶栏：汉堡按钮 + 标题
         + "    var bar=document.createElement('div');bar.id='dsh-mtop';\n"
         + "    bar.innerHTML='<button id=\"dsh-mbtn\" type=\"button\" aria-label=\"菜单\">'\n"
