@@ -107,7 +107,7 @@ public final class MobileTuning {
         + "  div[class*=\"sidebarCol\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;overscroll-behavior:contain !important;}\n"
         + "  body.dsh-drawer-open div[class*=\"sidebarCol\"]"
-        + "{transform:translate3d(0,0,0) !important;}\n"
+        + "  {transform:translate3d(0,0,0) !important;}\n"
         // 挤成竖排的根因：flex/grid 子项默认 min-width:auto 会拒绝收缩，
         // 叠上中文的 word-break 规则就成了「一字一行」。允许收缩 + 允许折行即可。
         + "  div[class*=\"sidebarCol\"] *{min-width:0;}\n"
@@ -119,7 +119,7 @@ public final class MobileTuning {
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"打开侧边栏\"],"
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"Collapse sidebar\"],"
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"Open sidebar\"]"
-        + "{display:none !important;}\n"
+        + "  {display:none !important;}\n"
         // 右栏别把主区挤没
         + "  div[class*=\"rightbarCol\"]{max-width:min(92vw,420px);}\n"
         // ===== 设置面板重写（窄屏）·对齐《移动端 UI 设计系统》设置页规格 =====
@@ -295,10 +295,87 @@ public final class MobileTuning {
         + "  input,textarea,select{font-size:16px !important;}\n"
         // 禁掉橡皮筋与双击缩放，更接近原生手感
         + "  html,body{overscroll-behavior:none;}\n"
-        + "  body{touch-action:manipulation;}\n"
+        + "    body{touch-action:manipulation;}\n"
         + "}\n"
         + "@media (prefers-reduced-motion:reduce){"
         + "div[class*=\"sidebarCol\"],#dsh-scrim{transition:none !important;}}\n";
+
+    /**
+     * dsh-market（/dsh-market）**专用**移动/平板适配。
+     *
+     * ## 为什么必须独立一套
+     * 市场页的类名与设置面板**同源**（都是 `..._card` / `..._cards` / `..._group` /
+     * `..._options`），而通用 CSS 里那些规则是为**设置面板**写的，裸放在
+     * `@media(max-width:1023px)` 里 -> 市场页同样吃到 -> 真机后果：
+     * 标题竖排成一列、网格被 `minmax(0,1fr)` 压成单列、间距错乱。
+     *
+     * 所以 {@link JS} 里按 `data-dsh-market-root` 判定：命中市场页时
+     * **只注入这段**，不注入设置面板那套 —— 两套规则永不相遇。
+     *
+     *## 手机 + 平板都要兼顾
+     * 市场页**自带** `@media(max-width:680px)` 与 `(max-width:560px)` 两个断点，
+     * 网格用 `auto-fit,minmax(280px,1fr)` 自适应 —— 所以**不要抢它的网格**，
+     * 只补它缺的：① 顶部头部在窄屏会挤成竖排 ② 长路径/报错文本撑破布局
+     * ③ 触控目标偏小 ④ 没有安全区适配 ⑤ 平板上留白过多。
+     *
+     * 断点策略：≤680px 手机（对齐它自带断点）/ ≥681px 平板（加大留白与两栏）
+     */
+    private static final String MARKET_CSS =
+        "  /*顶部头部：图标+名称+版本+主按钮 在窄屏会被挤成竖排，改为可换行横排 */\n"
+        + "  [data-dsh-market-root] [class*=\"_header\"]{flex-wrap:wrap !important;"
+        + "align-items:center !important;gap:10px !important;}\n"
+        + "  [data-dsh-market-root] [class*=\"_headerTitle\"],"
+        + "[data-dsh-market-root] [class*=\"_title\"]{min-width:0 !important;"
+        + "white-space:normal !important;overflow-wrap:anywhere !important;"
+        + "word-break:normal !important;line-height:1.35 !important;}\n"
+        // 图标类名在不同版本会变，用通用属性兜住：任何固定宽高的小方块不参与挤压
+        + "  [data-dsh-market-root] [class*=\"_logo\"],"
+        + "[data-dsh-market-root] [class*=\"_icon\"]{flex:none !important;}\n"
+        // 主按钮（下拉/安装类）保持单行不撑破
+        + "  [data-dsh-market-root] button{white-space:normal !important;"
+        + "max-width:100% !important;}\n"
+        // 报错/日志这类长文本：允许在任意位置断行，避免整块撑宽导致横向滚动
+        + "  [data-dsh-market-root] pre,[data-dsh-market-root] code,"
+        + "[data-dsh-market-root] [class*=\"_log\"],"
+        + "[data-dsh-market-root] [class*=\"_diag\"],"
+        + "[data-dsh-market-root] [class*=\"_error\"]{"
+        + "overflow-wrap:anywhere !important;word-break:break-word !important;"
+        + "white-space:pre-wrap !important;max-width:100% !important;}\n"
+        // 页面整体：禁止横向溢出
+        + "  [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}\n"
+        // 触控目标 ≥44px（WCAG AA）：搜索框、筛选、标签页、列表项
+        + "  [data-dsh-market-root] input,[data-dsh-market-root] select,"
+        + "[data-dsh-market-root] [role=\"tab\"],[data-dsh-market-root] [role=\"button\"]{"
+        + "min-height:44px !important;box-sizing:border-box !important;}\n"
+        // 安全区（刘海/手势条）—— 全项目此前没有，这里补上
+        + "  [data-dsh-market-root]{padding-left:max(0px,env(safe-area-inset-left)) !important;"
+        + "padding-right:max(0px,env(safe-area-inset-right)) !important;}\n"
+        + "  @media (max-width:680px){\n"
+        + "    [data-dsh-market-root]{padding-left:16px !important;padding-right:16px !important;}\n"
+        + "    [data-dsh-market-root] [class*=\"_header\"]{padding-top:12px !important;"
+        + "padding-bottom:8px !important;}\n"
+        // 手机：卡片标题不再被压窄（它自带 680px 断点会切单列，别再叠压）
+        + "    [data-dsh-market-root] [class*=\"_cardTitle\"]{font-size:15px !important;"
+        + "line-height:1.4 !important;}\n"
+        + "  }\n"
+        + "  @media (min-width:681px){\n"
+        // 平板：内容别铺满整个屏宽，限制可读宽度并居中
+        + "    [data-dsh-market-root]{max-width:1100px !important;margin:0 auto !important;}\n"
+        + "  }\n";
+
+    /**
+     * 市场页专属的「外壳」样式：汉堡按钮 + 安全区。
+     * 与 {@link MARKET_CSS} 分开是因为它服务于**注入的按钮**（我们自己的 DOM），
+     * 而不是市场页的内容排版。
+     */
+    private static final String MARKET_CHROME_CSS =
+        "[data-dsh-market-root]{--dsh-sat:env(safe-area-inset-top,0px);}\n"
+        + "#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:65;display:flex;\n"
+        + "  align-items:flex-start;justify-content:flex-end;\n"
+        + "  padding:calc(6px + var(--dsh-sat,0px)) 6px 0 6px;\n"
+        + "  pointer-events:none;background:transparent;}\n"
+        + "#dsh-mtop>*{pointer-events:auto;}\n"
+        + "#dsh-scrim{z-index:60;}\n";
 
     private static final String JS =
         "(function(){\n"
@@ -310,9 +387,30 @@ public final class MobileTuning {
         + "    if(document.getElementById(SID)){return;}\n"
         + "    var mark=document.createElement('div');mark.id=SID;\n"
         + "    document.body.appendChild(mark);\n"
+        // ⚠️ 作用域隔离（最重要的结构性问题修复）：
+        //原方案把所有规则裸写在 @media(max-width:1023px) 里，
+        //   而 dsh-market（/dsh-market 独立路由页）的类名与设置面板**同源**
+        //   （都叫 _card / _cards / _group / _options...），
+        //   于是市场页吃到了为设置面板写的规则 —— 真机后果：标题竖排、
+        //   网格被压成单列、间距错乱。
+        //修法：给 <style> 打个 data-dsh-s 标记，CSS 全部用 body[data-dsh-s] 限定，
+        //   市场页走下面那段独立适配（只补它缺的，不抢它的网格）。
         + "    var st=document.createElement('style');st.id=SID+'-css';\n"
-        + "    st.textContent=" + jsString(CSS) + ";\n"
+        // ===== 作用域分流：市场页只注入 MARKET_CSS，其余注入 CSS =====
+        // dsh-market 的类名与设置面板同源，两套规则会互相污染
+        // （标题竖排/ 网格被压单列）。这里用 pathname 先分流，永不相遇。
+        + "    var inMarket=/[\\/]dsh-market(\\/|$|[?#])/.test(location.pathname);\n"
+        + "    st.textContent=inMarket?" + jsString(MARKET_CSS) + ":" + jsString(CSS) + ";\n"
         + "    (document.head||document.documentElement).appendChild(st);\n"
+        // 市场页：另建一个 style 补安全区/汉堡遮罩（设置页那套不含这些）
+        + "    if(inMarket){\n"
+        + "      var ms=document.createElement('style');ms.id=SID+'-mkt';\n"
+        + "      ms.textContent=" + jsString(MARKET_CHROME_CSS) + ";\n"
+        + "      (document.head||document.documentElement).appendChild(ms);\n"
+        + "    }\n"
+        // 市场页需要汉堡（返回/开抽屉），所以**不return**，
+        // 只把设置页专属的那段二级/三级逻辑用 inMarket 跳过。
+        + "    if(!inMarket){\n"
         // ===== 设置页二级/三级分级逻辑 =====
         // dsh 的设置面板是单页结构（导航与内容同容器）。这里用 CSS 变量类把
         // 它拆成设计稿那样的两级页面：
@@ -485,6 +583,9 @@ public final class MobileTuning {
         + "      if(window.MutationObserver){new MutationObserver(sched).observe(b,{childList:true,subtree:true});}\n"
         + "      sync();\n"
         + "    })();\n"
+        // 闭合 if(!inMarket){ —— 设置页专属逻辑到此结束
+        // （市场页不需要二级/三级分级与插件市场卡片，但**仍需要下面的汉堡**）
+        + "    }\n"
         // 顶栏：汉堡按钮 + 标题
         + "    var bar=document.createElement('div');bar.id='dsh-mtop';\n"
         + "    bar.innerHTML='<button id=\"dsh-mbtn\" type=\"button\" aria-label=\"菜单\">'\n"
@@ -514,6 +615,9 @@ public final class MobileTuning {
         + "    },300);\n"
         + "    if(mq.addEventListener){mq.addEventListener('change',onMq);}\n"
         + "    else if(mq.addListener){mq.addListener(onMq);}\n"
+        // ⚠️ 这个 `}` 是 mount() 的收尾，**必须在 if(!inMarket) 块之外**。
+        //   若被 `if(!inMarket){` 抢占，后面所有代码都会落进条件块，
+        //   末尾再补一个 } 就成了多余 -> "Unexpected token ')'"。
         + "  }\n"
         // 只在 dsh 认为侧栏「已折叠」时才点一次展开，避免把它点反
         + "  function expandSidebarOnce(){\n"
