@@ -154,12 +154,14 @@ public final class MobileTuning {
         // 二级页：只显示导航列表（通用设置/ 模型 / 插件 / Agent 预设…），标题为「设置」
         // 三级页：点某个导航项后，内容全屏显示，顶部出现返回箭头
         //实现：body 上挂 dsh-s-l2 / dsh-s-l3 两个状态类，由 JS 切换。
-        + "  body.dsh-s-l3 div[class*=\"_nav\"]{display:none !important;}\n"
-        + "  body.dsh-s-l2 div[class*=\"_content\"]{display:none !important;}\n"
+        // ⚠️ 所有状态规则都必须**收窄到 _panel 内**：`_content`/`_nav` 是通用后缀，
+        //    不限定作用域会误伤 dsh 主界面上同后缀的元素（r25 灰屏的放大器）。
+        + "  body.dsh-s-l2 div[class*=\"_panel\"] div[class*=\"_content\"]{display:none !important;}\n"
+        + "  body.dsh-s-l3 div[class*=\"_panel\"] div[class*=\"_nav\"]{display:none !important;}\n"
         // 三级页头部：显示返回箭头 + 标题
-        + "  div[class*=\"_header\"]{display:flex !important;align-items:center !important;"
+        + "  div[class*=\"_panel\"] div[class*=\"_header\"]{display:flex !important;align-items:center !important;"
         + "gap:10px !important;padding:14px 18px 8px 12px !important;}\n"
-        + "  div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
+        + "  div[class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
         + "  #dsh-s-back{display:none !important;width:40px !important;height:40px !important;"
@@ -168,7 +170,7 @@ public final class MobileTuning {
         + "-webkit-tap-highlight-color:transparent;}\n"
         + "  body.dsh-s-l3 #dsh-s-back{display:inline-flex !important;}\n"
         // 二级页的面板/导航间距
-        + "  body.dsh-s-l2 div[class*=\"_nav\"]{padding-top:4px !important;}\n"
+        + "  body.dsh-s-l2 div[class*=\"_panel\"] div[class*=\"_nav\"]{padding-top:4px !important;}\n"
         // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
@@ -227,7 +229,17 @@ public final class MobileTuning {
         + "    (function(){\n"
         + "      if(!mq.matches){return;}\n"
         + "      var b=document.body;\n"
-        + "      b.classList.add('dsh-s-l2');\n"
+        // ⚠️ **不要在加载时就加 dsh-s-l2**（r25 的 bug #3）：
+        //   body 上加了这个类后，`body.dsh-s-l2 div[class*="_content"]{display:none}`
+        //   会**永久隐藏 dsh 主界面的 content**——真机表现：首页只剩一片灰、
+        //   内容全空（因为设置面板根本还没打开，状态类却已经生效）。
+        //   正确做法：状态类**只在设置面板 overlay 存在时**才加/移除。
+        + "      function syncState(){\n"
+        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
+        + "        if(ov){if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){\n"
+        + "          b.classList.add('dsh-s-l2');}}\n"
+        + "        else{b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');}\n"
+        + "      }\n"
         // 自建返回按钮（设计稿：40pt 圆底 #F1F3F5 + chevron-left）
         + "      var back=document.createElement('button');back.id='dsh-s-back';\n"
         + "      back.type='button';back.setAttribute('aria-label','返回');\n"
@@ -235,7 +247,7 @@ public final class MobileTuning {
         + "        +' stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"'\n"
         + "        +' stroke-linejoin=\"round\"><path d=\"M15 5l-7 7 7 7\"/></svg>';\n"
         + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();\n"
-        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');});\n"
+        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();});\n"
         // 三级页时把返回按钮插进 header；二级页时移除
         + "      function syncBack(){\n"
         + "        var hdr=document.querySelector('div[class*=\"_header\"]');\n"
@@ -252,16 +264,35 @@ public final class MobileTuning {
         + "        b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');\n"
         + "        syncBack();\n"
         + "      },true);\n"
-        // 三级页里点右上角原关闭按钮 -> 先回二级而不是直接关面板
+        // ⚠️ 不要拦截右上角原关闭按钮（_close）！
+        //   r25 曾在这里 preventDefault+stopPropagation 并强制回二级，结果：
+        //   dsh 的关闭流程被阻断 → _overlay 永不卸载 → 兄弟节点 _mask
+        //   （position:absolute;inset:0 + backdrop-filter:blur）一直盖在全屏，
+        //   **整页点不动**（真机反馈"无法使用"）。
+        //   正确分工：`×` = 真正关闭面板（还原 dsh 原行为）；
+        //   「返回上一级」只由自建的 #dsh-s-back 负责。
+        // 面板被关闭时清掉状态类，否则下次打开会带着上次的 l2/l3 状态。
+        + "      function resetState(){\n"
+        + "        b.classList.remove('dsh-s-l3');\n"
+        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
+        + "        if(!ov){b.classList.remove('dsh-s-l2');syncBack();}\n"
+        + "      }\n"
         + "      document.addEventListener('click',function(e){\n"
-        + "        if(!b.classList.contains('dsh-s-l3')){return;}\n"
         + "        var t=e.target;\n"
         + "        var btn=t&&t.closest?t.closest('div[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]'):null;\n"
-        + "        if(!btn){return;}\n"
-        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();\n"
-        + "        e.preventDefault();e.stopPropagation();\n"
+        + "        if(btn){resetState();return;}\n"
+        // 点遮罩空白处关闭时也清理
+        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
+        + "        if(ov&&(t===ov||t&&t.className&&String(t.className).indexOf('_mask')>=0)){resetState();}\n"
         + "      },true);\n"
-        + "      if(window.MutationObserver){new MutationObserver(syncBack).observe(b,{childList:true,subtree:true});}\n"
+        // Esc = 返回上一级（先回二级，再 Esc 才关闭由 dsh 自己处理）
+        + "      document.addEventListener('keydown',function(e){\n"
+        + "        if(e.key!=='Escape'){return;}\n"
+        + "        if(b.classList.contains('dsh-s-l3')){e.preventDefault();e.stopPropagation();\n"
+        + "          b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();}\n"
+        + "      },true);\n"
+        + "      if(window.MutationObserver){new MutationObserver(function(){syncBack();resetState();})"
+        + ".observe(b,{childList:true,subtree:true});}\n"
         + "      syncBack();\n"
         + "    })();\n"
         // 顶栏：汉堡按钮 + 标题
