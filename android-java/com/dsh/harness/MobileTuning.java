@@ -229,26 +229,28 @@ public final class MobileTuning {
         + "    (function(){\n"
         + "      if(!mq.matches){return;}\n"
         + "      var b=document.body;\n"
-        // ⚠️ **不要在加载时就加 dsh-s-l2**（r25 的 bug #3）：
-        //   body 上加了这个类后，`body.dsh-s-l2 div[class*="_content"]{display:none}`
-        //   会**永久隐藏 dsh 主界面的 content**——真机表现：首页只剩一片灰、
-        //   内容全空（因为设置面板根本还没打开，状态类却已经生效）。
-        //   正确做法：状态类**只在设置面板 overlay 存在时**才加/移除。
-        + "      function syncState(){\n"
-        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
-        + "        if(ov){if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){\n"
-        + "          b.classList.add('dsh-s-l2');}}\n"
-        + "        else{b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');}\n"
-        + "      }\n"
+        // ---- 二级/三级状态管理 ----
+        // L2 = 只显示导航列表（设置首页）；L3 = 只显示某个设置项的详情。
+        // 关键：状态类**只在设置面板 overlay 存在时**才生效，且必须由
+        // syncState() 真正调用（r26 漏调，导致 L2 从未加上，
+        // 导航与内容一直并排显示 —— 真机反馈"还是放在同一个页面里"）。
+        + "      function overlay(){return document.querySelector('div[class*=\"_overlay\"]');}\n"
+        + "      function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}\n"
+        + "      function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}\n"
         // 自建返回按钮（设计稿：40pt 圆底 #F1F3F5 + chevron-left）
         + "      var back=document.createElement('button');back.id='dsh-s-back';\n"
         + "      back.type='button';back.setAttribute('aria-label','返回');\n"
         + "      back.innerHTML='<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"'\n"
         + "        +' stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"'\n"
         + "        +' stroke-linejoin=\"round\"><path d=\"M15 5l-7 7 7 7\"/></svg>';\n"
-        + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();\n"
-        + "        b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();});\n"
-        // 三级页时把返回按钮插进 header；二级页时移除
+        + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();setL2();sync();});\n"
+        // 单一 sync：面板开->按当前层级显示；面板关->清状态类
+        + "      function sync(){\n"
+        + "        var ov=overlay();\n"
+        + "        if(!ov){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
+        + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
+        + "        syncBack();\n"
+        + "      }\n"
         + "      function syncBack(){\n"
         + "        var hdr=document.querySelector('div[class*=\"_header\"]');\n"
         + "        if(!hdr){return;}\n"
@@ -256,44 +258,35 @@ public final class MobileTuning {
         + "          if(!hdr.contains(back)){hdr.insertBefore(back,hdr.firstChild);}\n"
         + "        }else if(hdr.contains(back)){hdr.removeChild(back);}\n"
         + "      }\n"
-        // 拦截导航项点击 -> 进三级页（capture 阶段，先于 dsh 自己的切换）
-        + "      document.addEventListener('click',function(e){\n"
-        + "        if(!b.classList.contains('dsh-s-l2')){syncBack();return;}\n"
-        + "        var cell=e.target&&e.target.closest?e.target.closest('div[class*=\"_navCell\"]'):null;\n"
-        + "        if(!cell){syncBack();return;}\n"
-        + "        b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');\n"
-        + "        syncBack();\n"
-        + "      },true);\n"
-        // ⚠️ 不要拦截右上角原关闭按钮（_close）！
-        //   r25 曾在这里 preventDefault+stopPropagation 并强制回二级，结果：
-        //   dsh 的关闭流程被阻断 → _overlay 永不卸载 → 兄弟节点 _mask
-        //   （position:absolute;inset:0 + backdrop-filter:blur）一直盖在全屏，
-        //   **整页点不动**（真机反馈"无法使用"）。
-        //   正确分工：`×` = 真正关闭面板（还原 dsh 原行为）；
-        //   「返回上一级」只由自建的 #dsh-s-back 负责。
-        // 面板被关闭时清掉状态类，否则下次打开会带着上次的 l2/l3 状态。
-        + "      function resetState(){\n"
-        + "        b.classList.remove('dsh-s-l3');\n"
-        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
-        + "        if(!ov){b.classList.remove('dsh-s-l2');syncBack();}\n"
-        + "      }\n"
+        // 唯一的事件入口（capture阶段，先于 dsh 自己的处理）
         + "      document.addEventListener('click',function(e){\n"
         + "        var t=e.target;\n"
-        + "        var btn=t&&t.closest?t.closest('div[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]'):null;\n"
-        + "        if(btn){resetState();return;}\n"
-        // 点遮罩空白处关闭时也清理
-        + "        var ov=document.querySelector('div[class*=\"_overlay\"]');\n"
-        + "        if(ov&&(t===ov||t&&t.className&&String(t.className).indexOf('_mask')>=0)){resetState();}\n"
+        + "        if(!t||!t.closest){sync();return;}\n"
+        // 点右上角关闭 / 点遮罩 -> 让dsh 正常关闭，只清状态类（**绝不拦截**）
+        + "        var closer=t.closest('div[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]');\n"
+        + "        var ov=overlay();\n"
+        + "        var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));\n"
+        + "        if(closer||onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
+        // 点导航项 -> 进三级页（不preventDefault，让 dsh 自己切内容）
+        + "        var cell=t.closest('div[class*=\"_navCell\"]');\n"
+        + "        if(cell&&b.classList.contains('dsh-s-l2')){setL3();syncBack();}\n"
+        + "        else{sync();}\n"
         + "      },true);\n"
-        // Esc = 返回上一级（先回二级，再 Esc 才关闭由 dsh 自己处理）
+        // Esc = 返回上一级
         + "      document.addEventListener('keydown',function(e){\n"
-        + "        if(e.key!=='Escape'){return;}\n"
-        + "        if(b.classList.contains('dsh-s-l3')){e.preventDefault();e.stopPropagation();\n"
-        + "          b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');syncBack();}\n"
+        + "        if(e.key==='Escape'&&b.classList.contains('dsh-s-l3')){\n"
+        + "          e.preventDefault();e.stopPropagation();setL2();syncBack();\n"
+        + "        }\n"
         + "      },true);\n"
-        + "      if(window.MutationObserver){new MutationObserver(function(){syncBack();resetState();})"
-        + ".observe(b,{childList:true,subtree:true});}\n"
-        + "      syncBack();\n"
+        // 面板是动态挂载/卸载的，DOM 变化时同步
+        // 去抖：sync() 自身会改 DOM（插/拔返回按钮），直接observe 会自激循环
+        + "      var pend=null;\n"
+        + "      function sched(){\n"
+        + "        if(pend){return;}\n"
+        + "        pend=setTimeout(function(){pend=null;sync();},60);\n"
+        + "      }\n"
+        + "      if(window.MutationObserver){new MutationObserver(sched).observe(b,{childList:true,subtree:true});}\n"
+        + "      sync();\n"
         + "    })();\n"
         // 顶栏：汉堡按钮 + 标题
         + "    var bar=document.createElement('div');bar.id='dsh-mtop';\n"
