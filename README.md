@@ -154,6 +154,19 @@ python scripts/make_icon.py     # 输出到 <termux-app>/app/src/main/res/
 
 ---
 
+## 推送代码到 GitHub
+
+```bash
+bash scripts/push.sh
+```
+
+**不需要手工提供令牌** —— 全局 `credential.helper = helper-selector` 走 Git Credential Manager，
+GCM 里缓存着 GitHub 的 OAuth 凭据（`gho_` 开头的长期令牌）并会自动取用与刷新。
+
+> ⚠️ 代理端口每次都可能变，脚本会自动从环境里读；也可用 `PROXY=host:port` 覆盖。
+
+---
+
 ## 已知限制
 
 - **侧栏抽屉是注入的**，不是 dsh 原生形态。上游若以后出了移动端布局，应该优先换回原生实现。
