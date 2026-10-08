@@ -59,6 +59,9 @@ public final class MobileTuning {
         + "display:none;align-items:flex-start;gap:8px;padding:6px 0 0 6px;"
         + "box-sizing:border-box;background:transparent;pointer-events:none;}\n"
         + "#dsh-mtop>*{pointer-events:auto;}\n"
+        // 抽屉打开时隐藏汉堡（参照 DeepSeek 手机端：抽屉内已有导航与关闭键，
+        // 汉堡在外面会与面板内容重叠）
+        + "  body.dsh-drawer-open #dsh-mtop{display:none !important;}\n"
         // 设计稿「首页布局规格」：工具条按钮 42×42pt；标题用 ink-900
         + "#dsh-mtop .dsh-mtitle{font-size:16px;font-weight:700;"
         + "color:var(--ds-ink-900);white-space:nowrap;"
@@ -86,7 +89,7 @@ public final class MobileTuning {
         //   结果右侧永远有一条 20px 灰条（用户反馈"没有铺满整个手机屏幕"）。
         //   现在用 left:0 + right:0 + width:100% 三重保险，并把 top 也交给 topbar 高度变量。
         + "  div[class*=\"sidebarCol\"]{position:absolute !important;"
-        + "top:" + TOPBAR_H + "px !important;bottom:0 !important;left:0 !important;"
+        + "top:0 !important;bottom:0 !important;left:0 !important;"
         + "right:0 !important;width:100% !important;max-width:none !important;"
         + "margin:0 !important;padding:0 !important;box-sizing:border-box !important;"
         + "z-index:62 !important;"

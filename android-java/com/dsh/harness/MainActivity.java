@@ -183,6 +183,21 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override public void run() {
                 final long tBoot = System.currentTimeMillis();
+
+                // ===== 常驻服务 =====
+                // 启动 DshService，让 dsh 在 App 退出后仍存活。
+                // 这样第二次打开只需探测端口（亚秒级），不必等 node 冷启动。
+                DshService.start(MainActivity.this);
+
+                // ⚠️ **先探测端口**：若 DshService 已经把 dsh 拉起来了，
+                //   这里应立刻短路返回，不要再走一遍 bootstrap + start
+                //   （那会把秒开浪费掉）。这是"8s → 亚秒"的关键分支。
+                if (DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT)) {
+                    Log.i("MainActivity", "[计时] 端口已就绪（常驻服务命中），跳过 bootstrap");
+                    waitThenShowWeb(tBoot, 0, 0, true);
+                    return;
+                }
+
                 setStatus("正在解包运行环境（首次约需 1–3 分钟）…");
                 DshBootstrap.setupIfNeeded(MainActivity.this);
                 final long tBootDone = System.currentTimeMillis();
@@ -222,60 +237,75 @@ public class MainActivity extends Activity {
                         return;   // 停在错误页，不进入空白 WebView
                     }
                 }
-                // 预热 WebView（主线程）：渲染进程冷启动要 1~3s，与 node 启动并行，去掉串行等待
-                main.post(new Runnable() {
-                    @Override public void run() { prepareWebView(); }
-                });
-
-                // 统一等待：**只有「根路径真的返回 200」才算就绪**。
-                // 端口打开、打印 token 都不作数 —— dsh 可能在 frontend-static
-                // 注册 fallback 之前就打印 token，那时任何路径都是 404 空响应体。
-                // （真机表现：首次启动误报失败，重试就好 —— 就是踩了这个坑。）
-                final long t0 = System.currentTimeMillis();
-                final long deadline = t0 + 120000;
-                while (System.currentTimeMillis() < deadline) {
-                    DshProbe.Ready ready = DshProbe.tryReady(MainActivity.this);
-                    if (ready != null) {
-                        final String cookie = ready.cookiePair;
-                        final long tReady = System.currentTimeMillis();
-                        final long dBoot = tBootDone - tBoot;
-                        final long dWait = tReady - tStart;
-                        Log.i("MainActivity", "[计时] 总 " + (tReady - tBoot)
-                                + "ms | bootstrap " + dBoot
-                                + "ms | " + (reused ? "复用" : "冷启") + " " + dWait + "ms");
-                        // 直接显示在启动页上——真机没有 adb 时，这是唯一的取证渠道
-                        setStatus("已用 " + ((tReady - tBoot) / 1000) + " 秒"
-                                + "（环境 " + dBoot + "ms"
-                                + " / " + (reused ? "复用服务" : "启动服务") + " " + dWait + "ms）");
-                        main.post(new Runnable() {
-                            @Override public void run() {
-                                if (cookie != null) {
-                                    android.webkit.CookieManager cm =
-                                        android.webkit.CookieManager.getInstance();
-                                    cm.setCookie("http://127.0.0.1:"
-                                        + DshProcessManager.DSH_PORT + "/", cookie);
-                                    cm.flush();
-                                }
-                                showWebView("http://127.0.0.1:"
-                                    + DshProcessManager.DSH_PORT + "/");
-                            }
-                        });
-                        return;
-                    }
-                    final int sec = (int) ((System.currentTimeMillis() - t0) / 1000);
-                    setStatus("正在启动 dsh 服务…"
-                        + (sec >= 1 ? "（已用 " + sec + " 秒）" : ""));
-                    try { Thread.sleep(250); } catch (InterruptedException e) { return; }
-                }
-
-                // 超时：把原始证据摊在屏幕上（没有 adb 时唯一渠道）
-                final long spent = System.currentTimeMillis() - t0;
-                final String report = DshProbe.diagnose(MainActivity.this, spent);
-                main.post(new Runnable() {
-                    @Override public void run() { showDiagnostics(report); }
-                });
+                // dWait = 从「决定拉起/复用」到「就绪」的耗时
+                waitThenShowWeb(tBoot, tBootDone - tBoot, 0, reused);
             }
         }).start();
+    }
+
+    /**
+     * 等待 dsh 就绪并进入 WebView —— 常驻命中与冷启动两条路径**共用**。
+     *
+     * @param tBoot流程起点（用于展示总耗时）
+     * @param dBoot bootstrap 耗时（常驻命中时传 0）
+     * @param dWait  拉起/等待耗时（常驻命中时传 0）
+     * @param reused 是否命中常驻服务
+     */
+    private void waitThenShowWeb(final long tBoot, final long dBoot0,
+            final long dWait0, final boolean reused) {
+        final long dBoot = dBoot0;
+        // 预热 WebView（主线程）：渲染进程冷启动要 1~3s，与 node 启动并行，去掉串行等待
+        main.post(new Runnable() {
+            @Override public void run() { prepareWebView(); }
+        });
+
+        // 统一等待：**只有「根路径真的返回 200」才算就绪**。
+        // 端口打开、打印 token 都不作数 —— dsh 可能在 frontend-static
+        // 注册 fallback 之前就打印 token，那时任何路径都是 404 空响应体。
+        // （真机表现：首次启动误报失败，重试就好 —— 就是踩了这个坑。）
+        final long t0 = System.currentTimeMillis();
+        final long deadline = t0 + 120000;
+        while (System.currentTimeMillis() < deadline) {
+            DshProbe.Ready ready = DshProbe.tryReady(MainActivity.this);
+            if (ready != null) {
+                final String cookie = ready.cookiePair;
+                final long tReady = System.currentTimeMillis();
+                // 等待耗时：常驻命中时 dWait0=0，这里算的就是"探测到就绪"那点时间
+                final long dWait = dWait0 > 0 ? dWait0 + (tReady - t0) : (tReady - t0);
+                Log.i("MainActivity", "[计时] 总 " + (tReady - tBoot)
+                        + "ms | bootstrap " + dBoot
+                        + "ms | " + (reused ? "复用" : "冷启") + " " + dWait + "ms");
+                // 直接显示在启动页上——真机没有 adb 时，这是唯一的取证渠道
+                setStatus("已用 " + ((tReady - tBoot) / 1000) + " 秒"
+                        + "（环境 " + dBoot + "ms"
+                        + " / " + (reused ? "复用服务" : "启动服务") + " " + dWait + "ms）");
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        if (cookie != null) {
+                            android.webkit.CookieManager cm =
+                                android.webkit.CookieManager.getInstance();
+                            cm.setCookie("http://127.0.0.1:"
+                                + DshProcessManager.DSH_PORT + "/", cookie);
+                            cm.flush();
+                        }
+                        showWebView("http://127.0.0.1:"
+                            + DshProcessManager.DSH_PORT + "/");
+                    }
+                });
+                return;
+            }
+            final int sec = (int) ((System.currentTimeMillis() - t0) / 1000);
+            setStatus("正在启动 dsh 服务…"
+                + (sec >= 1 ? "（已用 " + sec + " 秒）" : ""));
+            try { Thread.sleep(250); } catch (InterruptedException e) { return; }
+        }
+
+        // 超时：把原始证据摊在屏幕上（没有 adb 时唯一渠道）
+        final long spent = System.currentTimeMillis() - t0;
+        final String report = DshProbe.diagnose(MainActivity.this, spent);
+        main.post(new Runnable() {
+            @Override public void run() { showDiagnostics(report); }
+        });
     }
 
     /**
