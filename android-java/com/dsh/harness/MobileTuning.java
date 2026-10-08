@@ -34,6 +34,34 @@ import android.webkit.WebView;
  * 选择器都基于 dsh 自身的类名/属性（{@code frame} / {@code sidebarCol} / {@code handle}
  * 在各自 CSS module 内唯一；{@code aria-label} 用中英双语精确匹配），
  * 且全部幂等：重复注入不会叠加。
+ *
+ * <h2>⚠️ 铁律：新增 CSS 必须带作用域前缀（r38 血的教训）</h2>
+ *
+ * <b>本文件里的 CSS 一律裸写在 {@code @media(max-width:1023px)} 里，会命中
+ * 「当前页面里的任何元素」，而不是只命中设置面板。</b>
+ * 而 dsh 的不同页面<b>类名同源</b>：设置面板与 dsh-market（{@code /dsh-market}
+ * 独立路由页）都用 {@code ..._card} / {@code ..._cards} / {@code ..._group} /
+ * {@code ..._options} / {@code ..._content} / {@code ..._header}。
+ *
+ * <p>r38 的真机后果：市场页被为设置面板写的规则污染 ——
+ * 标题竖排成一列、插件名一字一行、网格被 {@code minmax(0,1fr)} 压成单列。
+ *
+ * <p><b>所以新增任何一条规则前，先问三个问题：</b>
+ * <ol>
+ *   <li>这条规则<b>只应该</b>作用在设置面板吗？→ 是则必须加
+ *       {@code [class*="_panel"] } 前缀；</li>
+ *   <li>目标元素的<b>真实宿主</b>是谁？（r34踩过：一直在改 {@code _panel}，
+ *       但设置面板真正挂在 {@code sidebarCol} 下）；</li>
+ *   <li>这个后缀<b>是否作为别的元素的前缀</b>？（r29 踩过：{@code [class*="_nav"]}
+ *       同时命中 {@code _navIcon}/{@code _navLabel}，把图标和文字也变成 block）</li>
+ * </ol>
+ *
+ * <p>若目标元素在 {@link #MARKET_CSS} 覆盖的页面里，则走市场页那一套，
+ * <b>不要</b>往 {@link #CSS} 里加。
+ *
+ * <p><b>另一个铁律：「元素不见了」先查 z-index，不是查显示逻辑。</b>
+ * r37踩过：汉堡 {@code z-index:61} 低于侧栏 {@code 62} → 被盖住，
+ * 却花时间去改 display/位置。当前层级台账见下方常量注释。
  */
 public final class MobileTuning {
 
@@ -41,6 +69,16 @@ public final class MobileTuning {
 
     /** 顶栏高度，同时用作侧栏抽屉的 top 偏移。 */
     private static final int TOPBAR_H = 48;
+
+    /*
+     * z-index 层级台账（改任何fixed/absolute 元素前先对一眼）：
+     *   60  #dsh-scrim      遮罩
+     *   61  #dsh-mtop        汉堡（抽屉**关闭**态，在左上）
+     *   62  sidebarCol       侧栏 / 抽屉本体
+     *   65  #dsh-mtop        汉堡（抽屉**打开**态，在右上）—— 必须 > 62
+     *  1000 _overlay        设置面板浮层
+     *  （r29 曾用过 1001 = 自建返回按钮，已删除，勿复用此段位）
+     */
 
     private static final String CSS =
         /* ===== 设计稿《移动端 UI 设计系统》token（唯一依据：资料库设计稿 :root 变量）=====
@@ -68,10 +106,9 @@ public final class MobileTuning {
         //   截图里侧栏已打开、右上角却空着）。这里提到 65。
         + "  body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;"
         + "z-index:65 !important;}\n"
-        // 设计稿「首页布局规格」：工具条按钮 42×42pt；标题用 ink-900
-        + "#dsh-mtop .dsh-mtitle{font-size:16px;font-weight:700;"
-        + "color:var(--ds-ink-900);white-space:nowrap;"
-        + "overflow:hidden;text-overflow:ellipsis;letter-spacing:0;}\n"
+        // 设计稿「首页布局规格」：工具条按钮 42×42pt
+        // 注：`.dsh-mtitle` 规则已在 r33 删除（顶栏不再显示标题文字），
+        //     此处不再保留空样式，避免死代码误导后续维护。
         + "#dsh-mbtn{width:42px;height:42px;border:0;border-radius:12px;"
         + "background:rgba(247,249,252,.86);backdrop-filter:blur(10px);"
         + "-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);"
@@ -180,12 +217,12 @@ public final class MobileTuning {
         // 选中态：设计稿 #F1F3F5 胶囊（作用在 navCell 本身）
         + "  .dsh-s-nav [class*=\"_active\"]{background:#f1f3f5!important;border-radius:12px!important;}\n"
         // 内容：全宽单列
-        + "  [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
+        + "  [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
-        + "  [class*=\"_options\"]{padding:0 26px 24px !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_options\"]{padding:0 26px 24px !important;}\n"
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
         + "  [class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
-        + "  [class*=\"_options\"] *{max-width:100% !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_options\"] *{max-width:100% !important;}\n"
         // ===== 设置页分级：二级列表 → 三级详情（对齐设计稿的两级页面）=====
         // 二级页：只显示导航列表（通用设置/ 模型 / 插件 / Agent 预设…），标题为「设置」
         // 三级页：点某个导航项后，内容全屏显示，顶部出现返回箭头
@@ -222,19 +259,19 @@ public final class MobileTuning {
         // dsh-client-ui-settings-plugin-inventory 自带网格 `_cards`
         // (minmax(0,1fr) / repeat(2,...))，手机上两列会把插件名挤成竖排，
         // 统一压成单列；卡片圆角/边框按设计稿 ink-200 走。
-        + "  [class*=\"_cards\"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}\n"
-        + "  [class*=\"_card\"]{border-radius:var(--ds-r-md,16px) !important;}\n"
-        + "  [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
-        + "  [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
+        + "  [class*=\"_panel\"] [class*=\"_cards\"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_card\"]{border-radius:var(--ds-r-md,16px) !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
         + "padding-top:14px !important;margin-top:4px !important;}\n"
-        + "  [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
-        + "  [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
-        + "  [class*=\"_entryValue\"],.dsh-s-l3 [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_entryValue\"],.dsh-s-l3 [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
         // 内容列允许滚动：dsh 的 _content 是 flex:1，若不给 overflow 会把
         // 长内容截断且无法滚动（用户反馈"页面无法往下滚动"）。
-        + "  [class*=\"_content\"]{overflow-y:auto !important;"
+        + "  [class*=\"_panel\"] [class*=\"_content\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
-        + "  [class*=\"_options\"]{overflow-y:auto !important;"
+        + "  [class*=\"_panel\"] [class*=\"_options\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
         // ===== 插件市场入口（注入卡片，挂在设置二级页顶部）=====
         + "  #dsh-market-card{display:none !important;margin:10px 26px 4px !important;"
@@ -262,9 +299,10 @@ public final class MobileTuning {
         + "  #dsh-pnpm-btn[disabled]{background:var(--ds-ink-100,#eef2f6) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;}\n"
         // 手机上没有文件管理器，dsh 自带的「无法打开配置文件」红字只会让人困惑 -> 隐藏
-        + "  [class*=\"_header\"] [class*=\"error\"],"
-        + "[class*=\"_header\"] [class*=\"Error\"],"
-        + "[class*=\"_header\"] span[style*=\"error\"]{display:none !important;}\n"
+        // 同样收窄到 _panel 内（见类注释的「作用域铁律」）
+        + "  [class*=\"_panel\"] [class*=\"_header\"] [class*=\"error\"],"
+        + "[class*=\"_panel\"] [class*=\"_header\"] [class*=\"Error\"],"
+        + "[class*=\"_panel\"] [class*=\"_header\"] span[style*=\"error\"]{display:none !important;}\n"
         // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
@@ -284,7 +322,7 @@ public final class MobileTuning {
         // 主内容垂直居中，底部预留 48px 视觉配重（设计稿）
         + "  div[class*=\"frame\"] > div[class*=\"col\"]{justify-content:center !important;"
         + "padding-bottom:48px !important;}\n"
-        + "  [class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
         // 侧栏按钮给足触摸目标
