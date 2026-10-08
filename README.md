@@ -120,7 +120,7 @@ INSTALL=1 bash scripts/00-build-apk.sh                        # 编完自动 adb
 |---|---|
 | Web UI | 完整 dsh Web 界面，桌面/手机自适应 |
 | **附件上传** | 自接 `WebChromeClient.onShowFileChooser` → 系统文件选择器（WebView 默认不实现，不接就是"点了没反应"） |
-| 自动折叠侧栏 | 窄屏（<1024px）下走 dsh 自己的状态机折叠侧栏，主区全宽 |
+| **移动端导航外壳** | 窄屏注入顶栏 + 抽屉式侧栏 + 遮罩，主区独占全宽（详见 `MobileTuning.java`） |
 | 软键盘 | `windowSoftInputMode=adjustResize`，输入区不被遮挡 |
 | 明文流量 | `usesCleartextTraffic=true`（targetSdk 28 对 127.0.0.1 同样拦） |
 | 自愈 | 关键文件缺失 → 自动清理重解包；解包写失败 → **不写安装标记**，下次重试 |
@@ -128,9 +128,36 @@ INSTALL=1 bash scripts/00-build-apk.sh                        # 编完自动 adb
 
 ---
 
+## 图标
+
+`scripts/icon_src.png` 是原始素材（1024×1024），`scripts/make_icon.py` 负责生成全部图标资源：
+
+```bash
+pip install pillow
+python scripts/make_icon.py     # 输出到 <termux-app>/app/src/main/res/
+```
+
+产出：
+- `mipmap-*/ic_launcher.png` + `ic_launcher_round.png` —— 传统图标（完整构图，含灰底板）
+- `mipmap-*/dsh_foreground.png` —— adaptive 前景（**透明鲸鱼**，画布 108dp，鲸鱼占 58%）
+- `drawable/dsh_icon_background.xml` —— adaptive 背景层（浅灰渐变）
+- `mipmap-anydpi-v26/ic_launcher.xml` / `ic_launcher_round.xml` —— 组装上面两层
+
+处理要点：
+1. **裁掉底部**再居中取正方形 → 顺手去掉右下角的"AI 生成"水印；
+2. **抠掉灰底板必须用「从四边洪泛」**，不能逐像素按"低饱和+高亮度"判背景 ——
+   鲸鱼嘴里是**纯白牙齿**，逐像素判定会把它一起抠成透明（实测踩过）；
+3. adaptive 前景要缩到 108dp 画布的安全区（≤66%）内，否则被系统遮罩裁掉尾巴。
+
+> 注意：`mipmap/dsh_foreground` 与 `drawable/dsh_foreground` 同名不冲突（资源类型不同），
+> 但**只保留 mipmap 一份** —— drawable 下那份是历史遗留，重复且易误导。
+
+---
+
 ## 已知限制
 
-- **侧栏展开态仍是并排网格**（dsh 上游没有覆盖层形态），我们只限宽到 `min(58vw, 260px)`。能用，不算原生手感。
+- **侧栏抽屉是注入的**，不是 dsh 原生形态。上游若以后出了移动端布局，应该优先换回原生实现。
+- 右栏仍是并排网格（只加了 `max-width` 上限），未做抽屉化。
 - APK 体积 ~270MB（bundle 本身就 736MB，装后解压约 740MB），**手机需留 ≥900MB 空间**（不足会明确报错，不会留残档）。
 - 只验证过 **arm64-v8a** 真机。
 
