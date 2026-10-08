@@ -9,11 +9,13 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -33,6 +35,36 @@ public class MainActivity extends Activity {
 
     /** 附件选择器的requestCode（转发给 {@link DshChromeClient#deliver}）。 */
     public static final int REQ_FILE_CHOOSER = 4001;
+
+    // ===== 设计稿《移动端 UI 设计系统》token =====
+    // 唯一依据：资料库页面《移动端 UI 设计系统》的 :root 变量表。
+    // 之前 App 用的是深色 #0F1116，与设计稿的浅色体系冲突（也导致状态栏配色别扭）。
+    private static final int BRAND_500 = 0xFF2B8AE8;  // 鲨鱼蓝，主色
+    private static final int INK_900   = 0xFF0D1B2E;  // 描边深藏青，正文
+    private static final int INK_500   = 0xFF5A6D84;  // 次级文字
+    private static final int INK_400   = 0xFF8296AB;  // 弱化文字
+    private static final int INK_50    = 0xFFF7F9FC;  // 页面底色
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private LinearLayout.LayoutParams subLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        return lp;
+    }
+
+    /** 水平线性渐变（用于品牌渐变细线）。 */
+    private android.graphics.drawable.GradientDrawable gradient(
+            int x1, int x2, int c1, int c2) {
+        android.graphics.drawable.GradientDrawable g =
+            new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{c1, c2});
+        g.setCornerRadius(dp(2));
+        return g;
+    }
 
     private WebView webView;
     private DshChromeClient chromeClient;
@@ -57,52 +89,84 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#0F1116"));
+        // 设计稿「启动页 Splash」：品牌渐显 + 浅色底（--ink-50 #f7f9fc）。
+        // 之前是深色 #0F1116 +系统深色状态栏，与设计稿的浅色体系完全冲突
+        //（也是 r20「红色状态栏」刺眼的根源：深色 App 配浅色系统栏）。
+        root.setBackgroundColor(INK_50);
 
-        // --- 加载界面（替代黑屏）---
+        // --- 加载界面（替代黑屏），按设计稿重写 ---
         loadingBox = new LinearLayout(this);
         loadingBox.setOrientation(LinearLayout.VERTICAL);
-        loadingBox.setGravity(Gravity.CENTER);
-        loadingBox.setPadding(48, 48, 48, 48);
+        loadingBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        loadingBox.setPadding(dp(32), dp(48), dp(32), dp(48));
 
-        ProgressBar pb = new ProgressBar(this);
-        LinearLayout.LayoutParams pbLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pbLp.bottomMargin = 40;
-        loadingBox.addView(pb, pbLp);
+        // 品牌图标 36×36pt 透明底（设计稿「首页布局规格」）—— 复用 adaptive 前景。
+        // 用 getIdentifier 而非 R.mipmap.*：纯 javac 校验时没有生成的 R 类。
+        ImageView logo = new ImageView(this);
+        int fgId = getResources().getIdentifier("dsh_foreground", "mipmap", getPackageName());
+        if (fgId != 0) logo.setImageResource(fgId);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(72), dp(72));
+        logoLp.bottomMargin = dp(20);
+        loadingBox.addView(logo, logoLp);
 
+        // Display / 800 —— 设计稿字体层级
         TextView title = new TextView(this);
         title.setText("DeepSeek Harness");
-        title.setTextColor(Color.parseColor("#E6E8EB"));
-        title.setTextSize(22);
+        title.setTextColor(INK_900);
+        title.setTextSize(26);
+        title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        title.setLetterSpacing(0.02f);
         title.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tLp.bottomMargin = 16;
+        tLp.bottomMargin = dp(10);
         loadingBox.addView(title, tLp);
+
+        // 副标题：ink-500
+        TextView sub = new TextView(this);
+        sub.setText("正在初始化 Agent 运行时…");
+        sub.setTextColor(INK_500);
+        sub.setTextSize(13);
+        sub.setGravity(Gravity.CENTER);
+        loadingBox.addView(sub, subLp());
 
         statusText = new TextView(this);
         statusText.setText("正在准备运行环境…");
-        statusText.setTextColor(Color.parseColor("#9AA0A6"));
-        statusText.setTextSize(14);
+        statusText.setTextColor(INK_400);
+        statusText.setTextSize(12);
         statusText.setGravity(Gravity.CENTER);
-        loadingBox.addView(statusText);
+        LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stLp.topMargin = dp(14);
+        loadingBox.addView(statusText, stLp);
+
+        // 品牌渐变细线（--brand-500 →透明），替代原来的 ProgressBar
+        View rule = new View(this);
+        rule.setBackground(gradient(0, 100, BRAND_500, 0x00FFFFFF));
+        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(dp(120), dp(3));
+        rLp.topMargin = dp(18);
+        loadingBox.addView(rule, rLp);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(INK_50);
         scroll.addView(loadingBox);
         root.addView(scroll, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
-        // 修掉 termux 主题把 statusBarColor 设成 colorPrimary(红色) 的问题 ——
-        // 启动页背景是深色 #0F1116，红色状态栏非常刺眼。显式改成同色。
-        getWindow().setStatusBarColor(Color.parseColor("#0F1116"));
-        // 深色背景下要浅色(白)状态栏图标：清掉"浅色背景深色图标"的 flag。
+        // 浅色底→ 深色状态栏图标；状态栏背景 = --ink-50（与启动页同色）。
+        getWindow().setStatusBarColor(INK_50);
+        getWindow().setNavigationBarColor(INK_50);
         int sflags = getWindow().getDecorView().getSystemUiVisibility();
-        if ((sflags & android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR) != 0) {
-            getWindow().getDecorView().setSystemUiVisibility(
-                sflags & ~android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
-        }
+        //这次要**设置** LIGHT_STATUS_BAR（浅底深图标），与 r20 相反
+        getWindow().getDecorView().setSystemUiVisibility(
+            sflags | android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+
+        // 品牌渐显：标题从 0.3alpha 淡入到 1（设计稿「品牌渐显」）
+        title.setAlpha(0.3f);
+        title.animate().alpha(1f).setDuration(700).setStartDelay(120).start();
+        sub.setAlpha(0f);
+        sub.animate().alpha(1f).setDuration(700).setStartDelay(320).start();
 
         // --- 耗时工作全部丢后台线程 ---
         new Thread(new Runnable() {
@@ -229,7 +293,7 @@ public class MainActivity extends Activity {
         box.addView(retry, rLp);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.parseColor("#0F1116"));
+        scroll.setBackgroundColor(INK_50);
         scroll.addView(box);
         setContentView(scroll);
     }
@@ -252,7 +316,7 @@ public class MainActivity extends Activity {
         chromeClient = new DshChromeClient(this);
         webView.setWebChromeClient(chromeClient);
         webView.setWebViewClient(new DshWebViewClient());
-        webView.setBackgroundColor(Color.parseColor("#0F1116"));
+        webView.setBackgroundColor(INK_50);
         webView.loadUrl("about:blank");   // 仅预热，不显示
         Log.i("MainActivity", "WebView 已预热");
     }

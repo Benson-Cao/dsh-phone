@@ -43,19 +43,29 @@ public final class MobileTuning {
     private static final int TOPBAR_H = 48;
 
     private static final String CSS =
+        /* ===== 设计稿《移动端 UI 设计系统》token（唯一依据：资料库设计稿 :root 变量）=====
+         * 之前顶栏用的是 dsh 深色主题（#101215 底 + 白字），与设计稿的浅色体系冲突。
+         * 现在统一到设计稿配色，并顺带把品牌 token 注入为 CSS 变量，
+         * 供下方设置页/输入区等规则引用。 */
+        ":root{--ds-brand-500:#2b8ae8;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
+        + "--ds-ink-900:#0d1b2e;--ds-ink-700:#1e3450;--ds-ink-500:#5a6d84;--ds-ink-400:#8296ab;"
+        + "--ds-ink-200:#d8e1ea;--ds-ink-100:#eef2f6;--ds-ink-50:#f7f9fc;"
+        + "--ds-r-sm:12px;--ds-r-md:16px;--ds-r-lg:22px;--ds-r-full:999px;}\n"
         /* 注入的外壳：默认 display:none，只有窄屏媒体查询里才启用 */
-        "#dsh-mtop{position:fixed;top:0;left:0;right:0;height:" + TOPBAR_H + "px;z-index:61;"
-        + "display:none;align-items:center;gap:8px;padding:0 8px 0 4px;box-sizing:border-box;"
-        + "background:var(--dsw-alias-bg-base,#101215);"
-        + "border-bottom:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.08));}\n"
-        + "#dsh-mtop .dsh-mtitle{font-size:15px;font-weight:600;"
-        + "color:var(--dsw-alias-text-primary,#e6e8eb);white-space:nowrap;"
-        + "overflow:hidden;text-overflow:ellipsis;}\n"
-        + "#dsh-mbtn{width:44px;height:44px;border:0;border-radius:10px;background:transparent;"
-        + "color:inherit;display:flex;align-items:center;justify-content:center;padding:0;"
+        + "#dsh-mtop{position:fixed;top:0;left:0;right:0;height:" + TOPBAR_H + "px;z-index:61;"
+        + "display:none;align-items:center;gap:8px;padding:0 10px 0 6px;box-sizing:border-box;"
+        + "background:var(--ds-ink-50);"
+        + "border-bottom:1px solid var(--ds-ink-200);}\n"
+        // 设计稿「首页布局规格」：工具条按钮 42×42pt；标题用 ink-900
+        + "#dsh-mtop .dsh-mtitle{font-size:16px;font-weight:700;"
+        + "color:var(--ds-ink-900);white-space:nowrap;"
+        + "overflow:hidden;text-overflow:ellipsis;letter-spacing:0;}\n"
+        + "#dsh-mbtn{width:42px;height:42px;border:0;border-radius:12px;background:transparent;"
+        + "color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;"
         + "-webkit-tap-highlight-color:transparent;cursor:pointer;}\n"
-        + "#dsh-mbtn:active{background:rgba(255,255,255,.09);}\n"
-        + "#dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);"
+        // 按压反馈用 ink-100（设计稿浅色体系下的hover/active 面）
+        + "#dsh-mbtn:active{background:var(--ds-ink-100);}\n"
+        + "#dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);"
         + "opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}\n"
         + "body.dsh-drawer-open #dsh-scrim{opacity:1;visibility:visible;}\n"
         + "@media (max-width:1023px){\n"
@@ -140,6 +150,25 @@ public final class MobileTuning {
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
         + "  div[class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
         + "  div[class*=\"_options\"] *{max-width:100% !important;}\n"
+        // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
+        // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
+        + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
+        + "border-radius:24px !important;background:var(--ds-ink-50,#f7f9fc) !important;"
+        + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;}\n"
+        + "  div[class*=\"frame\"] textarea:focus,div[class*=\"frame\"] input[type=\"text\"]:focus{"
+        + "border-color:#c3cfe0 !important;background:#fff !important;}\n"
+        // 发送按钮 38pt，占位态淡紫蓝 #B8C7F2
+        + "  div[class*=\"frame\"] button[aria-label*=\"发送\"],"
+        + "div[class*=\"frame\"] button[aria-label*=\"Send\"]{"
+        + "width:38px !important;height:38px !important;border-radius:var(--ds-r-full,999px) !important;"
+        + "background:#b8c7f2 !important;transition:background 150ms cubic-bezier(.4,0,.2,1) !important;}\n"
+        // 预览版徽章胶囊（设计稿：#DFE8FF 底 / #2B4A7D 字 / 10.5px 半粗）
+        + "  span[class*=\"badge\"],div[class*=\"badge\"]{border-radius:var(--ds-r-full,999px) !important;"
+        + "background:#dfe8ff !important;color:#2b4a7d !important;font-size:10.5px !important;"
+        + "font-weight:600 !important;}\n"
+        // 主内容垂直居中，底部预留 48px 视觉配重（设计稿）
+        + "  div[class*=\"frame\"] > div[class*=\"col\"]{justify-content:center !important;"
+        + "padding-bottom:48px !important;}\n"
         + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
