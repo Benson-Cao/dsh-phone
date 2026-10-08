@@ -63,7 +63,11 @@ public final class MobileTuning {
         + "#dsh-mtop>*{pointer-events:auto;}\n"
         // 抽屉打开时汉堡**移到右上角**（用户要求：不单独占一行，但始终可见可点）。
         // 只改 justify-content —— 关闭态在左上、打开态在右上，位置切换零延迟。
-        + "  body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;}\n"
+        // ⚠️ z-index 必须**高于 sidebarCol(62)**：抽屉打开时侧栏是 62，
+        //   汉堡原本 61 -> 被侧栏**盖住看不见**（真机反馈"右上角没有汉堡按钮"，
+        //   截图里侧栏已打开、右上角却空着）。这里提到 65。
+        + "  body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;"
+        + "z-index:65 !important;}\n"
         // 设计稿「首页布局规格」：工具条按钮 42×42pt；标题用 ink-900
         + "#dsh-mtop .dsh-mtitle{font-size:16px;font-weight:700;"
         + "color:var(--ds-ink-900);white-space:nowrap;"
