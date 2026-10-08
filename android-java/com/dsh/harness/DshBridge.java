@@ -39,6 +39,54 @@ public final class DshBridge {
         }
     }
 
+    /** pnpm 是否已就绪（市场装插件依赖它）。 */
+    @JavascriptInterface
+    public String pnpmReady() {
+        try {
+            return DshMarketInstaller.pnpmReady(act) ? "1" : "";
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
+    /**
+     * 安装 pnpm（后台线程，完成后回调 JS）。
+     * 真机上市场会报"找不到 npm/corepack…请单独装一个 pnpm"，就是这个。
+     */
+    @JavascriptInterface
+    public void installPnpm(final String callbackId) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String err;
+                try {
+                    err = DshMarketInstaller.installPnpm(act);
+                } catch (Throwable e) {
+                    Log.e(TAG, "安装 pnpm 异常", e);
+                    err = "安装异常: " + e.getMessage();
+                }
+                final String result = err;
+                final boolean ok = (result == null);
+                final String msg = ok ? "pnpm 安装完成" : result;
+                Log.i(TAG, "pnpm 安装" + (ok ? "成功" : "失败: " + result));
+                act.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            JSONObject o = new JSONObject();
+                            o.put("ok", ok);
+                            o.put("message", msg);
+                            final String js = "window.__dshPnpmDone&&window.__dshPnpmDone("
+                                + JSONObject.quote(callbackId) + "," + o.toString() + ");";
+                            android.webkit.WebView w = ((MainActivity) act).webViewRef();
+                            if (w != null) w.evaluateJavascript(js, null);
+                        } catch (Exception e) {
+                            Log.e(TAG, "回调 JS 失败", e);
+                        }
+                    }
+                });
+            }
+        }, "dsh-pnpm-install").start();
+    }
+
     /**
      * 拉起安装（后台线程执行，完成后回调 JS）。
      * JS 侧传入的 callbackId 会被 {@code window.__dshMarketDone(id, ok, msg)} 接收。

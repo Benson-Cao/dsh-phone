@@ -4,6 +4,9 @@ import android.content.Context;
 import android.util.Log;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * dshmarket（DSH 可视化插件市场）安装器。
@@ -41,6 +44,145 @@ public final class DshMarketInstaller {
     /** 实测：undici@7.x + js-yaml@4.x 已在 bundle 里，安装时只需本包 tarball。 */
     private static final String TARBALL =
         "https://registry.npmjs.org/dshmarket/-/dshmarket-" + PKG_VERSION + ".tgz";
+
+    // ===== pnpm（市场装插件需要它）=====
+    //真机报错原文：
+    //   "这台机器的 dsh 进程找不到 npm/corepack" + 列了一串探测路径 + 
+    //   "请单独装一个 pnpm：Windows 用iwr，macOS/Linux 用 brew install pnpm"
+    //根因：bundle 里**没有 pnpm，也没有 npm/corepack**（实测 node_modules/.bin 为空，
+    //   usr/bin 只有 bash + node）。市场用 `which pnpm` 探测，所以只要
+    //   $PREFIX/bin/pnpm 存在即可被发现。
+    //
+    // pnpm@12.10.1：**3.9MB、零依赖、纯 JS**（bin/pnpm.mjs）、要求 node>=18
+    //（实测本机 node v24，满足）。所以只要解包 + 造一个 shim 即可，无需依赖树。
+    private static final String PNPM_VERSION = "12.10.1";
+    private static final String PNPM_TARBALL =
+        "https://registry.npmjs.org/pnpm/-/pnpm-" + PNPM_VERSION + ".tgz";
+
+    /** pnpm 是否已就绪（$PREFIX/bin/pnpm 存在且可执行）。 */
+    public static boolean pnpmReady(Context ctx) {
+        File f = new File(ShellRunner.prefix(ctx), "bin/pnpm");
+        return f.isFile();
+    }
+
+    /** 安装 pnpm 到 $PREFIX/opt/pnpm 并在 $PREFIX/bin/pnpm 建启动器。 */
+    public static String installPnpm(Context ctx) {
+        final File home = ShellRunner.home(ctx);
+        final File prefix = ShellRunner.prefix(ctx);
+        final File binDir = new File(prefix, "bin");
+        if (!binDir.isDirectory() && !binDir.mkdirs()) {
+            return "无法创建 " + binDir.getAbsolutePath();
+        }
+        final String js =
+            "const fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib');\n" +
+            "const home=process.env.HOME, url=process.argv[2], root=process.argv[3];\n" +
+            "const binDir=path.join(root,'bin'), opt=path.join(root,'opt','pnpm');\n" +
+            "function log(m){process.stdout.write(m+'\\n');}\n" +
+            "(async()=>{try{\n" +
+            "  fs.mkdirSync(path.join(home,'.tmp'),{recursive:true});\n" +
+            "  const tgz=path.join(home,'.tmp','pnpm.tgz');\n" +
+            "  log('DOWNLOAD:'+url);\n" +
+            "  const res=await fetch(url);\n" +
+            "  if(!res.ok){log('ERR:http-'+res.status);process.exit(4);}\n" +
+            "  const buf=Buffer.from(await res.arrayBuffer());\n" +
+            "  fs.writeFileSync(tgz,buf); log('DOWNLOADED:'+buf.length);\n" +
+            "  const raw=zlib.gunzipSync(fs.readFileSync(tgz));\n" +
+            "  fs.rmSync(opt,{recursive:true,force:true}); fs.mkdirSync(opt,{recursive:true});\n" +
+            "  let off=0,files=0;\n" +
+            "  while(off+512<=raw.length){\n" +
+            "    const name=raw.toString('utf8',off,off+100).replace(/\\0.*$/,'');\n" +
+            "    if(!name){off+=512;continue;}\n" +
+            "    const sz=parseInt(raw.toString('ascii',off+124,off+136).replace(/\\0.*$/,'').trim()||'0',8);\n" +
+            "    const type=String.fromCharCode(raw[off+156]);\n" +
+            "    const rel=name.replace(/^package\\//,'');\n" +
+            "    const dOff=off+512, dEnd=dOff+sz;\n" +
+            "    if(rel&&type==='0'){\n" +
+            "      const dest=path.join(opt,rel);\n" +
+            "      fs.mkdirSync(path.dirname(dest),{recursive:true});\n" +
+            "      fs.writeFileSync(dest,raw.slice(dOff,dEnd)); files++;\n" +
+            "    } else if(rel&&type==='5'){fs.mkdirSync(path.join(opt,rel),{recursive:true});}\n" +
+            "    off=dOff+Math.ceil(sz/512)*512;\n" +
+            "  }\n" +
+            "  if(files===0){log('ERR:bad-tarball');process.exit(5);}\n" +
+            "  fs.rmSync(tgz,{force:true});\n" +
+            // shim：用我们的 node 跑 pnpm.mjs（node 在 $PREFIX/bin/node）
+            "  const shim='#!/bin/sh\\nexec \"'+path.join(root,'bin','node')+'\" \"'+\n" +
+            "           path.join(opt,'bin','pnpm.mjs')+'\" \"$@\"\\n';\n" +
+            "  fs.writeFileSync(path.join(binDir,'pnpm'),shim,{mode:0o755});\n" +
+            "  try{fs.chmodSync(path.join(binDir,'pnpm'),0o755);}catch(e){}\n" +
+            "  fs.copyFileSync(path.join(opt,'bin','pnpm.mjs'),path.join(opt,'bin','pnpm.cjs'));\n" +
+            "  fs.writeFileSync(path.join(binDir,'pnpm'),shim,{mode:0o755});\n" +
+            "  log('EXTRACTED:'+files+' files');\n" +
+            // 自检：真的能跑吗（--version 立刻返回版本号）
+            "  const {execFileSync}=require('node:child_process');\n" +
+            "  const v=execFileSync(path.join(binDir,'pnpm'),['--version'],{encoding:'utf8'}).trim();\n" +
+            "  log('PNPM:'+v);\n" +
+            "  log('OK');\n" +
+            "}catch(e){log('ERR:'+(e&&e.message||e));process.exit(6);}})();\n";
+
+        String r = runNodeScript(ctx, "dsh-pnpm-install.js", js,
+            new String[]{PNPM_TARBALL, prefix.getAbsolutePath()});
+        return r;
+    }
+
+    /** 用 node 跑一段脚本，返回 null 表示成功，否则为错误描述。 */
+    private static String runNodeScript(Context ctx, String scriptName,
+            String script, String[] args) {
+        final File home = ShellRunner.home(ctx);
+        File node = new File(ShellRunner.prefix(ctx), "bin/node");
+        if (!node.isFile()) return "node 不可用: " + node;
+        File libexec = new File(ShellRunner.prefix(ctx), "libexec");
+        if (!libexec.isDirectory() && !libexec.mkdirs()) {
+            return "无法创建 " + libexec.getAbsolutePath();
+        }
+        File js = new File(libexec, scriptName);
+        try {
+            java.io.FileWriter fw = new java.io.FileWriter(js);
+            fw.write(script);
+            fw.close();
+        } catch (Exception e) {
+            return "写入脚本失败: " + e.getMessage();
+        }
+        List<String> cmd = new ArrayList<>();
+        cmd.add(node.getAbsolutePath());
+        cmd.add(js.getAbsolutePath());
+        Collections.addAll(cmd, args);
+
+        StringBuilder out = new StringBuilder();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.directory(home);
+            pb.environment().clear();
+            for (String kv : ShellRunner.buildEnv(ctx)) {
+                int i = kv.indexOf('=');
+                if (i > 0) pb.environment().put(kv.substring(0, i), kv.substring(i + 1));
+            }
+            pb.environment().put("NODE_PATH", home.getAbsolutePath() + "/node_modules");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            java.io.InputStream in = p.getInputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) out.append(new String(buf, 0, n, "UTF-8"));
+            int code = p.waitFor();
+            String logAll = out.toString();
+            Log.i(TAG, scriptName + " exit=" + code + " out=" + logAll);
+            if (code != 0) {
+                for (String line : logAll.split("\n")) {
+                    if (line.startsWith("ERR:")) return "失败: " + line.substring(4);
+                }
+                String detail = logAll.trim();
+                if (detail.length() > 300) detail = detail.substring(0, 300) + "…";
+                return detail.isEmpty()
+                    ? "失败（退出码 " + code + "，无输出）"
+                    : "失败（退出码 " + code + "）：" + detail;
+            }
+            return null;
+        } catch (Exception e) {
+            Log.e(TAG, scriptName + " 异常", e);
+            return "异常: " + e.getMessage();
+        }
+    }
 
     /** 安装脚本：跑在 node 里，逻辑放在 JS 比 Java 手搓 tar 可靠（node 自带 zlib+tar 解析）。 */
     private static final String INSTALL_JS =
