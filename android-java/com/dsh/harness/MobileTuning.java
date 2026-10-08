@@ -104,6 +104,23 @@ public final class MobileTuning {
      *   65  #dsh-mtop        汉堡（抽屉**打开**态，在右上）—— 必须 > 62
      *  1000 _overlay        设置面板浮层
      *  （r29 曾用过 1001 = 自建返回按钮，已删除，勿复用此段位）
+     *
+     * ===== 铁律（每条都是真机事故换来的，改代码前先读）=====
+     * 一、注入节点必须挂到**自己打标的容器**上，别塞进别人的 flex 容器。
+     * 二、CSS 值必须合法：非法值被静默丢弃，dsh 自己的规则会复活。
+     * 三、`var` 提升会造"语法合法、运行时必崩"的死代码。
+     * 四、**dsh 的类名后缀是跨模块共享的**，不要裸匹配：
+     *      `_panel`  在 chat / conversation / cordis / settings-plugins / sidebar-right 都有；
+     *      `_overlay` 有 3 个（设置浮层 VOzbGW、布局浮层 pI_x6G_overlayLayer、
+     *                 输入框锚点 uV2eYG_overlayAnchor）；
+     *      `_header` / `_close` / `_options` / `_cards` 同理。
+     *      设置浮层的**唯一指纹**是「同一个 `_overlay` 里同时有 `_panel` 与 `_navList`」，
+     *      JS 用它判定并打上 `.dsh-s-ov`，CSS 只认这个自打的类。
+     * 五、**任何"隐藏 UI"的规则都必须由指纹判定驱动**。
+     *      r40 事故：`overlay()` 裸查 `_overlay` -> 首页命中布局浮层 -> body 被加上
+     *      dsh-ov-open -> 汉堡按钮 display:none -> 「无法打开设置」（应用基本不可用）。
+     *      启发式判定 + 立即生效的隐藏规则 = 一次误判全盘皆输。现在 dsh-ov-open
+     *      只由 syncOvFlag() 写，并有 500ms 看门狗兜底重算。
      */
 
     private static final String CSS =
@@ -214,7 +231,7 @@ public final class MobileTuning {
         // ⚠️ justify-content 原来写的是 stretch —— 那是**非法值**，浏览器直接丢弃，
         //   于是 dsh 自己的 center 生效。面板一旦宽于视口就会被"居中"到屏幕外。
         //   改 flex-start：面板从 x=0 开始，即使宽度覆盖失败也不会跑到屏幕外。
-        + "  [class*=\"_overlay\"]{padding:0 !important;margin:0 !important;"
+        + "  .dsh-s-ov{padding:0 !important;margin:0 !important;"
         + "align-items:stretch !important;justify-content:flex-start !important;"
         + "left:0 !important;right:0 !important;top:0 !important;bottom:0 !important;"
         + "width:100% !important;height:100% !important;max-width:100% !important;"
@@ -225,7 +242,7 @@ public final class MobileTuning {
         //     （真机截图实测卡片高 727px、右侧越界、导航被挤到 x>420 看不见）。
         //   这里补齐 display / flex-wrap / align-items / min-* 五项，
         //   并额外用 JS 的 guardCard() 做兜底（不指望单条 CSS 一定命中）。
-        + "  [class*=\"_panel\"]{display:flex !important;width:100% !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"]{display:flex !important;width:100% !important;"
         + "max-width:100% !important;align-self:stretch !important;flex:1 1 auto !important;"
         + "min-width:0 !important;min-height:0 !important;"
         + "height:100% !important;border-radius:0 !important;"
@@ -283,29 +300,29 @@ public final class MobileTuning {
         + ".dsh-s-nav [class*=\"_active\"] [class*=\"_navIcon\"]{"
         + "color:var(--ds-brand-500,#2b8ae8)!important;}\n"
         // 内容：全宽单列
-        + "  [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_options\"]{padding:14px 16px 28px !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"]{padding:14px 16px 28px !important;}\n"
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
-        + "  [class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_options\"] *{max-width:100% !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] *{max-width:100% !important;}\n"
         // ===== 设置页分级：二级列表 → 三级详情（对齐设计稿的两级页面）=====
         // 二级页：只显示导航列表（通用设置/ 模型 / 插件 / Agent 预设…），标题为「设置」
         // 三级页：点某个导航项后，内容全屏显示，顶部出现返回箭头
         //实现：body 上挂 dsh-s-l2 / dsh-s-l3 两个状态类，由 JS 切换。
         // ⚠️ 所有状态规则都必须**收窄到 _panel 内**：`_content`/`_nav` 是通用后缀，
         //    不限定作用域会误伤 dsh 主界面上同后缀的元素（r25 灰屏的放大器）。
-        + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_content\"]{display:none !important;}\n"
+        + "  body.dsh-s-l2 .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{display:none !important;}\n"
         + "  body.dsh-s-l3 .dsh-s-nav{display:none!important;}\n"
         // 三级页头部：显示返回箭头 + 标题
         // 头栏：固定最小高度 + 底部细分割线（L3 详情页的层次靠它撑起来）；
         // padding-top 叠 safe-area-inset-top，刘海/挖孔屏不压字（非全面屏机型为 0，无副作用）
-        + "  [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;"
         + "align-items:center !important;gap:10px !important;"
         + "box-sizing:border-box !important;height:auto !important;min-height:58px !important;"
         + "padding:calc(12px + env(safe-area-inset-top,0px)) 16px 10px !important;"
         + "border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;}\n"
-        + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:19px !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:19px !important;"
         + "font-weight:750 !important;letter-spacing:.2px !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;min-width:0 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
@@ -314,39 +331,39 @@ public final class MobileTuning {
         // 直接把原生 ✘ 用 flex `order` 调到最左（不脱离 React DOM，只改视觉顺序）。
         // 二级页：✘ 保持原位（右侧，语义=关闭面板）。
         // 三级页：✘ 移到左侧第一项，语义=返回上一级（由 JS 拦截点击）。
-        + "  body.dsh-s-l3 [class*=\"_header\"]{padding-left:14px !important;}\n"
-        + "  body.dsh-s-l3 [class*=\"_close\"]{order:-1 !important;margin-right:auto !important;}\n"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_header\"]{padding-left:14px !important;}\n"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]{order:-1 !important;margin-right:auto !important;}\n"
         // 三级页的 header 标题独占剩余空间（✘ 在左，标题居中偏右）
-        + "  body.dsh-s-l3 [class*=\"_headerTitle\"]{flex:1 1 auto !important;"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_headerTitle\"]{flex:1 1 auto !important;"
         + "padding-left:12px !important;}\n"
         // 三级页里 ✘ 换成 chevron-left 的视觉（用 CSS 旋转90° 的十字→箭头不现实，
         // 改为放大点击区+品牌色，和设计稿的圆形返回键观感一致）
-        + "  body.dsh-s-l3 [class*=\"_close\"]{width:34px !important;height:34px !important;"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]{width:34px !important;height:34px !important;"
         + "border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;}\n"
-        + "  body.dsh-s-l3 [class*=\"_close\"]:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
         // 二级页的面板/导航间距
         + "  body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}\n"
         // ===== 插件市场（三级页）· 对齐设计稿单列全宽风格 =====
         // dsh-client-ui-settings-plugin-inventory 自带网格 `_cards`
         // (minmax(0,1fr) / repeat(2,...))，手机上两列会把插件名挤成竖排，
         // 统一压成单列；卡片圆角/边框按设计稿 ink-200 走。
-        + "  [class*=\"_panel\"] [class*=\"_cards\"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_card\"]{border-radius:var(--ds-r-md,16px) !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_cards\"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_card\"]{border-radius:var(--ds-r-md,16px) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
         + "padding-top:14px !important;margin-top:4px !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
         // 收窄到 _panel：原来靠 .dsh-s-l3 兜着，但那是"碰巧"（body 上只有它一个），
         // 统一成显式作用域前缀，才和文件头的「作用域铁律」一致。
-        + "  [class*=\"_panel\"] [class*=\"_entryValue\"],"
-        + "[class*=\"_panel\"] [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_entryValue\"],"
+        + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
         // 内容列允许滚动：dsh 的 _content 是 flex:1，若不给 overflow 会把
         // 长内容截断且无法滚动（用户反馈"页面无法往下滚动"）。
-        + "  [class*=\"_panel\"] [class*=\"_content\"]{overflow-y:auto !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_options\"]{overflow-y:auto !important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
         // ===== 插件市场入口卡片（注入，挂在设置二级页最上方）=====
         // ⚠️ 宿主是 .dsh-s-nav 而**不是 _panel**。
@@ -411,9 +428,9 @@ public final class MobileTuning {
         + "overflow-wrap:anywhere !important;}\n"
         // 手机上没有文件管理器，dsh 自带的「无法打开配置文件」红字只会让人困惑 -> 隐藏
         // 同样收窄到 _panel 内（见类注释的「作用域铁律」）
-        + "  [class*=\"_panel\"] [class*=\"_header\"] [class*=\"error\"],"
-        + "[class*=\"_panel\"] [class*=\"_header\"] [class*=\"Error\"],"
-        + "[class*=\"_panel\"] [class*=\"_header\"] span[style*=\"error\"]{display:none !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] [class*=\"error\"],"
+        + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] [class*=\"Error\"],"
+        + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] span[style*=\"error\"]{display:none !important;}\n"
         // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
@@ -433,7 +450,7 @@ public final class MobileTuning {
         // 主内容垂直居中，底部预留 48px 视觉配重（设计稿）
         + "  div[class*=\"frame\"] > div[class*=\"col\"]{justify-content:center !important;"
         + "padding-bottom:48px !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
         // 侧栏按钮给足触摸目标
@@ -452,8 +469,8 @@ public final class MobileTuning {
         + "@media (min-width:681px) and (max-width:1023px){\n"
         + "  .dsh-s-nav{max-width:760px!important;margin-left:auto!important;"
         + "margin-right:auto!important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_header\"],"
-        + "[class*=\"_panel\"] [class*=\"_options\"]{max-width:760px!important;"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"],"
+        + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"]{max-width:760px!important;"
         + "margin-left:auto!important;margin-right:auto!important;}\n"
         + "}\n"
         + "@media (prefers-reduced-motion:reduce){"
@@ -539,6 +556,7 @@ public final class MobileTuning {
         + "  padding:calc(6px + var(--dsh-sat,0px)) 6px 0 6px;\n"
         + "  pointer-events:none;background:transparent;}\n"
         + "#dsh-mtop>*{pointer-events:auto;}\n"
+        + "body.dsh-ov-open #dsh-mtop{display:none !important;}\n"
         + "#dsh-scrim{z-index:60;}\n";
 
     private static final String JS =
@@ -574,6 +592,50 @@ public final class MobileTuning {
         + "    }\n"
         // 市场页需要汉堡（返回/开抽屉），所以**不return**，
         // 只把设置页专属的那段二级/三级逻辑用 inMarket 跳过。
+        // ===== 真·设置浮层指纹判定（r41 核心修复）=====
+        // ⚠️ r40 的严重事故：`[class*="_overlay"]` **不是设置浮层独有**。
+        //   源码实测（dsh-client-ui-*，全仓仅 3 个类含 `_overlay`）：
+        //     VOzbGW_overlay      = settings-general 的设置浮层  ← 只有它是真的
+        //     pI_x6G_overlayLayer = layout 的主布局浮层层（常驻首页，inset:0）
+        //     uV2eYG_overlayAnchor= conversation 的输入框锚点（height:0，首页就有）
+        //   旧代码取第一个命中的就算"浮层已开" -> 首页被误判 -> body 加上
+        //   dsh-ov-open -> r40 新加的 `body.dsh-ov-open #dsh-mtop{display:none}`
+        //   把汉堡藏掉 -> 真机反馈「汉堡按钮没了，无法打开设置」。
+        //   指纹：只有设置浮层同时具备 `_panel` 与 `_navList`（两者组合全仓唯一），
+        //   再排除 display:none/visibility:hidden 的卸载残留。
+        + "    function settingsOverlay(){\n"
+        + "      var ovs=document.querySelectorAll('[class*=\"_overlay\"]');\n"
+        + "      for(var i=0;i<ovs.length;i++){\n"
+        + "        var o=ovs[i];\n"
+        + "        if(!o.querySelector('[class*=\"_panel\"]')){continue;}\n"
+        + "        if(!o.querySelector('[class*=\"_navList\"]')){continue;}\n"
+        + "        var cs=window.getComputedStyle(o);\n"
+        + "        if(cs.display!=='none'&&cs.visibility!=='hidden'){return o;}\n"
+        + "      }\n"
+        + "      return null;\n"
+        + "    }\n"
+        // 给**我们自己的**宿主打标：.dsh-s-ov = 设置浮层本体、.dsh-s-nav = 导航容器。
+        // CSS 只认这两个类（铁律六：跨模块借类名 = 迟早翻车，"_panel" 有 6 个模块在用）。
+        + "    function tagHosts(){\n"
+        + "      var ov=settingsOverlay();\n"
+        + "      if(!ov){return null;}\n"
+        + "      if(!ov.classList.contains('dsh-s-ov')){ov.classList.add('dsh-s-ov');}\n"
+        + "      var nl=ov.querySelector('[class*=\"_navList\"]');\n"
+        + "      if(nl&&nl.parentElement&&!nl.parentElement.classList.contains('dsh-s-nav')){\n"
+        + "        nl.parentElement.classList.add('dsh-s-nav');\n"
+        + "      }\n"
+        + "      return ov;\n"
+        + "    }\n"
+        // dsh-ov-open 的**唯一写入点**：由指纹决定，别处不许直接 add/remove。
+        // （r40 是"启发式判定 + 立即生效的隐藏规则"，判错一次 = 入口彻底消失。）
+        + "    function syncOvFlag(){\n"
+        + "      var b=document.body;\n"
+        + "      if(!b){return;}\n"
+        + "      var on=!!settingsOverlay();\n"
+        + "      if(on!==b.classList.contains('dsh-ov-open')){\n"
+        + "        if(on){b.classList.add('dsh-ov-open');}else{b.classList.remove('dsh-ov-open');}\n"
+        + "      }\n"
+        + "    }\n"
         + "    if(!inMarket){\n"
         // ===== 设置页二级/三级分级逻辑 =====
         // dsh 的设置面板是单页结构（导航与内容同容器）。这里用 CSS 变量类把
@@ -590,7 +652,7 @@ public final class MobileTuning {
         // 关键：状态类**只在设置面板 overlay 存在时**才生效，且必须由
         // syncState() 真正调用（r26 漏调，导致 L2 从未加上，
         // 导航与内容一直并排显示 —— 真机反馈"还是放在同一个页面里"）。
-        + "      function overlay(){return document.querySelector('[class*=\"_overlay\"]');}\n"
+        // overlay() 已上移到 mount() 作用域并改名 settingsOverlay()（指纹判定）
         + "      function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}\n"
         + "      function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}\n"
 
@@ -598,12 +660,7 @@ public final class MobileTuning {
         // 给导航**容器**打标记：CSS 靠它限定作用域，避免 [class*="_nav"]
         // 过度匹配到 _navIcon/_navLabel（那会把图标和文字也变成 column 布局）。
         // 定位方式：_navList 的父元素就是容器（结构 nav > navTitle + navList）。
-        + "      function tagNav(){\n"
-        + "        var nl=document.querySelector('[class*=\"_navList\"]');\n"
-        + "        if(nl&&nl.parentElement&&!nl.parentElement.classList.contains('dsh-s-nav')){\n"
-        + "          nl.parentElement.classList.add('dsh-s-nav');\n"
-        + "        }\n"
-        + "      }\n"
+        // tagNav() 已并入 mount() 作用域的 tagHosts()：一次遍历同时给浮层与导航容器打标
         // ===== 插件市场入口卡片 =====
         // 插在导航容器之后（设置二级页顶部）。**挂在 body 上**，避免被 React 清掉（r30 教训）。
         // ===== 插件市场入口卡片 =====
@@ -744,14 +801,14 @@ public final class MobileTuning {
         + "        catch(err){ installing=false; btn.removeAttribute('disabled'); btn.textContent='重试'; }\n"
         + "      }\n"
         + "      function sync(){\n"
-        + "        var ov=overlay();\n"
+        + "        var ov=settingsOverlay();\n"
         + "        if(!ov){\n"
         // 面板已关闭：清状态类**并把注入卡片摘掉**。
         // 否则卡片会变成孤儿节点留在 body 上，而 dsh 的 _content 又因状态类残留
         // 被display:none 永久隐藏 -> 整页只剩卡片那块空白（真机反馈"设置返回时
         // 会出现图三的情况"：一大片空白 + 只有插件市场卡片）。
         + "          b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');\n"
-        + "          b.classList.remove('dsh-ov-open');\n"
+        + "          syncOvFlag();\n"
         + "          var mc=document.getElementById('dsh-market-card');\n"
         + "          if(mc&&mc.parentNode){mc.parentNode.removeChild(mc);}\n"
         + "          syncBack();\n"
@@ -759,8 +816,8 @@ public final class MobileTuning {
         + "        }\n"
         // dsh-ov-open：CSS 靠它把汉堡显式藏起来（浮层期间不需要抽屉入口；
         // 汉堡 z-index 61/65 低于浮层 1000，靠层叠"碰巧"被盖住不可靠）
-        + "        b.classList.add('dsh-ov-open');\n"
-        + "        tagNav();\n"
+        + "        syncOvFlag();\n"
+        + "        tagHosts();\n"
         + "        mkMarketCard();\n"
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
         + "        guardCard();\n"
@@ -790,7 +847,7 @@ public final class MobileTuning {
         + "          return;\n"
         + "        }\n"
         // 点遮罩空白处关闭 -> 清状态类，放行给 dsh
-        + "        var ov=overlay();\n"
+        + "        var ov=settingsOverlay();\n"
         + "        var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));\n"
         + "        if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
         // 点导航项 -> 进三级页（不preventDefault，让 dsh 自己切内容）
@@ -831,6 +888,16 @@ public final class MobileTuning {
         + "    document.body.appendChild(bar);\n"
         + "    var scrim=document.createElement('div');scrim.id='dsh-scrim';\n"
         + "    document.body.appendChild(scrim);\n"
+        // 看门狗：指纹判定 + 打标每 500ms 重算一次（面板是 React 动态挂载/卸载的，
+        // MutationObserver 会漏掉"属性未变但节点被替换"的情形）。
+        + "    setInterval(function(){tagHosts();syncOvFlag();},500);\n"
+        // 打标**不防抖**：只改 class，不增删节点，所以不会被 childList 观察者捕获、
+        // 不会像 sync() 那样自激。这样设置面板一插进 DOM 就带上 .dsh-s-ov，
+        // 第一帧就是最终形态（否则会先以 dsh 原生 800px 宽度闪一下）。
+        + "    if(window.MutationObserver){\n"
+        + "      new MutationObserver(function(){tagHosts();syncOvFlag();})\n"
+        + "        .observe(document.body,{childList:true,subtree:true});\n"
+        + "    }\n"
         + "    bar.querySelector('#dsh-mbtn').addEventListener('click',function(e){\n"
         + "      e.preventDefault();e.stopPropagation();\n"
         + "      document.body.classList.toggle('dsh-drawer-open');\n"
