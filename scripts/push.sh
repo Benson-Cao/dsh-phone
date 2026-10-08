@@ -33,8 +33,12 @@ git status -sb | head -5
 git remote -v
 
 echo
-echo "==> 推送${1:-}"
-git "${GOPTS[@]}" push -u origin HEAD "${1:-}"
+echo "==> 推送${1:+ $*}"
+# 注意：不能写成 `push ... HEAD "${1:-}"` —— 无参数时会把空串当 refspec，
+# git 直接报 "fatal: invalid refspec ''"
+PUSH_ARGS=(-u origin HEAD)
+[ -n "${1:-}" ] && PUSH_ARGS+=("$1")
+git "${GOPTS[@]}" push "${PUSH_ARGS[@]}"
 
 echo
 echo "✓ 完成：$(git remote get-url origin)"
