@@ -21,6 +21,13 @@ public final class DshProcessManager {
 
     private DshProcessManager() {}
 
+    /**
+     * 拉起 dsh 服务，**只负责启动，不等待就绪**。
+     *
+     *就绪判定统一交给 {@link com.dsh.harness.DshProbe#tryReady} 的轮询 ——
+     * 端口打开 ≠ 服务可用（实测：端口已开但 frontend-static 还没注册 fallback，
+     * 此时任何路径都是 404 空响应体）。启动与等待拆开也让启动更快。
+     */
     public static boolean start(Context ctx) {
         File launcher = new File(DshBootstrap.prefix(ctx), "bin/dsh-web.sh");
         if (!launcher.exists()) {
@@ -56,18 +63,7 @@ public final class DshProcessManager {
             Log.e(TAG, "启动 bash 失败", e);
             return false;
         }
-
-        // 轮询等待端口就绪（最多 90 秒；大型 Node 应用首次冷启动较慢），期间持续看日志
-        long deadline = System.currentTimeMillis() + 90000;
-        while (System.currentTimeMillis() < deadline) {
-            if (isPortOpen(DSH_PORT)) {
-                Log.i(TAG, "dsh 已监听 " + DSH_PORT);
-                return true;
-            }
-            try { Thread.sleep(500); } catch (InterruptedException e) { return false; }
-        }
-        Log.e(TAG, "90 秒内未监听 " + DSH_PORT + "，日志：\n" + tailLog(ctx, 30));
-        return false;
+        return true;
     }
 
     private static Process running = null;
@@ -123,41 +119,6 @@ public final class DshProcessManager {
             Log.w(TAG, "读取 token URL 失败: " + e.getMessage());
             return null;
         }
-    }
-
-    /** 轮询日志直到拿到 token URL 或超时；超时也会回调（传 null），由调用方决定兜底。 */
-    public static void waitForTokenUrl(final Context ctx, long timeoutMs,
-                                       final TokenUrlListener listener) {
-        final long deadline = System.currentTimeMillis() + timeoutMs;
-        new Thread(new Runnable() {
-            @Override public void run() {
-                while (System.currentTimeMillis() < deadline) {
-                    String url = readTokenUrl(ctx);
-                    if (url != null) { listener.onTokenUrl(url); return; }
-                    try { Thread.sleep(400); } catch (InterruptedException e) { return; }
-                }
-                Log.w(TAG, "等待 token URL 超时，回退到裸根路径");
-                listener.onTokenUrl(null);
-            }
-        }).start();
-    }
-
-    public interface TokenUrlListener {
-        void onTokenUrl(String url);
-    }
-
-    /** 轮询端口直到就绪或超时；就绪后在后台线程回调 onReady。 */
-    public static void waitForPort(final int port, final long timeoutMs, final Runnable onReady) {
-        new Thread(new Runnable() {
-            @Override public void run() {
-                long deadline = System.currentTimeMillis() + timeoutMs;
-                while (System.currentTimeMillis() < deadline) {
-                    if (isPortOpen(port)) { onReady.run(); return; }
-                    try { Thread.sleep(300); } catch (InterruptedException e) { return; }
-                }
-                Log.w(TAG, "等待端口 " + port + " 超时（" + timeoutMs + "ms）");
-            }
-        }).start();
     }
 
     public static boolean isPortOpen(int port) {

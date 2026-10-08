@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
@@ -126,46 +127,45 @@ public class MainActivity extends Activity {
                     return;   // 停在错误页，不进入空白 WebView
                 }
 
-                DshProcessManager.waitForPort(DshProcessManager.DSH_PORT, 60000,
-                    new Runnable() {
-                        @Override public void run() {
-                            // 端口就绪还不够：裸的 / 会返回 401 鉴权失败，
-                            // 必须拿到 dsh 打印出来的带 token 的 URL 才能进页面。
-                            setStatus("正在获取访问凭据…");
-                            DshProcessManager.waitForTokenUrl(MainActivity.this, 30000,
-                                new DshProcessManager.TokenUrlListener() {
-                                    @Override public void onTokenUrl(String url) {
-                                        // 不再把 303/Set-Cookie 交给 WebView 处理：
-                                        // Java 侧自己走一遍握手，拿到 cookie 与真实状态码。
-                                        setStatus("正在自检服务响应…");
-                                        final DshProbe.Result r = DshProbe.run(MainActivity.this, url);
-                                        if (r.rootOk) {
-                                            final String cookie = r.cookiePair;
-                                            main.post(new Runnable() {
-                                                @Override public void run() {
-                                                    if (cookie != null) {
-                                                        android.webkit.CookieManager cm =
-                                                            android.webkit.CookieManager.getInstance();
-                                                        cm.setCookie("http://127.0.0.1:"
-                                                            + DshProcessManager.DSH_PORT + "/", cookie);
-                                                        cm.flush();
-                                                    }
-                                                    showWebView("http://127.0.0.1:"
-                                                        + DshProcessManager.DSH_PORT + "/");
-                                                }
-                                            });
-                                        } else {
-                                            // 拿不到 200 就把原始证据摊在屏幕上（无 adb 时唯一渠道）
-                                            main.post(new Runnable() {
-                                                @Override public void run() {
-                                                    showDiagnostics(r.report);
-                                                }
-                                            });
-                                        }
-                                    }
-                                });
-                        }
-                    });
+                // 统一等待：**只有「根路径真的返回 200」才算就绪**。
+                // 端口打开、打印 token 都不作数 —— dsh 可能在 frontend-static
+                // 注册 fallback 之前就打印 token，那时任何路径都是 404 空响应体。
+                // （真机表现：首次启动误报失败，重试就好 —— 就是踩了这个坑。）
+                final long t0 = System.currentTimeMillis();
+                final long deadline = t0 + 120000;
+                while (System.currentTimeMillis() < deadline) {
+                    DshProbe.Ready ready = DshProbe.tryReady(MainActivity.this);
+                    if (ready != null) {
+                        final String cookie = ready.cookiePair;
+                        Log.i("MainActivity", "dsh 就绪，用时 "
+                                + (System.currentTimeMillis() - t0) + "ms");
+                        main.post(new Runnable() {
+                            @Override public void run() {
+                                if (cookie != null) {
+                                    android.webkit.CookieManager cm =
+                                        android.webkit.CookieManager.getInstance();
+                                    cm.setCookie("http://127.0.0.1:"
+                                        + DshProcessManager.DSH_PORT + "/", cookie);
+                                    cm.flush();
+                                }
+                                showWebView("http://127.0.0.1:"
+                                    + DshProcessManager.DSH_PORT + "/");
+                            }
+                        });
+                        return;
+                    }
+                    final int sec = (int) ((System.currentTimeMillis() - t0) / 1000);
+                    setStatus("正在启动 dsh 服务…"
+                        + (sec >= 1 ? "（已用 " + sec + " 秒）" : ""));
+                    try { Thread.sleep(400); } catch (InterruptedException e) { return; }
+                }
+
+                // 超时：把原始证据摊在屏幕上（没有 adb 时唯一渠道）
+                final long spent = System.currentTimeMillis() - t0;
+                final String report = DshProbe.diagnose(MainActivity.this, spent);
+                main.post(new Runnable() {
+                    @Override public void run() { showDiagnostics(report); }
+                });
             }
         }).start();
     }

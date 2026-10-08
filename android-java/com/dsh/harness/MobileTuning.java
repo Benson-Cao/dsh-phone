@@ -63,15 +63,22 @@ public final class MobileTuning {
         // 主区独占第一列；右栏列宽交给内容（关着时为 0），避免 auto 隐式列出怪
         + "  div[class*=\"frame\"]{grid-template-columns:minmax(0,1fr) auto !important;"
         + "padding-top:" + TOPBAR_H + "px !important;box-sizing:border-box !important;}\n"
-        // 侧栏脱离网格流 -> 抽屉
+        // 侧栏脱离网格流 -> 抽屉。窄屏下开到接近全屏：dsh 的设置面板是「导航 + 内容」
+        // 两栏并排（导航列约 180px），侧栏太窄会把内容列压成一字一行。
         + "  div[class*=\"sidebarCol\"]{position:absolute !important;"
         + "top:" + TOPBAR_H + "px !important;bottom:0 !important;left:0 !important;"
-        + "width:min(80vw,320px) !important;z-index:62 !important;"
+        + "width:calc(100vw - 20px) !important;max-width:none !important;z-index:62 !important;"
         + "transform:translate3d(-102%,0,0);"
         + "transition:transform .22s cubic-bezier(.4,0,.2,1);"
         + "box-shadow:0 8px 40px rgba(0,0,0,.55);will-change:transform;}\n"
         + "  body.dsh-drawer-open div[class*=\"sidebarCol\"]"
         + "{transform:translate3d(0,0,0) !important;}\n"
+        // 挤成竖排的根因：flex/grid 子项默认 min-width:auto 会拒绝收缩，
+        // 叠上中文的 word-break 规则就成了「一字一行」。允许收缩 + 允许折行即可。
+        + "  div[class*=\"sidebarCol\"] *{min-width:0;}\n"
+        + "  div[class*=\"sidebarCol\"] p,div[class*=\"sidebarCol\"] span,"
+        + "div[class*=\"sidebarCol\"] label,div[class*=\"sidebarCol\"] div,"
+        + "div[class*=\"sidebarCol\"] button{overflow-wrap:anywhere;}\n"
         // 窄屏隐藏 dsh 原生折叠按钮：入口统一到顶栏汉堡键
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"收起侧边栏\"],"
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"打开侧边栏\"],"
@@ -124,8 +131,31 @@ public final class MobileTuning {
         + "    });\n"
         + "    scrim.addEventListener('click',close);\n"
         + "    document.addEventListener('keydown',function(e){if(e.key==='Escape'){close();}});\n"
+        // dsh 会把 narrowExpanded 持久化。r16 那版点过原生折叠按钮，
+        // 于是侧栏被持久化成「rail 形态」——抽屉里就只剩一列图标。
+        // 这里在窄屏下把它恢复成展开态（走 dsh 自己的 toggle，状态会被它自己持久化）。
+        // 按钮虽然被 CSS 隐藏，但 .click() 依然有效。
+        + "    var tries=0;\n"
+        + "    var poll=setInterval(function(){\n"
+        + "      if(!mq.matches){clearInterval(poll);return;}\n"
+        + "      expandSidebarOnce();\n"
+        + "      if(++tries>20){clearInterval(poll);}\n"
+        + "    },300);\n"
         + "    if(mq.addEventListener){mq.addEventListener('change',onMq);}\n"
         + "    else if(mq.addListener){mq.addListener(onMq);}\n"
+        + "  }\n"
+        // 只在 dsh 认为侧栏「已折叠」时才点一次展开，避免把它点反
+        + "  function expandSidebarOnce(){\n"
+        + "    var f=document.querySelector('div[class*=\"frame\"]');\n"
+        + "    if(!f||!f.hasAttribute('data-sidebar-collapsed')){return;}\n"
+        + "    var bs=document.querySelectorAll('div[class*=\"sidebarCol\"] button[aria-label]');\n"
+        + "    for(var i=0;i<bs.length;i++){\n"
+        + "      var al=bs[i].getAttribute('aria-label')||'';\n"
+        + "      if(/^(收起侧边栏|Collapse sidebar|打开侧边栏|Open sidebar)$/.test(al)){\n"
+        + "        bs[i].click();\n"
+        + "        return;\n"
+        + "      }\n"
+        + "    }\n"
         + "  }\n"
         // 转宽屏时别把抽屉状态带过去
         + "  function onMq(e){if(!e.matches){close();}}\n"

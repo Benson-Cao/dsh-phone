@@ -10,37 +10,95 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * dsh Web 服务的“体检”工具。
+ * dsh Web 服务的就绪探测与失败诊断。
  *
- * 为什么需要它：手机无法用 adb，logcat 看不到。WebView 只给一句
- * net::ERR_HTTP_RESPONSE_CODE_FAILURE，无法区分是 401 / 404 / 400 / 500。
- * 这里用 Java 侧自己走一遍 HTTP 握手，把每一步的**原始状态码、响应头、响应体**
- * 抓出来显示在界面上 —— 这是唯一能拿到真凭实据的渠道。
+ * ## 为什么要「等就绪」而不是「拿到 token 就进」
+ * dsh 启动时往 stdout 打印带 token 的 URL，但**打印 token 不代表服务就绪**。
+ * `dsh-web-app` 里是：
+ * <pre>
+ *   const settled = connectionCtx.get("loader")?.await();
+ *   if (settled === void 0) announceReady();     // ← loader 不可见时立即打印
+ * </pre>
+ * 也就是说 token 可能在其余插件还没激活完时就打出来了。此时
+ * `frontend-static` 尚未注册 fallback 座位，webserver 会对**所有**路径
+ * 直接回 **404 + 空响应体** —— 这正是真机上"首次启动失败、重试就好"的成因
+ * （重试时服务早已完全就绪）。
  *
- * 顺带解决一个隐患：dsh 的鉴权是「访问 /?token=xxx → 303 + Set-Cookie → 跳回 /」
- * 的跳转链。完全依赖 WebView 自己处理 303/Set-Cookie/SameSite 行为有风险，
- * 所以这里 Java 侧把 Set-Cookie 拿到手，显式塞进 CookieManager，
- * 之后直接加载 / —— 行为完全可控。
+ * 打印 token 这个信号**本身不可信**，所以只能以「根路径真的返回 200」为准。
+ *
+ * ## 分工
+ * {@link #tryReady} —— 极简探测（1~2 个请求），返回 null 表示还没就绪，调用方继续等；
+ * {@link #diagnose} —— 只在超时后才跑，产出给用户看的完整证据报告。
  */
 public final class DshProbe {
 
     private static final String TAG = "DshProbe";
-    private static final int TIMEOUT_MS = 12000;
+    private static final int TIMEOUT_MS = 8000;
 
     private DshProbe() {}
 
-    /** 一次握手的结果。 */
-    public static final class Result {
-        /** Java 侧是否已成功拿到 200 的页面（拿到就可以直接进 WebView）。 */
-        public boolean rootOk;
-        /** cookie 键值对（"dsh-auth-xxx=yyy"），已剥掉属性。 */
-        public String cookiePair;
-        /** 给用户看的完整报告。 */
-        public String report = "";
+    /** 就绪结果：cookie 键值对（可能为 null，表示服务直接放行）。 */
+    public static final class Ready {
+        public final String cookiePair;
+        Ready(String cookiePair) { this.cookiePair = cookiePair; }
     }
 
     private static String baseUrl() {
         return "http://127.0.0.1:" + DshProcessManager.DSH_PORT;
+    }
+
+    private static HttpURLConnection open(String url, String cookiePair) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setInstanceFollowRedirects(false);
+        c.setConnectTimeout(TIMEOUT_MS);
+        c.setReadTimeout(TIMEOUT_MS);
+        c.setRequestProperty("Accept", "text/html,application/xhtml+html,*/*");
+        if (cookiePair != null) c.setRequestProperty("Cookie", cookiePair);
+        return c;
+    }
+
+    /** 从 Set-Cookie 里剥出"name=value"。 */
+    private static String cookiePairOf(String setCookie) {
+        if (setCookie == null) return null;
+        int semi = setCookie.indexOf(';');
+        String pair = (semi < 0 ? setCookie : setCookie.substring(0, semi)).trim();
+        return pair.isEmpty() ? null : pair;
+    }
+
+    /**
+     * 快速就绪探测。
+     * @return 就绪时返回 cookie；未就绪返回 null（调用方应继续等待）。
+     */
+    public static Ready tryReady(Context ctx) {
+        String tokenUrl = DshProcessManager.readTokenUrl(ctx);
+        if (tokenUrl == null) return null;              // 服务还没打印 token
+        HttpURLConnection c = null;
+        try {
+            c = open(tokenUrl, null);
+            int code = c.getResponseCode();
+            String cookie = cookiePairOf(c.getHeaderField("Set-Cookie"));
+            c.disconnect();
+            c = null;
+
+            if (cookie == null) {
+                // 没拿到 cookie：可能是 401（token 还没被接受）或 404（fallback 未注册），
+                // 都视为"还没就绪"。
+                return (code == 200) ? new Ready(null) : null;
+            }
+            HttpURLConnection c2 = null;
+            try {
+                c2 = open(baseUrl() + "/", cookie);
+                if (c2.getResponseCode() == 200) return new Ready(cookie);
+                return null;
+            } finally {
+                if (c2 != null) c2.disconnect();
+            }
+        } catch (Exception e) {
+            // 连接被拒 / 超时 —— 服务还没起来
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
     }
 
     /** 一行的响应摘要：状态码 + Content-Type + Location + Set-Cookie + 响应体前 N 字符。 */
@@ -49,20 +107,15 @@ public final class DshProbe {
         StringBuilder sb = new StringBuilder();
         sb.append(label).append('\n').append("  ").append(url).append('\n');
         try {
-            c = (HttpURLConnection) new URL(url).openConnection();
-            c.setInstanceFollowRedirects(false);
-            c.setConnectTimeout(TIMEOUT_MS);
-            c.setReadTimeout(TIMEOUT_MS);
-            c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
-            if (cookiePair != null) c.setRequestProperty("Cookie", cookiePair);
-
+            c = open(url, cookiePair);
             int code = c.getResponseCode();
-            sb.append("  状态码: ").append(code).append(' ').append(nullSafe(c.getResponseMessage())).append('\n');
+            sb.append("  状态码: ").append(code).append(' ')
+              .append(nullSafe(c.getResponseMessage())).append('\n');
             sb.append("  Content-Type: ").append(nullSafe(c.getHeaderField("Content-Type"))).append('\n');
             String loc = c.getHeaderField("Location");
             if (loc != null) sb.append("  Location: ").append(loc).append('\n');
             String sc = c.getHeaderField("Set-Cookie");
-            if (sc != null) sb.append("  Set-Cookie: ").append(trim(sc, 160)).append('\n');
+            if (sc != null) sb.append("  Set-Cookie: ").append(trim(sc, 140)).append('\n');
 
             InputStream in = (code >= 400) ? c.getErrorStream() : c.getInputStream();
             if (in == null) {
@@ -95,20 +148,12 @@ public final class DshProbe {
         return sb.toString();
     }
 
-    /** 从 Set-Cookie 里剥出 "name=value"（去掉 Path/Expires/SameSite 等属性）。 */
-    private static String cookiePairOf(String setCookie) {
-        if (setCookie == null) return null;
-        int semi = setCookie.indexOf(';');
-        String pair = (semi < 0 ? setCookie : setCookie.substring(0, semi)).trim();
-        return pair.isEmpty() ? null : pair;
-    }
-
     /** 检查前端 dist 是否真的落在手机上 —— 缺了它，/ 会返回 404 空响应体。 */
     private static String checkDist(Context ctx) {
         File dist = new File(DshBootstrap.home(ctx),
                 "node_modules/@deepseek-ai/dsh-web-frontend/dist");
         StringBuilder sb = new StringBuilder();
-        sb.append("【前端 dist 落盘检查】\n");
+        sb.append("【前端dist 落盘检查】\n");
         sb.append("  目录: ").append(dist.getAbsolutePath()).append('\n');
         if (!dist.isDirectory()) {
             sb.append("  ✗ 目录不存在！\n");
@@ -131,55 +176,45 @@ public final class DshProbe {
             sb.append("  ✗ assets/ 缺失\n");
         }
         sb.append(DshBootstrap.describeIntegrity(ctx));
-        // 顺便看一眼 node_modules 里究竟有没有这 240 个 @deepseek-ai 包
-        File dsp = new File(DshBootstrap.home(ctx), "node_modules/@deepseek-ai");
-        String[] pkgs = dsp.isDirectory() ? dsp.list() : null;
-        sb.append("  @deepseek-ai 包数: ").append(pkgs == null ? 0 : pkgs.length).append('\n');
         return sb.toString();
     }
 
     /**
-     * 走一遍完整握手：
-     *   1. GET tokenUrl（不跟随跳转）→ 期望 303 + Set-Cookie
-     *   2. GET /（不带 cookie）    → 期望 401
-     *   3. GET /（带 cookie）      → 期望 200 text/html
-     * 只有第 3 步拿到 200 才会让 WebView 上场。
+     * 超时后才跑的完整诊断：把原始证据打在屏幕上（没有 adb 时唯一渠道）。
+     *
+     * @param elapsedMs 已经等待的时长
      */
-    public static Result run(Context ctx, String tokenUrl) {
-        Result r = new Result();
+    public static String diagnose(Context ctx, long elapsedMs) {
+        String tokenUrl = DshProcessManager.readTokenUrl(ctx);
         StringBuilder sb = new StringBuilder();
 
         sb.append("=== dsh 握手体检 ===\n\n");
         sb.append("target: ").append(baseUrl()).append('\n');
-        sb.append("token URL: ").append(tokenUrl == null ? "(未抓到)" : trim(tokenUrl, 120)).append("\n\n");
+        sb.append("已等待: ").append(elapsedMs / 1000).append(" 秒\n");
+        sb.append("token URL: ").append(tokenUrl == null ? "(未抓到 —— 服务可能没启动失败)"
+                : trim(tokenUrl, 120)).append("\n\n");
 
-        String setCookie = null;
+        String cookie = null;
         if (tokenUrl != null) {
             HttpURLConnection c = null;
             try {
-                c = (HttpURLConnection) new URL(tokenUrl).openConnection();
-                c.setInstanceFollowRedirects(false);
-                c.setConnectTimeout(TIMEOUT_MS);
-                c.setReadTimeout(TIMEOUT_MS);
+                c = open(tokenUrl, null);
                 int code = c.getResponseCode();
-                setCookie = c.getHeaderField("Set-Cookie");
+                String sc = c.getHeaderField("Set-Cookie");
+                cookie = cookiePairOf(sc);
                 sb.append("(1) 带 token 的请求 → ").append(code)
                   .append("  Location=").append(nullSafe(c.getHeaderField("Location")))
-                  .append("  ").append(setCookie == null ? "Set-Cookie=(无)" : "Set-Cookie=" + trim(setCookie, 60)).append("\n\n");
+                  .append("  ").append(sc == null ? "Set-Cookie=(无)"
+                        : "Set-Cookie=" + trim(sc, 50)).append("\n\n");
             } catch (Throwable e) {
                 sb.append("(1) 带 token 的请求异常: ").append(e).append("\n\n");
             } finally {
                 if (c != null) c.disconnect();
             }
         }
-        r.cookiePair = cookiePairOf(setCookie);
 
         sb.append(describe("(2) 不带 cookie 访问 /", baseUrl() + "/", null)).append('\n');
-        String rootReport = describe("(3) 带 cookie 访问 /", baseUrl() + "/", r.cookiePair);
-        sb.append(rootReport).append('\n');
-
-        r.rootOk = rootReport.contains("状态码: 200");
-
+        sb.append(describe("(3) 带 cookie 访问 /", baseUrl() + "/", cookie)).append('\n');
         sb.append(checkDist(ctx)).append('\n');
 
         sb.append("【设备与解包状态】\n");
@@ -191,10 +226,8 @@ public final class DshProbe {
         sb.append("【dsh 服务日志末 25 行】\n");
         String log = DshProcessManager.tailLog(ctx, 25);
         sb.append(log.isEmpty() ? "  (无日志)\n" : log).append('\n');
-
-        r.report = sb.toString();
-        Log.i(TAG, "体检完成 rootOk=" + r.rootOk + " cookie=" + (r.cookiePair != null));
-        return r;
+        Log.i(TAG, "诊断报告已生成，等待 " + elapsedMs + "ms");
+        return sb.toString();
     }
 
     private static String nullSafe(String s) { return s == null ? "-" : s; }
