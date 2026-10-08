@@ -59,9 +59,35 @@ import android.webkit.WebView;
  * <p>若目标元素在 {@link #MARKET_CSS} 覆盖的页面里，则走市场页那一套，
  * <b>不要</b>往 {@link #CSS} 里加。
  *
- * <p><b>另一个铁律：「元素不见了」先查 z-index，不是查显示逻辑。</b>
+ * <p><b>铁律二：「元素不见了」先查 z-index，不是查显示逻辑。</b>
  * r37踩过：汉堡 {@code z-index:61} 低于侧栏 {@code 62} → 被盖住，
  * 却花时间去改 display/位置。当前层级台账见下方常量注释。
+ *
+ * <p><b>铁律三（r40）：往别人的 flex 容器里塞节点 = 把宽度/高度交给对方决定。</b>
+ * 真机实测（截图逐像素量过）：{@code #dsh-market-card} 直接挂在
+ * {@code [class*="_panel"]} 下时，{@code _panel} 在该机型上仍是 dsh 的
+ * <b>行方向</b> flex，于是卡片
+ * <ul>
+ *   <li>宽度取 {@code max-content}（≈420px）→ 撑出 360px 的屏幕，文字不换行被裁切；</li>
+ *   <li>高度被 {@code align-self:stretch} 拉成整屏（实测 727px），大片空白；</li>
+ *   <li>兄弟 {@code _nav} 被挤到 x&gt;420 → <b>整个设置导航列表看不见</b>。</li>
+ * </ul>
+ * <b>所以：注入节点必须挂到自己 100% 可控的容器里</b>（这里是 JS 打标记的
+ * {@code .dsh-s-nav}），并显式写死 {@code flex:0 0 auto} /
+ * {@code align-self:stretch} / {@code box-sizing:border-box} / {@code max-width:100%}。
+ * 再加一层 {@code guardCard()} 用实测几何自愈 —— <b>不要指望一条 {@code !important}
+ * 的 CSS 一定命中</b>。
+ *
+ * <p><b>铁律四（r40）：非法 CSS 值会被静默丢弃，dsh 自己的规则随之复活。</b>
+ * 原 {@code _overlay} 写的是 {@code justify-content:stretch !important} ——
+ * {@code stretch} 对 {@code justify-content} <b>不是合法值</b>，整条声明被丢弃，
+ * 于是 dsh 的 {@code justify-content:center} 生效：面板一旦宽于视口就被
+ * "居中"到屏幕外。写覆盖前先确认值合法。
+ *
+ * <p><b>铁律五（r40）：{@code var} 提升会制造"看起来对、实际必崩"的死代码。</b>
+ * r39 的 {@code onMarket()} 里 {@code btn.getAttribute(...)} 写在
+ * {@code var btn=...} 之前 —— 不报语法错、不报编译错，但每次点击都
+ * {@code TypeError}，"打开市场"永远点不动。<b>变量声明一律提到函数最前面。</b>
  */
 public final class MobileTuning {
 
@@ -119,6 +145,10 @@ public final class MobileTuning {
         + "#dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);"
         + "opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}\n"
         + "body.dsh-drawer-open #dsh-scrim{opacity:1;visibility:visible;}\n"
+        // 设置浮层打开时**显式隐藏**汉堡：浮层 z-index:1000、汉堡 61/65，
+        // 本来就会被盖住 —— 但不同机型/版本的层叠上下文不完全一致，
+        // 真机截图里出现过"汉堡浮在设置卡片右上角"的观感。显式隐藏，行为确定。
+        + "body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}\n"
         + "@media (max-width:1023px){\n"
         // 汉堡做成**悬浮圆钮**（不再整行占位、下面不需要留白）——
         // 用户反馈"顶部汉堡不要单独占据一行"。
@@ -181,45 +211,81 @@ public final class MobileTuning {
         // ⚠️ 宽度必须**同时**给 left/right 拉伸和 width —— 只给 width:100vw 时，
         //   若 dsh 的 body 有纵向滚动条或边框，实际宽度会差几个 px，右侧留白
         //   （用户反馈"宽度为手机屏幕宽度"）。这里 flex 拉伸 + 100% 双保险。
+        // ⚠️ justify-content 原来写的是 stretch —— 那是**非法值**，浏览器直接丢弃，
+        //   于是 dsh 自己的 center 生效。面板一旦宽于视口就会被"居中"到屏幕外。
+        //   改 flex-start：面板从 x=0 开始，即使宽度覆盖失败也不会跑到屏幕外。
         + "  [class*=\"_overlay\"]{padding:0 !important;margin:0 !important;"
-        + "align-items:stretch !important;justify-content:stretch !important;"
+        + "align-items:stretch !important;justify-content:flex-start !important;"
         + "left:0 !important;right:0 !important;top:0 !important;bottom:0 !important;"
-        + "width:100% !important;height:100% !important;max-width:none !important;}\n"
-        + "  [class*=\"_panel\"]{width:100% !important;max-width:none !important;"
-        + "align-self:stretch !important;flex:1 1 auto !important;"
-        + "height:100% !important;border-radius:0 !important;flex-direction:column !important;}\n"
+        + "width:100% !important;height:100% !important;max-width:100% !important;"
+        + "overflow:hidden !important;}\n"
+        // ⚠️ 真机实测：这条 flex-direction:column 在部分机型上**没生效**，
+        //   面板仍是 dsh 的 row → 注入卡片成了 row 的 flex 子项：
+        //     宽度取 max-content（≈420px，撑出 360px 屏幕）、高度被 stretch 拉到整屏
+        //     （真机截图实测卡片高 727px、右侧越界、导航被挤到 x>420 看不见）。
+        //   这里补齐 display / flex-wrap / align-items / min-* 五项，
+        //   并额外用 JS 的 guardCard() 做兜底（不指望单条 CSS 一定命中）。
+        + "  [class*=\"_panel\"]{display:flex !important;width:100% !important;"
+        + "max-width:100% !important;align-self:stretch !important;flex:1 1 auto !important;"
+        + "min-width:0 !important;min-height:0 !important;"
+        + "height:100% !important;border-radius:0 !important;"
+        + "flex-direction:column !important;flex-wrap:nowrap !important;"
+        + "align-items:stretch !important;overflow-x:hidden !important;"
+        + "box-sizing:border-box !important;}\n"
         // ⚠️ 用 .dsh-s-nav 限定作用域，**不要再用 [class*="_nav"]**：
         //   `_nav` 是 `_navTitle`/`_navList`/`_navCell`/`_navIcon`/`_navLabel`
         //   的**共同前缀**。模糊匹配会把容器样式（width:100%、flex-direction:column）
         //   套到图标和文字上 -> 图标独占一行、文字另起一行，每项撑到~100px
         //   （真机反馈"布局太丑了"）。`.dsh-s-nav` 由 JS 打在导航容器上。
-        + "  .dsh-s-nav{width:100% !important;max-width:100% !important;"
-        + "flex:0 0 auto!important;flex-direction:column!important;gap:0!important;"
-        + "padding:8px 0 6px!important;overflow:visible!important;"
-        + "border-bottom:1px solid var(--ds-ink-200,#d8e1ea)!important;}\n"
+        // ⚠️ 这里是**唯一 100% 可控的宿主**：类名由我们自己的 JS 打上去，
+        //   dsh 的任何规则都不可能覆盖。所以把卡片和列表都挂进来，
+        //   几何(=width/flex-direction/padding)钉死在这里，不再依赖 _panel 的覆盖。
+        + "  .dsh-s-nav{display:flex!important;width:100% !important;"
+        + "max-width:100% !important;min-width:0!important;"
+        + "flex:0 0 auto!important;flex-direction:column!important;"
+        + "flex-wrap:nowrap!important;align-items:stretch!important;gap:0!important;"
+        + "padding:0 16px 16px!important;box-sizing:border-box!important;"
+        + "overflow-x:hidden!important;}\n"
         // 导航标题（"设置"）隐藏：面板 header 已有标题，避免重复
         + "  .dsh-s-nav [class*=\"_navTitle\"]{display:none!important;}\n"
-        // 导航列表：竖排
-        + "  .dsh-s-nav [class*=\"_navList\"]{flex-direction:column!important;gap:2px!important;}\n"
-        // 列表项：设计稿「设置页规格」15.5px + 图标 21pt + 行高 15px 内边距。
-        //关键是 flex-direction:row（图标与文字**同一行**）+ 上下 padding + 圆角。
-        + "  .dsh-s-nav [class*=\"_navCell\"]{width:100%!important;height:auto!important;"
-        + "min-height:46px!important;padding:12px 20px!important;gap:12px!important;"
-        + "flex-direction:row!important;align-items:center!important;"
-        + "border-radius:12px!important;font-size:15.5px!important;"
-        + "white-space:normal!important;text-align:left!important;}\n"
-        + "  .dsh-s-nav [class*=\"_navIcon\"]{width:21px!important;height:21px!important;"
-        + "flex:none!important;}\n"
+        // 导航列表：竖排、满宽、零间隙（行分隔线由 navCell 的 ::before 画，
+        // 比让每项自带 gap 更接近原生设置页的观感）
+        + "  .dsh-s-nav [class*=\"_navList\"]{display:flex!important;"
+        + "flex-direction:column!important;gap:0!important;"
+        + "width:100%!important;min-width:0!important;}\n"
+        // 列表项：54px 触控高度（≥48dp 无障碍下限）、row 布局、圆角、相对定位
+        + "  .dsh-s-nav [class*=\"_navCell\"]{display:flex!important;width:100%!important;"
+        + "height:auto!important;min-height:54px!important;padding:14px 12px!important;"
+        + "gap:14px!important;flex-direction:row!important;align-items:center!important;"
+        + "border-radius:14px!important;font-size:15.5px!important;"
+        + "box-sizing:border-box!important;position:relative!important;"
+        + "white-space:normal!important;text-align:left!important;"
+        + "transition:background .15s cubic-bezier(.4,0,.2,1)!important;}\n"
+        + "  .dsh-s-nav [class*=\"_navCell\"]:active{"
+        + "background:var(--ds-ink-100,#eef2f6)!important;}\n"
+        // 行分隔线：从图标右侧（48px）起，右边收 12px
+        + "  .dsh-s-nav [class*=\"_navCell\"]+[class*=\"_navCell\"]::before{"
+        + "content:'';position:absolute;left:48px;right:12px;top:0;height:1px;"
+        + "background:var(--ds-ink-100,#eef2f6);}\n"
+        + "  .dsh-s-nav [class*=\"_navIcon\"]{width:22px!important;height:22px!important;"
+        + "flex:none!important;color:var(--ds-ink-500,#5a6d84)!important;}\n"
         + "  .dsh-s-nav [class*=\"_navLabel\"]{font-size:15.5px!important;"
         + "font-weight:600!important;color:var(--ds-ink-900,#0d1b2e)!important;"
         + "white-space:normal!important;overflow-wrap:normal!important;"
         + "word-break:normal!important;flex:1 1 auto!important;min-width:0!important;}\n"
-        // 选中态：设计稿 #F1F3F5 胶囊（作用在 navCell 本身）
-        + "  .dsh-s-nav [class*=\"_active\"]{background:#f1f3f5!important;border-radius:12px!important;}\n"
+        // 选中态：浅品牌底 + 左侧 3px 色条（比整块灰底更有"当前位置"的方向感）
+        + "  .dsh-s-nav [class*=\"_active\"]{background:var(--ds-brand-50,#eef7fe)!important;"
+        + "border-radius:14px!important;}\n"
+        + "  .dsh-s-nav [class*=\"_active\"]::after{content:'';position:absolute;"
+        + "left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;"
+        + "background:var(--ds-brand-500,#2b8ae8);}\n"
+        + "  .dsh-s-nav [class*=\"_active\"] [class*=\"_navLabel\"],"
+        + ".dsh-s-nav [class*=\"_active\"] [class*=\"_navIcon\"]{"
+        + "color:var(--ds-brand-500,#2b8ae8)!important;}\n"
         // 内容：全宽单列
         + "  [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_options\"]{padding:0 26px 24px !important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_options\"]{padding:14px 16px 28px !important;}\n"
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
         + "  [class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
         + "  [class*=\"_panel\"] [class*=\"_options\"] *{max-width:100% !important;}\n"
@@ -232,10 +298,16 @@ public final class MobileTuning {
         + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_content\"]{display:none !important;}\n"
         + "  body.dsh-s-l3 .dsh-s-nav{display:none!important;}\n"
         // 三级页头部：显示返回箭头 + 标题
-        + "  [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;align-items:center !important;"
-        + "gap:10px !important;padding:14px 18px 8px 12px !important;}\n"
-        + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
-        + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
+        // 头栏：固定最小高度 + 底部细分割线（L3 详情页的层次靠它撑起来）；
+        // padding-top 叠 safe-area-inset-top，刘海/挖孔屏不压字（非全面屏机型为 0，无副作用）
+        + "  [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;"
+        + "align-items:center !important;gap:10px !important;"
+        + "box-sizing:border-box !important;height:auto !important;min-height:58px !important;"
+        + "padding:calc(12px + env(safe-area-inset-top,0px)) 16px 10px !important;"
+        + "border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;}\n"
+        + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:19px !important;"
+        + "font-weight:750 !important;letter-spacing:.2px !important;"
+        + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;min-width:0 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
         // ===== 返回上一级：复用 dsh 自带的 ✘（_close），移到 header 左侧 =====
         // 用户反馈"自建返回箭头和 ✘ 重复了" —— 所以**删掉自建按钮**，
@@ -266,38 +338,77 @@ public final class MobileTuning {
         + "padding-top:14px !important;margin-top:4px !important;}\n"
         + "  [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
         + "  [class*=\"_panel\"] [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
-        + "  [class*=\"_panel\"] [class*=\"_entryValue\"],.dsh-s-l3 [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
+        // 收窄到 _panel：原来靠 .dsh-s-l3 兜着，但那是"碰巧"（body 上只有它一个），
+        // 统一成显式作用域前缀，才和文件头的「作用域铁律」一致。
+        + "  [class*=\"_panel\"] [class*=\"_entryValue\"],"
+        + "[class*=\"_panel\"] [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
         // 内容列允许滚动：dsh 的 _content 是 flex:1，若不给 overflow 会把
         // 长内容截断且无法滚动（用户反馈"页面无法往下滚动"）。
         + "  [class*=\"_panel\"] [class*=\"_content\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
         + "  [class*=\"_panel\"] [class*=\"_options\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;}\n"
-        // ===== 插件市场入口（注入卡片，挂在设置二级页顶部）=====
-        + "  #dsh-market-card{display:none !important;margin:10px 26px 4px !important;"
-        + "padding:14px 16px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;"
-        + "border-radius:16px !important;background:var(--ds-ink-50,#f7f9fc) !important;}\n"
-        + "  body.dsh-s-l2 #dsh-market-card{display:block !important;}\n"
-        + "  #dsh-market-card .dsh-mk-title{font-size:15.5px !important;font-weight:600 !important;"
-        + "color:var(--ds-ink-900,#0d1b2e) !important;}\n"
-        + "  #dsh-market-card .dsh-mk-desc{font-size:12.5px !important;"
-        + "color:var(--ds-ink-500,#5a6d84) !important;margin-top:4px !important;}\n"
-        + "  #dsh-market-btn{margin-top:10px !important;height:38px !important;padding:0 18px !important;"
-        + "border:0 !important;border-radius:999px !important;background:var(--ds-brand-500,#2b8ae8) !important;"
-        + "color:#fff !important;font-size:14px !important;font-weight:600 !important;"
-        + "cursor:pointer !important;box-shadow:0 4px 12px rgba(43,138,232,.24) !important;}\n"
+        // ===== 插件市场入口卡片（注入，挂在设置二级页最上方）=====
+        // ⚠️ 宿主是 .dsh-s-nav 而**不是 _panel**。
+        //   真机实测：卡片作为 _panel 的裸子项时，宽度取 max-content（≈420px）撑出
+        //   360px 的屏幕、高度被 stretch 拉到 727px（面板整屏），右侧内容被裁切、
+        //   导航被挤到屏幕外。放进 .dsh-s-nav 后宿主几何 100% 由我们控制。
+        // 视觉：图标 + 标题/副标题 + 状态胶囊 / 主按钮 + 次要按钮 / 一行说明。
+        + "  #dsh-market-card{display:none !important;"
+        + "flex:0 0 auto !important;align-self:stretch !important;"
+        + "box-sizing:border-box !important;width:auto !important;"
+        + "max-width:100% !important;min-width:0 !important;height:auto !important;"
+        + "margin:14px 0 8px !important;padding:16px !important;"
+        + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;"
+        + "border-radius:18px !important;overflow:hidden !important;"
+        + "background:linear-gradient(180deg,#f9fcff 0%,#f2f7ff 100%) !important;"
+        + "box-shadow:0 1px 2px rgba(13,27,46,.04) !important;}\n"
+        + "  body.dsh-s-l2 #dsh-market-card{display:flex !important;"
+        + "flex-direction:column !important;gap:12px !important;}\n"
+        // —— 头部
+        + "  #dsh-market-card .dsh-mk-head{display:flex !important;"
+        + "align-items:flex-start !important;gap:12px !important;min-width:0 !important;}\n"
+        + "  #dsh-market-card .dsh-mk-ico{flex:none !important;width:36px !important;"
+        + "height:36px !important;border-radius:11px !important;"
+        + "background:var(--ds-brand-500,#2b8ae8) !important;color:#fff !important;"
+        + "display:flex !important;align-items:center !important;justify-content:center !important;"
+        + "box-shadow:0 4px 10px rgba(43,138,232,.26) !important;}\n"
+        + "  #dsh-market-card .dsh-mk-htxt{flex:1 1 auto !important;min-width:0 !important;}\n"
+        + "  #dsh-market-card .dsh-mk-title{font-size:16px !important;font-weight:700 !important;"
+        + "line-height:1.35 !important;color:var(--ds-ink-900,#0d1b2e) !important;"
+        + "white-space:normal !important;overflow-wrap:normal !important;}\n"
+        + "  #dsh-market-card .dsh-mk-sub{font-size:12.5px !important;line-height:1.45 !important;"
+        + "margin-top:2px !important;color:var(--ds-ink-500,#5a6d84) !important;"
+        + "white-space:normal !important;overflow-wrap:normal !important;}\n"
+        + "  #dsh-market-card .dsh-mk-chip{flex:none !important;align-self:flex-start !important;"
+        + "padding:4px 9px !important;border-radius:999px !important;font-size:11px !important;"
+        + "font-weight:700 !important;line-height:1.3 !important;white-space:nowrap !important;"
+        + "background:var(--ds-ink-100,#eef2f6) !important;"
+        + "color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  #dsh-market-card .dsh-mk-chip[data-on=\"1\"]{"
+        + "background:#e7f7ee !important;color:#12794a !important;}\n"
+        // —— 操作区
+        + "  #dsh-market-card .dsh-mk-actions{display:flex !important;flex-wrap:wrap !important;"
+        + "align-items:center !important;gap:8px !important;min-width:0 !important;}\n"
+        + "  #dsh-market-btn{flex:1 1 auto !important;min-width:0 !important;height:42px !important;"
+        + "padding:0 16px !important;border:0 !important;border-radius:12px !important;"
+        + "background:var(--ds-brand-500,#2b8ae8) !important;color:#fff !important;"
+        + "font-size:15px !important;font-weight:600 !important;cursor:pointer !important;"
+        + "box-shadow:0 4px 12px rgba(43,138,232,.24) !important;"
+        + "-webkit-tap-highlight-color:transparent !important;}\n"
         + "  #dsh-market-btn[disabled]{background:var(--ds-ink-200,#d8e1ea) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;box-shadow:none !important;}\n"
-        // pnpm 行：市场"装插件"功能依赖它，缺失时市场会报"找不到 npm/corepack"
-        + "  #dsh-pnpm-row{margin-top:10px !important;padding-top:10px !important;"
-        + "border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;}\n"
-        + "  #dsh-pnpm-row .dsh-mk-desc{color:var(--ds-ink-500,#5a6d84) !important;}\n"
-        + "  #dsh-pnpm-btn{margin-top:8px !important;height:34px !important;padding:0 14px !important;"
-        + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;border-radius:999px !important;"
-        + "background:#fff !important;color:var(--ds-ink-900,#0d1b2e) !important;"
-        + "font-size:13px !important;font-weight:600 !important;cursor:pointer !important;}\n"
-        + "  #dsh-pnpm-btn[disabled]{background:var(--ds-ink-100,#eef2f6) !important;"
-        + "color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  #dsh-pnpm-btn{flex:0 0 auto !important;height:42px !important;padding:0 14px !important;"
+        + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;border-radius:12px !important;"
+        + "background:#fff !important;color:var(--ds-ink-700,#1e3450) !important;"
+        + "font-size:13.5px !important;font-weight:600 !important;cursor:pointer !important;"
+        + "-webkit-tap-highlight-color:transparent !important;}\n"
+        + "  #dsh-pnpm-btn[hidden]{display:none !important;}\n"
+        + "  #dsh-pnpm-btn[disabled]{color:var(--ds-ink-500,#5a6d84) !important;"
+        + "background:var(--ds-ink-100,#eef2f6) !important;}\n"
+        + "  #dsh-market-card .dsh-mk-note{font-size:12px !important;line-height:1.5 !important;"
+        + "color:var(--ds-ink-400,#8296ab) !important;white-space:normal !important;"
+        + "overflow-wrap:anywhere !important;}\n"
         // 手机上没有文件管理器，dsh 自带的「无法打开配置文件」红字只会让人困惑 -> 隐藏
         // 同样收窄到 _panel 内（见类注释的「作用域铁律」）
         + "  [class*=\"_panel\"] [class*=\"_header\"] [class*=\"error\"],"
@@ -334,6 +445,16 @@ public final class MobileTuning {
         // 禁掉橡皮筋与双击缩放，更接近原生手感
         + "  html,body{overscroll-behavior:none;}\n"
         + "    body{touch-action:manipulation;}\n"
+        + "}\n"
+        // ===== 平板（681~1023px）：内容限宽居中 =====
+        // 面板本身铺满全屏（否则 dsh 的 mask 会在四周露出暗色边框，观感很差），
+        // 但把**内容列**限宽到 760px 并居中 —— 平板上设置项一行拉满 768px 会显得很散。
+        + "@media (min-width:681px) and (max-width:1023px){\n"
+        + "  .dsh-s-nav{max-width:760px!important;margin-left:auto!important;"
+        + "margin-right:auto!important;}\n"
+        + "  [class*=\"_panel\"] [class*=\"_header\"],"
+        + "[class*=\"_panel\"] [class*=\"_options\"]{max-width:760px!important;"
+        + "margin-left:auto!important;margin-right:auto!important;}\n"
         + "}\n"
         + "@media (prefers-reduced-motion:reduce){"
         + "div[class*=\"sidebarCol\"],#dsh-scrim{transition:none !important;}}\n";
@@ -381,6 +502,11 @@ public final class MobileTuning {
         + "white-space:pre-wrap !important;max-width:100% !important;}\n"
         // 页面整体：禁止横向溢出
         + "  [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}\n"
+        // 注入的汉堡是 position:fixed 悬浮在右上角，会压住市场页自己的头部/工具条
+        // （真机截图里它就叠在内容卡片右上角）。给页面整体让出「安全区 + 52px」，
+        // 52 = 按钮 42px + 上下各 5px 余量。
+        + "  [data-dsh-market-root]{padding-top:calc(52px + env(safe-area-inset-top,0px)) !important;"
+        + "padding-bottom:env(safe-area-inset-bottom,0px) !important;}\n"
         // 触控目标 ≥44px（WCAG AA）：搜索框、筛选、标签页、列表项
         + "  [data-dsh-market-root] input,[data-dsh-market-root] select,"
         + "[data-dsh-market-root] [role=\"tab\"],[data-dsh-market-root] [role=\"button\"]{"
@@ -480,80 +606,142 @@ public final class MobileTuning {
         + "      }\n"
         // ===== 插件市场入口卡片 =====
         // 插在导航容器之后（设置二级页顶部）。**挂在 body 上**，避免被 React 清掉（r30 教训）。
+        // ===== 插件市场入口卡片 =====
+        // ⚠️ 挂到 .dsh-s-nav 的**内部第一个子节点**（原来挂 _panel）。
+        //   真机实测：_panel 上是行方向 flex，卡片作为裸子项 → 宽度取 max-content
+        //   撑出屏幕、高度被 stretch 拉满整屏、导航被挤到屏幕外。
+        //   .dsh-s-nav 的类名由我们的 JS 打上，dsh 覆盖不了它的几何。
         + "      function mkMarketCard(){\n"
         + "        if(document.getElementById('dsh-market-card')){return;}\n"
         + "        var nav=document.querySelector('.dsh-s-nav');\n"
-        + "        if(!nav||!nav.parentNode){return;}\n"
+        + "        if(!nav){return;}\n"
         + "        var c=document.createElement('div');c.id='dsh-market-card';\n"
-        + "        c.innerHTML='<div class=\"dsh-mk-title\">插件市场</div>'\n"
-        + "          +'<div class=\"dsh-mk-desc\">浏览并一键安装社区插件（dshmarket）</div>'\n"
+        + "        c.innerHTML='<div class=\"dsh-mk-head\">'\n"
+        + "          +'<span class=\"dsh-mk-ico\">'\n"
+        + "          +'<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"'\n"
+        + "          +' stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\"'\n"
+        + "          +' stroke-linejoin=\"round\"><path d=\"M4 7h16M4 12h16M4 17h10\"/></svg></span>'\n"
+        + "          +'<div class=\"dsh-mk-htxt\">'\n"
+        + "          +'<div class=\"dsh-mk-title\">插件市场</div>'\n"
+        + "          +'<div class=\"dsh-mk-sub\">浏览社区插件，一键装到本机</div></div>'\n"
+        + "          +'<span class=\"dsh-mk-chip\" id=\"dsh-mk-chip\">检测中</span></div>'\n"
+        + "          +'<div class=\"dsh-mk-actions\">'\n"
         + "          +'<button id=\"dsh-market-btn\" type=\"button\">检测中…</button>'\n"
-        + "          +'<div id=\"dsh-pnpm-row\"><div class=\"dsh-mk-desc\">'\n"
-        + "          +'安装插件需要 pnpm（本机内置 Node 运行，无需额外环境）</div>'\n"
-        + "          +'<button id=\"dsh-pnpm-btn\" type=\"button\">检测中…</button></div>';\n"
+        + "          +'<button id=\"dsh-pnpm-btn\" type=\"button\" hidden>安装 pnpm</button></div>'\n"
+        + "          +'<div class=\"dsh-mk-note\" id=\"dsh-mk-note\">安装插件需要 pnpm 包管理器</div>';\n"
         + "        c.querySelector('#dsh-market-btn').addEventListener('click',onMarket);\n"
         + "        c.querySelector('#dsh-pnpm-btn').addEventListener('click',onPnpm);\n"
-        + "        nav.parentNode.insertBefore(c, nav);\n"
+        + "        nav.insertBefore(c, nav.firstChild);\n"
         + "        refreshMarket();\n"
+        + "      }\n"
+        // ===== 几何自愈（兜底）=====
+        // 上面每条 CSS 都带 !important，但真机上仍出现过 _panel 的 flex 方向没被覆盖。
+        // 所以这里用**实测几何**兜底：卡片只要越出视口、或被拉伸到异常高度，
+        // 立刻用内联样式把它钉成「视口宽-32px、高度自适应、不参与 flex 伸缩」。
+        // 宽高恢复正常后自动撤销内联样式（不残留，便于日后排查）。
+        + "      function guardCard(){\n"
+        + "        var c=document.getElementById('dsh-market-card');\n"
+        + "        if(!c){return;}\n"
+        + "        var vw=document.documentElement.clientWidth||window.innerWidth||360;\n"
+        + "        var w=Math.max(220,Math.round(vw)-32);\n"
+        + "        var r=c.getBoundingClientRect();\n"
+        + "        var bad=(r.width>vw+1)||(r.right>vw+1)||(r.left<-1)||(r.height>vw*1.6);\n"
+        + "        if(bad){\n"
+        + "          c.style.setProperty('flex','0 0 auto','important');\n"
+        + "          c.style.setProperty('align-self','flex-start','important');\n"
+        + "          c.style.setProperty('width',w+'px','important');\n"
+        + "          c.style.setProperty('max-width',w+'px','important');\n"
+        + "          c.style.setProperty('min-width','0','important');\n"
+        + "          c.style.setProperty('height','auto','important');\n"
+        + "          c.style.setProperty('box-sizing','border-box','important');\n"
+        + "          c.style.setProperty('overflow','hidden','important');\n"
+        + "          c.style.setProperty('margin-left','16px','important');\n"
+        + "          c.style.setProperty('margin-right','16px','important');\n"
+        + "          c.setAttribute('data-dsh-guarded','1');\n"
+        + "        }else if(c.getAttribute('data-dsh-guarded')==='1'){\n"
+        + "          var ks=['flex','align-self','width','max-width','min-width','height',\n"
+        + "                  'box-sizing','overflow','margin-left','margin-right'];\n"
+        + "          for(var i=0;i<ks.length;i++){c.style.removeProperty(ks[i]);}\n"
+        + "          c.removeAttribute('data-dsh-guarded');\n"
+        + "        }\n"
         + "      }\n"
         + "      function refreshMarket(){\n"
         + "        var btn=document.getElementById('dsh-market-btn');\n"
-        + "        if(!btn||!window.dshNative){return;}\n"
+        + "        if(!btn){return;}\n"
+        + "        var chip=document.getElementById('dsh-mk-chip');\n"
         + "        var v='';\n"
-        + "        try{ v=window.dshNative.marketInstalled(); }catch(e){}\n"
+        + "        if(window.dshNative){try{ v=window.dshNative.marketInstalled(); }catch(e){}}\n"
         // 已安装 -> 按钮变成"打开市场"（**可点**）。
         // dshmarket 是**独立路由页** /dsh-market（lib/routes.js 实测），
         // 并不注册进设置面板，所以装完必须自己给出入口，否则"装了却用不了"。
         + "        if(v){ btn.textContent='打开市场'; btn.removeAttribute('disabled');\n"
-        + "          btn.setAttribute('data-open','1'); }\n"
-        + "        else { btn.textContent='安装'; btn.removeAttribute('disabled');\n"
-        + "          btn.removeAttribute('data-open'); }\n"
+        + "          btn.setAttribute('data-open','1');\n"
+        + "          if(chip){ chip.textContent='已安装 v'+v; chip.setAttribute('data-on','1'); } }\n"
+        + "        else { btn.textContent='一键安装'; btn.removeAttribute('disabled');\n"
+        + "          btn.removeAttribute('data-open');\n"
+        + "          if(chip){ chip.textContent='未安装'; chip.removeAttribute('data-on'); } }\n"
         + "        refreshPnpm();\n"
         + "      }\n"
         + "      var pnpmBusy=false;\n"
         + "      function refreshPnpm(){\n"
         + "        var pb=document.getElementById('dsh-pnpm-btn');\n"
-        + "        if(!pb||!window.dshNative){return;}\n"
+        + "        var note=document.getElementById('dsh-mk-note');\n"
+        + "        if(!pb){return;}\n"
         + "        var ready='';\n"
-        + "        try{ ready=window.dshNative.pnpmReady(); }catch(e){}\n"
-        + "        if(ready){ pb.textContent='pnpm 已就绪'; pb.setAttribute('disabled','disabled'); }\n"
-        + "        else { pb.textContent='安装 pnpm'; pb.removeAttribute('disabled'); }\n"
+        + "        if(window.dshNative){try{ ready=window.dshNative.pnpmReady(); }catch(e){}}\n"
+        // pnpm 就绪时**收起按钮**，只留一行说明 —— 一个禁用的灰按钮只是噪音
+        + "        if(ready){ pb.hidden=true;\n"
+        + "          if(note){ note.textContent='依赖已就绪，可直接安装插件'; } }\n"
+        + "        else { pb.hidden=false; pb.textContent='安装 pnpm'; pb.removeAttribute('disabled');\n"
+        + "          if(note){ note.textContent='安装插件需要 pnpm 包管理器'; } }\n"
         + "      }\n"
         + "      function onPnpm(e){\n"
         + "        e.preventDefault();e.stopPropagation();\n"
         + "        if(pnpmBusy){return;}\n"
         + "        pnpmBusy=true;\n"
         + "        var pb=document.getElementById('dsh-pnpm-btn');\n"
-        + "        pb.textContent='安装中…';pb.setAttribute('disabled','disabled');\n"
+        + "        var note=document.getElementById('dsh-mk-note');\n"
+        + "        pb.setAttribute('disabled','disabled');pb.textContent='安装中…';\n"
+        + "        if(note){ note.textContent='正在下载并安装 pnpm…'; }\n"
         + "        window.__dshPnpmDone=function(id,res){\n"
         + "          pnpmBusy=false;\n"
-        + "          if(res&&res.ok){ pb.textContent='pnpm 已就绪'; }\n"
-        + "          else { pb.textContent='重试'; pb.removeAttribute('disabled');\n"
+        + "          if(res&&res.ok){ pb.hidden=true; pb.removeAttribute('disabled');\n"
+        + "            if(note){ note.textContent='依赖已就绪，可直接安装插件'; } }\n"
+        + "          else { pb.removeAttribute('disabled'); pb.textContent='重试';\n"
+        + "            if(note){ note.textContent='pnpm 安装失败'; }\n"
         + "            alert('pnpm 安装失败：'+((res&&res.message)||'未知错误')); }\n"
         + "        };\n"
         + "        try{ window.dshNative.installPnpm('pnpm'); }\n"
-        + "        catch(err){ pnpmBusy=false; pb.textContent='重试'; pb.removeAttribute('disabled'); }\n"
+        + "        catch(err){ pnpmBusy=false; pb.removeAttribute('disabled'); pb.textContent='重试'; }\n"
         + "      }\n"
         + "      var installing=false;\n"
         + "      function onMarket(e){\n"
         + "        e.preventDefault();e.stopPropagation();\n"
-        + "        if(installing){return;}\n"
-        // 已安装 -> 直接打开市场页面（同源相对路径，dsh 自己的 webserver 提供）
-        + "        if(btn.getAttribute('data-open')==='1'){\n"
-        + "          location.href='/dsh-market';\n"
-        + "          return;\n"
-        + "        }\n"
-        + "        installing=true;\n"
+        // ⚠️ r39 的真 bug：旧代码把 `var btn=...` 写在下面却在这里先用 btn.getAttribute()。
+        //   var 会提升但值是 undefined -> 每次点击都在这里抛 TypeError，
+        //   "打开市场"永远点不动。把声明提到函数最前面。
         + "        var btn=document.getElementById('dsh-market-btn');\n"
-        + "        btn.textContent='安装中…';btn.setAttribute('disabled','disabled');\n"
+        + "        if(!btn){return;}\n"
+        + "        if(btn.getAttribute('data-open')==='1'){ location.href='/dsh-market'; return; }\n"
+        + "        if(installing){return;}\n"
+        + "        installing=true;\n"
+        + "        var note=document.getElementById('dsh-mk-note');\n"
+        + "        var chip=document.getElementById('dsh-mk-chip');\n"
+        + "        btn.setAttribute('disabled','disabled');btn.textContent='安装中…';\n"
+        + "        if(note){ note.textContent='正在下载并安装插件…'; }\n"
         + "        window.__dshMarketDone=function(id,res){\n"
         + "          installing=false;\n"
-        + "          if(res&&res.ok){ btn.textContent='已安装 v'+res.version; }\n"
-        + "          else { btn.textContent='重试'; btn.removeAttribute('disabled');\n"
+        + "          if(res&&res.ok){ btn.removeAttribute('disabled');\n"
+        + "            btn.textContent='打开市场'; btn.setAttribute('data-open','1');\n"
+        + "            if(chip){ chip.textContent='已安装 v'+(res.version||'');\n"
+        + "              chip.setAttribute('data-on','1'); }\n"
+        + "            if(note){ note.textContent='安装完成，点「打开市场」进入'; } }\n"
+        + "          else { btn.removeAttribute('disabled'); btn.textContent='重试';\n"
+        + "            if(note){ note.textContent='安装失败'; }\n"
         + "            alert('安装失败：'+((res&&res.message)||'未知错误')); }\n"
         + "        };\n"
         + "        try{ window.dshNative.installMarket('mkt'); }\n"
-        + "        catch(err){ installing=false; btn.textContent='重试'; btn.removeAttribute('disabled'); }\n"
+        + "        catch(err){ installing=false; btn.removeAttribute('disabled'); btn.textContent='重试'; }\n"
         + "      }\n"
         + "      function sync(){\n"
         + "        var ov=overlay();\n"
@@ -563,14 +751,19 @@ public final class MobileTuning {
         // 被display:none 永久隐藏 -> 整页只剩卡片那块空白（真机反馈"设置返回时
         // 会出现图三的情况"：一大片空白 + 只有插件市场卡片）。
         + "          b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');\n"
+        + "          b.classList.remove('dsh-ov-open');\n"
         + "          var mc=document.getElementById('dsh-market-card');\n"
         + "          if(mc&&mc.parentNode){mc.parentNode.removeChild(mc);}\n"
         + "          syncBack();\n"
         + "          return;\n"
         + "        }\n"
+        // dsh-ov-open：CSS 靠它把汉堡显式藏起来（浮层期间不需要抽屉入口；
+        // 汉堡 z-index 61/65 低于浮层 1000，靠层叠"碰巧"被盖住不可靠）
+        + "        b.classList.add('dsh-ov-open');\n"
         + "        tagNav();\n"
         + "        mkMarketCard();\n"
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
+        + "        guardCard();\n"
         + "        syncBack();\n"
         + "      }\n"
         // 返回按钮不再自建：改用dsh 自带的 `_close`（✘），把它移到左侧。
@@ -619,6 +812,9 @@ public final class MobileTuning {
         + "        pend=setTimeout(function(){pend=null;sync();},60);\n"
         + "      }\n"
         + "      if(window.MutationObserver){new MutationObserver(sched).observe(b,{childList:true,subtree:true});}\n"
+        // 旋屏 / 折叠屏展开后重新量一次卡片几何
+        + "      window.addEventListener('resize',function(){sched();});\n"
+        + "      window.addEventListener('orientationchange',function(){sched();});\n"
         + "      sync();\n"
         + "    })();\n"
         // 闭合 if(!inMarket){ —— 设置页专属逻辑到此结束
