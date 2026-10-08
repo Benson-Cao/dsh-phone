@@ -94,6 +94,16 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
+        // 修掉 termux 主题把 statusBarColor 设成 colorPrimary(红色) 的问题 ——
+        // 启动页背景是深色 #0F1116，红色状态栏非常刺眼。显式改成同色。
+        getWindow().setStatusBarColor(Color.parseColor("#0F1116"));
+        // 深色背景下要浅色(白)状态栏图标：清掉"浅色背景深色图标"的 flag。
+        int sflags = getWindow().getDecorView().getSystemUiVisibility();
+        if ((sflags & android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR) != 0) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                sflags & ~android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+
         // --- 耗时工作全部丢后台线程 ---
         new Thread(new Runnable() {
             @Override public void run() {

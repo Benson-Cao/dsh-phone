@@ -87,6 +87,27 @@ public final class MobileTuning {
         + "{display:none !important;}\n"
         // 右栏别把主区挤没
         + "  div[class*=\"rightbarCol\"]{max-width:min(92vw,420px);}\n"
+        // ===== 设置面板重写（窄屏）=====
+        // dsh 设置面板是「左导航 + 右内容」两栏并排。侧栏再宽，右栏也被压到 ~30px，
+        // 中文标签（"权限"）会一字一行（min-content 就是 1 个字宽）。
+        // r18 的 overflow-wrap:anywhere 还会放大竖排（允许任意字符断行）。
+        // 窄屏改成堆叠：导航横向可滚动 tab 在上 + 内容全宽在下，内容不再被分栏挤压。
+        + "  .dsh-set-root{display:flex !important;flex-direction:column !important;"
+        + "flex-wrap:nowrap !important;max-height:calc(100vh - 130px) !important;}\n"
+        + "  .dsh-set-nav{display:flex !important;flex-direction:row !important;"
+        + "flex-wrap:nowrap !important;overflow-x:auto !important;overflow-y:hidden !important;"
+        + "-webkit-overflow-scrolling:touch;width:100% !important;min-width:0 !important;"
+        + "max-width:100% !important;flex:0 0 auto !important;box-sizing:border-box !important;"
+        + "gap:4px !important;padding:6px 8px !important;scrollbar-width:none;}\n"
+        + "  .dsh-set-nav::-webkit-scrollbar{display:none;}\n"
+        + "  .dsh-set-nav>*{flex:0 0 auto !important;min-width:0 !important;"
+        + "max-width:none !important;white-space:nowrap !important;}\n"
+        + "  .dsh-set-body{flex:1 1 auto !important;width:100% !important;min-width:0 !important;"
+        + "max-width:100% !important;box-sizing:border-box !important;overflow-y:auto !important;}\n"
+        // 覆盖 r18 的 anywhere（!important 胜出），让中文按正常规则换行
+        + "  .dsh-set-body *{overflow-wrap:normal !important;word-break:normal !important;}\n"
+        + "  .dsh-set-body button,.dsh-set-body label,.dsh-set-body input,"
+        + ".dsh-set-body select{max-width:100% !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
         // 侧栏按钮给足触摸目标
@@ -131,6 +152,40 @@ public final class MobileTuning {
         + "    });\n"
         + "    scrim.addEventListener('click',close);\n"
         + "    document.addEventListener('keydown',function(e){if(e.key==='Escape'){close();}});\n"
+        // ===== 设置面板重写 =====
+        // dsh 设置面板是「左导航+右内容」两栏并排，窄屏右栏被压到 ~30px，中文一字一行。
+        // 这里运行时按导航文本定位面板：找到含>=2 个导航项的祖先作为 nav，其下最宽的兄弟
+        // 作为 body，打标记类 dsh-set-root/nav/body，再由上面的 CSS 改成堆叠布局。
+        + "    (function(){\n"
+        + "      var NAVT=['通用设置','模型','插件','Agent预设','AgentPresets','General','Models','Plugins','AgentPresets'];\n"
+        + "      function norm(s){return (s||'').replace(/\\s+/g,'');}\n"
+        + "      function ownText(e){var t='';for(var i=0;i<e.childNodes.length;i++){var n=e.childNodes[i];if(n.nodeType===3)t+=n.nodeValue;}return norm(t);}\n"
+        + "      function isNavEl(e){var d=ownText(e);if(!d)return false;for(var i=0;i<NAVT.length;i++){if(d===norm(NAVT[i]))return true;}return false;}\n"
+        + "      function collectNavs(){var f=[],all=document.getElementsByTagName('*');for(var i=0;i<all.length;i++){if(isNavEl(all[i]))f.push(all[i]);}return f;}\n"
+        + "      function buildFrom(el){\n"
+        + "        var node=el;\n"
+        + "        while(node&&node!==document.body){\n"
+        + "          var c=0;for(var j=0;j<node.children.length;j++){if(isNavEl(node.children[j]))c++;}\n"
+        + "          if(c>=2)break;\n"
+        + "          node=node.parentElement;\n"
+        + "        }\n"
+        + "        if(!node||node===document.body)return null;\n"
+        + "        var parent=node.parentElement;if(!parent)return null;\n"
+        + "        var body=null,best=-1;\n"
+        + "        for(var m=0;m<parent.children.length;m++){var ch=parent.children[m];if(ch===node)continue;var w=ch.getBoundingClientRect().width;if(w>best){best=w;body=ch;}}\n"
+        + "        if(!body||best<50)return null;\n"
+        + "        return {root:parent,nav:node,body:body};\n"
+        + "      }\n"
+        + "      function fix(){\n"
+        + "        if(document.querySelector('.dsh-set-root'))return;\n"
+        + "        var c=collectNavs();\n"
+        + "        for(var k=0;k<c.length;k++){var r=buildFrom(c[k]);if(r){r.root.classList.add('dsh-set-root');r.nav.classList.add('dsh-set-nav');r.body.classList.add('dsh-set-body');return;}}\n"
+        + "      }\n"
+        + "      var timer=null;\n"
+        + "      function sched(){if(timer)return;timer=setTimeout(function(){timer=null;fix();},400);}\n"
+        + "      fix();\n"
+        + "      try{new MutationObserver(sched).observe(document.body,{childList:true,subtree:true});}catch(e){}\n"
+        + "    })();\n"
         // dsh 会把 narrowExpanded 持久化。r16 那版点过原生折叠按钮，
         // 于是侧栏被持久化成「rail 形态」——抽屉里就只剩一列图标。
         // 这里在窄屏下把它恢复成展开态（走 dsh 自己的 toggle，状态会被它自己持久化）。
