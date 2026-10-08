@@ -116,10 +116,16 @@ public final class MobileTuning {
         // dsh 是单页结构（导航与内容同一容器），所以让导航项竖排占满一行、内容在下，
         // 点哪个导航项就显示对应内容 —— 视觉上就是设计稿的全屏单列设置页。
         // 用属性选择器 [class*="_nav"] 前缀匹配，规避 CSS module 哈希随版本变化。
-        + "  [class*=\"_overlay\"]{padding:0 !important;align-items:stretch !important;"
-        + "justify-content:stretch !important;}\n"
-        + "  [class*=\"_panel\"]{width:100vw !important;max-width:100vw !important;"
-        + "height:100vh !important;border-radius:0 !important;flex-direction:column !important;}\n"
+        // ⚠️ 宽度必须**同时**给 left/right 拉伸和 width —— 只给 width:100vw 时，
+        //   若 dsh 的 body 有纵向滚动条或边框，实际宽度会差几个 px，右侧留白
+        //   （用户反馈"宽度为手机屏幕宽度"）。这里 flex 拉伸 + 100% 双保险。
+        + "  [class*=\"_overlay\"]{padding:0 !important;margin:0 !important;"
+        + "align-items:stretch !important;justify-content:stretch !important;"
+        + "left:0 !important;right:0 !important;top:0 !important;bottom:0 !important;"
+        + "width:100% !important;height:100% !important;max-width:none !important;}\n"
+        + "  [class*=\"_panel\"]{width:100% !important;max-width:none !important;"
+        + "align-self:stretch !important;flex:1 1 auto !important;"
+        + "height:100% !important;border-radius:0 !important;flex-direction:column !important;}\n"
         // ⚠️ 用 .dsh-s-nav 限定作用域，**不要再用 [class*="_nav"]**：
         //   `_nav` 是 `_navTitle`/`_navList`/`_navCell`/`_navIcon`/`_navLabel`
         //   的**共同前缀**。模糊匹配会把容器样式（width:100%、flex-direction:column）
@@ -395,7 +401,8 @@ public final class MobileTuning {
         + "      +'<svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\"'\n"
         + "      +' stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\">'\n"
         + "      +'<path d=\"M3 6h18M3 12h18M3 18h18\"/></svg></button>'\n"
-        + "      +'<span class=\"dsh-mtitle\">DeepSeek Harness</span>';\n"
+        //顶栏不显示标题文字（用户要求去掉），只留汉堡按钮
+        + "      +'';\n"
         + "    document.body.appendChild(bar);\n"
         + "    var scrim=document.createElement('div');scrim.id='dsh-scrim';\n"
         + "    document.body.appendChild(scrim);\n"

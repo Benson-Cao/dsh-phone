@@ -142,6 +142,11 @@ public final class DshMarketInstaller {
         }
         File js = new File(DshBootstrap.prefix(ctx), "libexec/dsh-market-install.js");
         try {
+            // ⚠️ libexec 目录未必存在（只有跑过 createLauncher 才会建），先mkdirs
+            File libexec = js.getParentFile();
+            if (!libexec.isDirectory() && !libexec.mkdirs()) {
+                return "无法创建 " + libexec.getAbsolutePath();
+            }
             java.io.FileWriter fw = new java.io.FileWriter(js);
             fw.write(INSTALL_JS);
             fw.close();
@@ -154,9 +159,15 @@ public final class DshMarketInstaller {
             ProcessBuilder pb = new ProcessBuilder(
                 node.getAbsolutePath(), js.getAbsolutePath(), TARBALL, PKG);
             pb.directory(home);
-            pb.environment().put("HOME", home.getAbsolutePath());
-            pb.environment().put("NODE_PATH",
-                home.getAbsolutePath() + "/node_modules");
+            // ⚠️ 必须给全Termux 前缀环境：Android 的 node 靠 LD_LIBRARY_PATH 找 .so，
+            //   缺了它会**静默退出码 1**（真机踩过：只设 HOME/NODE_PATH 时报"退出码 1"，
+            //   连 stderr 都没有）。复用 ShellRunner.buildEnv 与 dsh-web.sh 的环境保持一致。
+            pb.environment().clear();
+            for (String kv : ShellRunner.buildEnv(ctx)) {
+                int i = kv.indexOf('=');
+                if (i > 0) pb.environment().put(kv.substring(0, i), kv.substring(i + 1));
+            }
+            pb.environment().put("NODE_PATH", home.getAbsolutePath() + "/node_modules");
             pb.redirectErrorStream(true);
             Process p = pb.start();
             java.io.InputStream in = p.getInputStream();
@@ -170,7 +181,12 @@ public final class DshMarketInstaller {
                 for (String line : logAll.split("\n")) {
                     if (line.startsWith("ERR:")) return "安装失败: " + line.substring(4);
                 }
-                return "安装失败（退出码 " + code + "）";
+                // 把 node 的原始 stderr/异常回显出来，否则用户只看到"退出码 1"
+                String detail = logAll.trim();
+                if (detail.length() > 300) detail = detail.substring(0, 300) + "…";
+                return detail.isEmpty()
+                    ? "安装失败（退出码 " + code + "，无输出）"
+                    : "安装失败（退出码 " + code + "）：" + detail;
             }
             return null;
         } catch (Exception e) {
