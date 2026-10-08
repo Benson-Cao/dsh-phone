@@ -109,6 +109,34 @@ public final class DshBootstrap {
         try { return ctx.getFilesDir().getUsableSpace(); } catch (Throwable e) { return -1; }
     }
 
+    /** 上次做「递归计数」深检的时间戳文件名。 */
+    private static final String DEEPCHK = ".dsh-deepchk";
+
+    /**
+     * 递归深检（dist/assets 计数）是否该跑 —— **按天节流**。
+     *
+     * 背景：countFiles 是递归遍历（最多 4000 次 listFiles），在启动路径上
+     * 与 12 个 exists()（常数次 stat）差一个量级。而它防的风险
+     * （解包写一半→永久残档）发生在解包那一刻，紧接着就会写 stamp。
+     * 所以每天查一次足够，期间关键文件的 exists() 仍然每次都跑。
+     */
+    private static boolean deepCheckDue(Context ctx) {
+        try {
+            File f = new File(ctx.getFilesDir(), DEEPCHK);
+            long now = System.currentTimeMillis();
+            if (f.exists() && now - f.lastModified() < 86400000L) {
+                return false;                 // 24h 内查过，跳过
+            }
+            // 只用它的时间戳当"上次检查时间"，内容无所谓
+            java.io.FileWriter fw = new java.io.FileWriter(f);
+            fw.close();
+            f.setLastModified(now);
+            return true;
+        } catch (Throwable e) {
+            return true;                      // 出错就查，别省
+        }
+    }
+
     /**
      * 抽查解包完整性。
      * @return null 表示完好；否则返回缺失项的可读描述。
@@ -127,11 +155,18 @@ public final class DshBootstrap {
             }
             File assets = new File(files,
                 "home/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets");
-            int n = countFiles(assets);
-            if (n < CRITICAL_DIST_ASSET_MIN) {
-                if (count++ < 5) {
-                    miss.append(miss.length() == 0 ? "" : ", ")
-                        .append("dist/assets(递归 ").append(n).append(" 个文件)");
+            // ⚠️ countFiles 是**递归遍历**（最多4000 次 listFiles 系统调用），
+            //   而上面 12 个关键文件的 exists() 只是常数次stat —— 两者差一个量级。
+            //   所以：关键文件每次启动都查（便宜且能挡住"文件被删"这种真残档），
+            //   递归计数**按天节流**（它防的是"解包写到一半"，那次紧接着就会写 stamp，
+            //   不需要每次启动都重数一遍）。省下的正是启动路径上的 IO。
+            if (deepCheckDue(ctx)) {
+                int n = countFiles(assets);
+                if (n < CRITICAL_DIST_ASSET_MIN) {
+                    if (count++ < 5) {
+                        miss.append(miss.length() == 0 ? "" : ", ")
+                            .append("dist/assets(递归 ").append(n).append(" 个文件)");
+                    }
                 }
             }
             if (count == 0) return null;
@@ -193,7 +228,7 @@ public final class DshBootstrap {
         boolean needExtract = !stamp.exists() || !BUNDLE_REV.equals(readStamp(stamp));
 
         // stamp 命中 ≠ 文件齐全：解包中途写失败（多为空间不足）会留下"永久残档"。
-        // 这里每次启动都抽查若干关键文件，缺任何一个就自动修复重解包。
+        // 这里抽查关键文件，缺任何一个就自动修复重解包。
         if (!needExtract) {
             String missing = checkIntegrity(ctx);
             if (missing != null) {

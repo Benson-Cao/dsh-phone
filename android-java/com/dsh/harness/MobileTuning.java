@@ -116,26 +116,26 @@ public final class MobileTuning {
         // dsh 是单页结构（导航与内容同一容器），所以让导航项竖排占满一行、内容在下，
         // 点哪个导航项就显示对应内容 —— 视觉上就是设计稿的全屏单列设置页。
         // 用属性选择器 [class*="_nav"] 前缀匹配，规避 CSS module 哈希随版本变化。
-        + "  div[class*=\"_overlay\"]{padding:0 !important;align-items:stretch !important;"
+        + "  [class*=\"_overlay\"]{padding:0 !important;align-items:stretch !important;"
         + "justify-content:stretch !important;}\n"
-        + "  div[class*=\"_panel\"]{width:100vw !important;max-width:100vw !important;"
+        + "  [class*=\"_panel\"]{width:100vw !important;max-width:100vw !important;"
         + "height:100vh !important;border-radius:0 !important;flex-direction:column !important;}\n"
         // 导航：188px 固定 -> 单列全宽（设计稿：列表项占满整行）
-        + "  div[class*=\"_nav\"]{width:100% !important;max-width:100% !important;"
+        + "  [class*=\"_nav\"]{width:100% !important;max-width:100% !important;"
         + "flex:0 0 auto !important;flex-direction:column !important;gap:0 !important;"
         + "padding:8px 0 6px !important;overflow:visible !important;"
         + "border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.18)) !important;}\n"
         // 导航标题（"设置"）隐藏：面板 header 已有标题，避免重复
-        + "  div[class*=\"_navTitle\"]{display:none !important;}\n"
+        + "  [class*=\"_navTitle\"]{display:none !important;}\n"
         // 导航列表：竖排，贴合设计稿的分组标签 + 列表项
-        + "  div[class*=\"_navList\"]{flex-direction:column !important;gap:2px !important;}\n"
+        + "  [class*=\"_navList\"]{flex-direction:column !important;gap:2px !important;}\n"
         // 列表项：15.5px/#111、图标 21pt、圆角、占满整行
-        + "  div[class*=\"_navCell\"]{width:100% !important;height:auto !important;"
+        + "  [class*=\"_navCell\"]{width:100% !important;height:auto !important;"
         + "min-height:46px !important;padding:0 26px !important;gap:12px !important;"
         + "border-radius:0 !important;align-items:center !important;"
         + "font-size:15.5px !important;white-space:normal !important;}\n"
         // 导航项图标：设计稿 21pt
-        + "  div[class*=\"_navIcon\"]{width:21px !important;height:21px !important;"
+        + "  [class*=\"_navIcon\"]{width:21px !important;height:21px !important;"
         + "flex:none !important;}\n"
         + "  div[class*=\"_navLabel\"]{font-size:15.5px !important;font-weight:600 !important;"
         + "white-space:normal !important;overflow-wrap:normal !important;"
@@ -144,24 +144,24 @@ public final class MobileTuning {
         + "  div[class*=\"_active\"]{background:var(--dsw-alias-bg-mask-1,#f1f3f5) !important;"
         + "border-radius:14px !important;}\n"
         // 内容：全宽单列
-        + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;"
+        + "  [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
-        + "  div[class*=\"_options\"]{padding:0 26px 24px !important;}\n"
+        + "  [class*=\"_options\"]{padding:0 26px 24px !important;}\n"
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
-        + "  div[class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
-        + "  div[class*=\"_options\"] *{max-width:100% !important;}\n"
+        + "  [class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
+        + "  [class*=\"_options\"] *{max-width:100% !important;}\n"
         // ===== 设置页分级：二级列表 → 三级详情（对齐设计稿的两级页面）=====
         // 二级页：只显示导航列表（通用设置/ 模型 / 插件 / Agent 预设…），标题为「设置」
         // 三级页：点某个导航项后，内容全屏显示，顶部出现返回箭头
         //实现：body 上挂 dsh-s-l2 / dsh-s-l3 两个状态类，由 JS 切换。
         // ⚠️ 所有状态规则都必须**收窄到 _panel 内**：`_content`/`_nav` 是通用后缀，
         //    不限定作用域会误伤 dsh 主界面上同后缀的元素（r25 灰屏的放大器）。
-        + "  body.dsh-s-l2 div[class*=\"_panel\"] div[class*=\"_content\"]{display:none !important;}\n"
-        + "  body.dsh-s-l3 div[class*=\"_panel\"] div[class*=\"_nav\"]{display:none !important;}\n"
+        + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_content\"]{display:none !important;}\n"
+        + "  body.dsh-s-l3 [class*=\"_panel\"] [class*=\"_nav\"]{display:none !important;}\n"
         // 三级页头部：显示返回箭头 + 标题
-        + "  div[class*=\"_panel\"] div[class*=\"_header\"]{display:flex !important;align-items:center !important;"
+        + "  [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;align-items:center !important;"
         + "gap:10px !important;padding:14px 18px 8px 12px !important;}\n"
-        + "  div[class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
+        + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
         + "  #dsh-s-back{display:none !important;width:40px !important;height:40px !important;"
@@ -170,7 +170,19 @@ public final class MobileTuning {
         + "-webkit-tap-highlight-color:transparent;}\n"
         + "  body.dsh-s-l3 #dsh-s-back{display:inline-flex !important;}\n"
         // 二级页的面板/导航间距
-        + "  body.dsh-s-l2 div[class*=\"_panel\"] div[class*=\"_nav\"]{padding-top:4px !important;}\n"
+        + "  body.dsh-s-l2 [class*=\"_panel\"] [class*=\"_nav\"]{padding-top:4px !important;}\n"
+        // ===== 插件市场（三级页）· 对齐设计稿单列全宽风格 =====
+        // dsh-client-ui-settings-plugin-inventory 自带网格 `_cards`
+        // (minmax(0,1fr) / repeat(2,...))，手机上两列会把插件名挤成竖排，
+        // 统一压成单列；卡片圆角/边框按设计稿 ink-200 走。
+        + "  [class*=\"_cards\"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}\n"
+        + "  [class*=\"_card\"]{border-radius:var(--ds-r-md,16px) !important;}\n"
+        + "  [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
+        + "  [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
+        + "padding-top:14px !important;margin-top:4px !important;}\n"
+        + "  [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
+        + "  [class*=\"_entryValue\"],.dsh-s-l3 [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
         // ===== 首页/对话区 · 对齐设计稿「首页布局规格· Home Layout」=====
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
@@ -190,7 +202,7 @@ public final class MobileTuning {
         // 主内容垂直居中，底部预留 48px 视觉配重（设计稿）
         + "  div[class*=\"frame\"] > div[class*=\"col\"]{justify-content:center !important;"
         + "padding-bottom:48px !important;}\n"
-        + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
+        + "  [class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
         // 侧栏按钮给足触摸目标
@@ -234,7 +246,7 @@ public final class MobileTuning {
         // 关键：状态类**只在设置面板 overlay 存在时**才生效，且必须由
         // syncState() 真正调用（r26 漏调，导致 L2 从未加上，
         // 导航与内容一直并排显示 —— 真机反馈"还是放在同一个页面里"）。
-        + "      function overlay(){return document.querySelector('div[class*=\"_overlay\"]');}\n"
+        + "      function overlay(){return document.querySelector('[class*=\"_overlay\"]');}\n"
         + "      function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}\n"
         + "      function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}\n"
         // 自建返回按钮（设计稿：40pt 圆底 #F1F3F5 + chevron-left）
@@ -252,7 +264,7 @@ public final class MobileTuning {
         + "        syncBack();\n"
         + "      }\n"
         + "      function syncBack(){\n"
-        + "        var hdr=document.querySelector('div[class*=\"_header\"]');\n"
+        + "        var hdr=document.querySelector('[class*=\"_header\"]');\n"
         + "        if(!hdr){return;}\n"
         + "        if(b.classList.contains('dsh-s-l3')){\n"
         + "          if(!hdr.contains(back)){hdr.insertBefore(back,hdr.firstChild);}\n"
@@ -263,12 +275,12 @@ public final class MobileTuning {
         + "        var t=e.target;\n"
         + "        if(!t||!t.closest){sync();return;}\n"
         // 点右上角关闭 / 点遮罩 -> 让dsh 正常关闭，只清状态类（**绝不拦截**）
-        + "        var closer=t.closest('div[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]');\n"
+        + "        var closer=t.closest('[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]');\n"
         + "        var ov=overlay();\n"
         + "        var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));\n"
         + "        if(closer||onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
         // 点导航项 -> 进三级页（不preventDefault，让 dsh 自己切内容）
-        + "        var cell=t.closest('div[class*=\"_navCell\"]');\n"
+        + "        var cell=t.closest('[class*=\"_navCell\"]');\n"
         + "        if(cell&&b.classList.contains('dsh-s-l2')){setL3();syncBack();}\n"
         + "        else{sync();}\n"
         + "      },true);\n"
