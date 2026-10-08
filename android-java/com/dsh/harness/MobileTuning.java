@@ -87,46 +87,60 @@ public final class MobileTuning {
         + "{display:none !important;}\n"
         // 右栏别把主区挤没
         + "  div[class*=\"rightbarCol\"]{max-width:min(92vw,420px);}\n"
-        // ===== 设置面板重写（窄屏）=====
-        // 真实结构（从 dsh-client-ui-settings-general 的 CSS module 挖出来）：
-        //   [class*="_overlay"] position:fixed inset:0 display:flex（居中浮层）
+        // ===== 设置面板重写（窄屏）·对齐《移动端 UI 设计系统》设置页规格 =====
+        // dsh 真实结构（从 dsh-client-ui-settings-general 的 CSS module 挖出）：
+        //   [class*="_overlay"] position:fixed inset:0 display:flex（独立浮层）
         //   [class*="_panel"]   width:800px; max-width:calc(100vw - 48px); display:flex
-        //   [class*="_nav"]     width:188px  ← 硬编码固定宽，这是两栏并排的根源
+        //   [class*="_nav"]     width:188px  ← 硬编码固定宽，两栏并排的根源
         //   [class*="_content"] flex-direction:column; flex:1; min-width:0
         //   [class*="_options"] padding:0 24px 24px; overflow-y:auto
-        //   [class*="_navLabel"] white-space:nowrap
-        // 手机上 100vw-48px 再减 188px，内容区只剩约 130px，中文标签
-        // min-content 就是 1 字宽 → 一字一行（r18 的 overflow-wrap:anywhere 还会放大）。
+        //   [class*="_navCell"] / [class*="_navLabel"] / [class*="_navList"] / [class*="_navTitle"]
         //
-        // 窄屏改成「导航横向 tab 在上 + 内容全宽在下」，对齐真机上的全屏单列观感。
+        // ⚠️ 面板是 position:fixed 的独立浮层，宽度参照**视口**而非侧栏 ——
+        // 所以把侧栏拉宽对它毫无作用。手机上 100vw-48px 再减 188px 导航列，
+        // 内容区只剩约 130px，中文标签 min-width:auto 就是 1 个字宽 → 一字一行。
+        //
+        // 设计稿要求的形态（不是横向 tab！）：**单列全宽列表**
+        //   列表项 15.5px/#111 + 图标 21pt、行高 15px 内边距、圆角胶囊选择器 #F1F3F5、
+        //   分组标签 13px/#8B9098 左缩进 26px。
+        // dsh 是单页结构（导航与内容同一容器），所以让导航项竖排占满一行、内容在下，
+        // 点哪个导航项就显示对应内容 —— 视觉上就是设计稿的全屏单列设置页。
         // 用属性选择器 [class*="_nav"] 前缀匹配，规避 CSS module 哈希随版本变化。
-        + "  div[class*=\"_panel\"]{max-width:100vw !important;width:100vw !important;"
-        + "height:100vh !important;border-radius:0 !important;}\n"
         + "  div[class*=\"_overlay\"]{padding:0 !important;align-items:stretch !important;"
         + "justify-content:stretch !important;}\n"
-        // 面板本身 column：导航在上、内容在下
-        + "  div[class*=\"_panel\"]{flex-direction:column !important;}\n"
-        // 导航：固定 188px -> 横向可滚动 tab 条
+        + "  div[class*=\"_panel\"]{width:100vw !important;max-width:100vw !important;"
+        + "height:100vh !important;border-radius:0 !important;flex-direction:column !important;}\n"
+        // 导航：188px 固定 -> 单列全宽（设计稿：列表项占满整行）
         + "  div[class*=\"_nav\"]{width:100% !important;max-width:100% !important;"
-        + "flex:0 0 auto !important;flex-direction:row !important;gap:8px !important;"
-        + "padding:10px 12px !important;overflow-x:auto !important;overflow-y:hidden !important;"
-        + "-webkit-overflow-scrolling:touch;border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.2)) !important;"
-        + "scrollbar-width:none;}\n"
-        + "  div[class*=\"_nav\"]::-webkit-scrollbar{display:none;}\n"
-        // 导航标题（"设置"）在窄屏隐藏，标题已在 header 里
+        + "flex:0 0 auto !important;flex-direction:column !important;gap:0 !important;"
+        + "padding:8px 0 6px !important;overflow:visible !important;"
+        + "border-bottom:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.18)) !important;}\n"
+        // 导航标题（"设置"）隐藏：面板 header 已有标题，避免重复
         + "  div[class*=\"_navTitle\"]{display:none !important;}\n"
-        // 导航项：变成横向 chip
-        + "  div[class*=\"_navCell\"]{flex:0 0 auto !important;width:auto !important;"
-        + "height:36px !important;padding:0 14px !important;border-radius:18px !important;"
-        + "align-items:center !important;white-space:nowrap !important;}\n"
-        + "  div[class*=\"_navList\"]{flex-direction:row !important;gap:8px !important;"
-        + "align-items:center !important;}\n"
-        // 内容：全宽
-        + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
-        + "  div[class*=\"_options\"]{padding:0 16px 20px !important;}\n"
+        // 导航列表：竖排，贴合设计稿的分组标签 + 列表项
+        + "  div[class*=\"_navList\"]{flex-direction:column !important;gap:2px !important;}\n"
+        // 列表项：15.5px/#111、图标 21pt、圆角、占满整行
+        + "  div[class*=\"_navCell\"]{width:100% !important;height:auto !important;"
+        + "min-height:46px !important;padding:0 26px !important;gap:12px !important;"
+        + "border-radius:0 !important;align-items:center !important;"
+        + "font-size:15.5px !important;white-space:normal !important;}\n"
+        // 导航项图标：设计稿 21pt
+        + "  div[class*=\"_navIcon\"]{width:21px !important;height:21px !important;"
+        + "flex:none !important;}\n"
+        + "  div[class*=\"_navLabel\"]{font-size:15.5px !important;font-weight:600 !important;"
+        + "white-space:normal !important;overflow-wrap:normal !important;"
+        + "word-break:normal !important;}\n"
+        // 选中态：设计稿用 #F1F3F5 胶囊
+        + "  div[class*=\"_active\"]{background:var(--dsw-alias-bg-mask-1,#f1f3f5) !important;"
+        + "border-radius:14px !important;}\n"
+        // 内容：全宽单列
+        + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;"
+        + "flex:1 1 auto !important;}\n"
+        + "  div[class*=\"_options\"]{padding:0 26px 24px !important;}\n"
         // 覆盖 r18 的 anywhere —— 强制正常换行，杜绝一字一行
         + "  div[class*=\"_panel\"] *{overflow-wrap:normal !important;word-break:normal !important;}\n"
         + "  div[class*=\"_options\"] *{max-width:100% !important;}\n"
+        + "  div[class*=\"_content\"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}\n"
         // 拖拽把手在触屏上无用，还会吃掉边缘手势
         + "  div[class*=\"handle\"]{display:none !important;}\n"
         // 侧栏按钮给足触摸目标
