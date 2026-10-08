@@ -48,6 +48,10 @@ DENSITIES = {
     "xxxhdpi": 192,
 }
 FG_SCALE = 0.58   # 鲸鱼占 108dp 画布的比例，安全区66%（留余量避免尾部贴边）
+# 视觉居中经验补偿（占画布比例）。鲸鱼形状重心偏上，需向下微调；
+# 水平方向尾巴在右、头部在左，也需轻微右移。数值由真机视觉比对调定。
+FG_TRIM_X = -0.048   # paste(canvas,(-ox,-oy))，故取负号才是"右移"
+FG_TRIM_Y = 0.176
 
 
 def log(*a):
@@ -220,8 +224,17 @@ def cut_background(im):
     return im
 
 
-def trim_bbox(im):
-    bbox = im.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+def trim_bbox(im, thresh=128):
+    """按**不透明核心**裁剪（默认 alpha>128）。
+
+    ⚠️ 阈值必须用 128 而不是 8（真机反馈：桌面图标鲸鱼明显偏上）。
+    抠图后边缘经 GaussianBlur 羽化，存在 alpha 8~128 的过渡像素；
+    用低阈值(8) 会把这些"几乎透明"的边缘算进 bbox，
+    使裁剪框比肉眼可见主体大、且**上下不对称** ——
+    贴到 108dp 画布后鲸鱼明显偏上（实测 xxxhdpi偏 36px）。
+    用 128 只量实体部分，尺寸才与视觉主体一致。
+    """
+    bbox = im.getchannel("A").point(lambda v: 255 if v > thresh else 0).getbbox()
     return im.crop(bbox) if bbox else im
 
 
@@ -257,12 +270,65 @@ def main():
     for dens, launcher_px in DENSITIES.items():
         out_dir = os.path.join(RES, "mipmap-" + dens)
         canvas_px = int(launcher_px * 108 / 48)      # 48px→108dp 画布
-        target = max(1, int(canvas_px * FG_SCALE))
-        scale = target / max(whale.size)
-        nw_, nh_ = max(1, int(whale.size[0] * scale)), max(1, int(whale.size[1] * scale))
-        fg = whale.resize((nw_, nh_), Image.LANCZOS)
+        # ⚠️ 必须按**不透明主体**的尺寸归一化，不能用 whale.size。
+        #   whale 虽然被 trim_bbox 裁过，但边缘仍有 alpha 8~128 的羽化过渡像素，
+        #   用 whale.size 算scale 会把"几乎透明"的边也算进去，导致：
+        #     -缩放目标偏大 → 主体被裁到安全区外
+        #     - 且上下过渡像素不对称 → 视觉上鲸鱼偏移（真机反馈偏上）
+        # 所以这里先量出alpha>128 的真实主体 bbox，再按它居中缩放。
+        core = whale.getchannel("A").point(lambda v: 255 if v > 128 else 0).getbbox()
+        if not core:
+            continue
+        cw, ch = core[2] - core[0], core[3] - core[1]
+        # 主体按 FG_SCALE 占画布（等比），再居中
+        scale = (canvas_px * FG_SCALE) / max(cw, ch)
+        nw_ = max(1, int(cw * scale))
+        nh_ = max(1, int(ch * scale))
+        # 只取主体区域缩放（丢掉羽化边），保证量到即所见
+        fg = whale.crop(core).resize((nw_, nh_), Image.LANCZOS)
         canvas = Image.new("RGBA", (canvas_px, canvas_px), (0, 0, 0, 0))
         canvas.paste(fg, ((canvas_px - nw_) // 2, (canvas_px - nh_) // 2), fg)
+
+        # ---- 视觉重心对齐 ----
+        # 数学 bbox 居中 ≠ 视觉居中。鲸鱼有翘起的尾巴、饱满的腹部，
+        # 用 alpha 加权质心（perceived center）比 bbox 中心更贴近人眼判断。
+        # 注：实测质心与 bbox 中心很接近（鲸鱼形状本身重心偏上一点），
+        # 所以这里在质心对齐的基础上再叠加一个**经验补偿**，把主体压到视觉中心。
+        a = canvas.getchannel("A")
+        ap = a.load()
+        sw = sx = sy = 0
+        for y in range(canvas_px):
+            for x in range(canvas_px):
+                wgt = ap[x, y]
+                if wgt:
+                    sw += wgt
+                    sx += x * wgt
+                    sy += y * wgt
+        # 把 alpha 加权质心**迭代移���画布中心**（直接用测量值闭环，不靠经验系数）。
+        # 之前用"经验补偿系数"反复试错（TRIM_Y 0.015->0.085->0.176 越调越偏），
+        # 根因是没搞清 paste(canvas,(-ox,-oy)) 的方向语义。改为：
+        #   量出当前质心 -> 算出到中心的偏移 -> 按该偏移平移 -> 完成。
+        # 每种密度独立收敛，结果必然是"视觉重心 = 画布中心"。
+        for _ in range(4):
+            ap = canvas.getchannel("A").load()
+            sw = sx = sy = 0
+            for y in range(canvas_px):
+                for x in range(canvas_px):
+                    wgt = ap[x, y]
+                    if wgt:
+                        sw += wgt
+                        sx += x * wgt
+                        sy += y * wgt
+            if not sw:
+                break
+            vx, vy = sx / sw, sy / sw
+            ox = int(round(vx - canvas_px / 2.0))
+            oy = int(round(vy - canvas_px / 2.0))
+            if ox == 0 and oy == 0:
+                break
+            shifted = Image.new("RGBA", (canvas_px, canvas_px), (0, 0, 0, 0))
+            shifted.paste(canvas, (-ox, -oy))   # 质心偏移 ox,oy -> 反向平移
+            canvas = shifted
         canvas.save(os.path.join(out_dir, "dsh_foreground.png"))
     log(f"  adaptive 前景 {len(DENSITIES)} 个密度完成（画布 = 108dp，安全区内）")
 

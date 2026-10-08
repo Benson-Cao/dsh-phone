@@ -169,21 +169,22 @@ public final class MobileTuning {
         + "  [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:18px !important;font-weight:750 !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;}\n"
         // 我们自建的返回按钮（仅三级页可见）
-        // 返回按钮挂在 body 上（避开 React 管辖），用 absolute 覆盖到 header 左侧。
-        // 顶栏 dsh-mtop 高度 48px；面板 header padding 14px 18px 8px 12px，
-        // 所以 left:12px + 40px 直径正好落在 header 左侧，与「打开配置文件」同行。
-        + "  #dsh-s-back{display:none !important;position:absolute !important;"
-        + "top:14px !important;left:12px !important;z-index:1001 !important;"
-        + "width:40px !important;height:40px !important;border:0 !important;"
+        // ===== 返回上一级：复用 dsh 自带的 ✘（_close），移到 header 左侧 =====
+        // 用户反馈"自建返回箭头和 ✘ 重复了" —— 所以**删掉自建按钮**，
+        // 直接把原生 ✘ 用 flex `order` 调到最左（不脱离 React DOM，只改视觉顺序）。
+        // 二级页：✘ 保持原位（右侧，语义=关闭面板）。
+        // 三级页：✘ 移到左侧第一项，语义=返回上一级（由 JS 拦截点击）。
+        + "  body.dsh-s-l3 [class*=\"_header\"]{padding-left:14px !important;}\n"
+        + "  body.dsh-s-l3 [class*=\"_close\"]{order:-1 !important;margin-right:auto !important;}\n"
+        // 三级页的 header 标题独占剩余空间（✘ 在左，标题居中偏右）
+        + "  body.dsh-s-l3 [class*=\"_headerTitle\"]{flex:1 1 auto !important;"
+        + "padding-left:12px !important;}\n"
+        // 三级页里 ✘ 换成 chevron-left 的视觉（用 CSS 旋转90° 的十字→箭头不现实，
+        // 改为放大点击区+品牌色，和设计稿的圆形返回键观感一致）
+        + "  body.dsh-s-l3 [class*=\"_close\"]{width:34px !important;height:34px !important;"
         + "border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
-        + "color:var(--ds-ink-900,#0d1b2e) !important;display:inline-flex !important;"
-        + "align-items:center !important;justify-content:center !important;"
-        + "cursor:pointer !important;-webkit-tap-highlight-color:transparent;"
-        + "box-shadow:var(--sh-sm,0 1px 3px rgba(13,27,46,.10)) !important;}\n"
-        + "  #dsh-s-back:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
-        + "  body.dsh-s-l2 #dsh-s-back,body:not(.dsh-s-l3) #dsh-s-back{display:none !important;}\n"
-        // 三级页的 header 左侧留出返回按钮的位置（否则标题会被压住）
-        + "  body.dsh-s-l3 [class*=\"_header\"]{padding-left:64px !important;}\n"
+        + "color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;}\n"
+        + "  body.dsh-s-l3 [class*=\"_close\"]:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
         // 二级页的面板/导航间距
         + "  body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}\n"
         // ===== 插件市场（三级页）· 对齐设计稿单列全宽风格 =====
@@ -264,13 +265,7 @@ public final class MobileTuning {
         + "      function overlay(){return document.querySelector('[class*=\"_overlay\"]');}\n"
         + "      function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}\n"
         + "      function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}\n"
-        // 自建返回按钮（设计稿：40pt 圆底 #F1F3F5 + chevron-left）
-        + "      var back=document.createElement('button');back.id='dsh-s-back';\n"
-        + "      back.type='button';back.setAttribute('aria-label','返回');\n"
-        + "      back.innerHTML='<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\"'\n"
-        + "        +' stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"'\n"
-        + "        +' stroke-linejoin=\"round\"><path d=\"M15 5l-7 7 7 7\"/></svg>';\n"
-        + "      back.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();setL2();sync();});\n"
+
         // 单一 sync：面板开->按当前层级显示；面板关->清状态类
         // 给导航**容器**打标记：CSS 靠它限定作用域，避免 [class*="_nav"]
         // 过度匹配到 _navIcon/_navLabel（那会把图标和文字也变成 column 布局）。
@@ -288,24 +283,33 @@ public final class MobileTuning {
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
         + "        syncBack();\n"
         + "      }\n"
-        // ⚠️ **返回按钮必须挂在 body 上，不能插进dsh 的 _header**：
-        //   _header 是 React 管理的 DOM，dsh 每次重渲染都会把不属于它的节点清掉
-        //   -> 真机表现：进三级页后返回按钮**凭空消失**（r29 的 bug）。
-        //   挂在 body 上则不受 React 管辖，配合 absolute 定位覆盖到 header 左侧。
+        // 返回按钮不再自建：改用dsh 自带的 `_close`（✘），把它移到左侧。
+        // 理由：两个按钮功能重复（用户反馈"和 ✘ 号重复了"），且自建那个要额外
+        // 维护定位/层级。复用原生按钮只改 CSS 位置，行为也保持原生。
         + "      function syncBack(){\n"
-        + "        var on=b.classList.contains('dsh-s-l3');\n"
-        + "        if(on&&!back.parentNode){document.body.appendChild(back);}\n"
-        + "        if(!on&&back.parentNode){back.parentNode.removeChild(back);}\n"
+        // 三级页点 ✘ 的语义由下面的 click 处理器切换（返回上一级 / 关闭面板），这里无需做事
         + "      }\n"
         // 唯一的事件入口（capture阶段，先于 dsh 自己的处理）
         + "      document.addEventListener('click',function(e){\n"
         + "        var t=e.target;\n"
         + "        if(!t||!t.closest){sync();return;}\n"
-        // 点右上角关闭 / 点遮罩 -> 让dsh 正常关闭，只清状态类（**绝不拦截**）
+        // 点 ✘（_close）：**分级语义**——
+        //   二级页 -> 关闭面板（放行给 dsh，绝不拦截，否则 overlay 永不卸载、
+        //             _mask 兄弟节点会一直盖在全屏，r26 踩过这个坑）
+        //   三级页 -> 返回上一级（拦截，阻止关闭）
         + "        var closer=t.closest('[class*=\"_close\"],button[aria-label*=\"关闭\"],button[aria-label*=\"Close\"]');\n"
+        + "        if(closer){\n"
+        + "          if(b.classList.contains('dsh-s-l3')){\n"
+        + "            e.preventDefault();e.stopPropagation();setL2();syncBack();\n"
+        + "          }else{\n"
+        + "            b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');\n"
+        + "          }\n"
+        + "          return;\n"
+        + "        }\n"
+        // 点遮罩空白处关闭 -> 清状态类，放行给 dsh
         + "        var ov=overlay();\n"
         + "        var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));\n"
-        + "        if(closer||onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
+        + "        if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}\n"
         // 点导航项 -> 进三级页（不preventDefault，让 dsh 自己切内容）
         + "        var cell=t.closest('[class*=\"_navCell\"]');\n"
         + "        if(cell&&b.classList.contains('dsh-s-l2')){setL3();syncBack();}\n"
