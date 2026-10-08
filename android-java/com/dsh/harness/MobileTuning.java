@@ -52,35 +52,51 @@ public final class MobileTuning {
         + "--ds-ink-200:#d8e1ea;--ds-ink-100:#eef2f6;--ds-ink-50:#f7f9fc;"
         + "--ds-r-sm:12px;--ds-r-md:16px;--ds-r-lg:22px;--ds-r-full:999px;}\n"
         /* 注入的外壳：默认 display:none，只有窄屏媒体查询里才启用 */
-        + "#dsh-mtop{position:fixed;top:0;left:0;right:0;height:" + TOPBAR_H + "px;z-index:61;"
-        + "display:none;align-items:center;gap:8px;padding:0 10px 0 6px;box-sizing:border-box;"
-        + "background:var(--ds-ink-50);"
-        + "border-bottom:1px solid var(--ds-ink-200);}\n"
+        // 汉堡做成**悬浮毛玻璃圆钮**：容器背景透明、高度贴合按钮，
+        // 这样它只占左上角一小块，不再在内容上方留一整行空白
+        // （用户反馈"顶部汉堡不要单独占据一行"）。
+        + "#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;"
+        + "display:none;align-items:flex-start;gap:8px;padding:6px 0 0 6px;"
+        + "box-sizing:border-box;background:transparent;pointer-events:none;}\n"
+        + "#dsh-mtop>*{pointer-events:auto;}\n"
         // 设计稿「首页布局规格」：工具条按钮 42×42pt；标题用 ink-900
         + "#dsh-mtop .dsh-mtitle{font-size:16px;font-weight:700;"
         + "color:var(--ds-ink-900);white-space:nowrap;"
         + "overflow:hidden;text-overflow:ellipsis;letter-spacing:0;}\n"
-        + "#dsh-mbtn{width:42px;height:42px;border:0;border-radius:12px;background:transparent;"
+        + "#dsh-mbtn{width:42px;height:42px;border:0;border-radius:12px;"
+        + "background:rgba(247,249,252,.86);backdrop-filter:blur(10px);"
+        + "-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);"
         + "color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;"
         + "-webkit-tap-highlight-color:transparent;cursor:pointer;}\n"
         // 按压反馈用 ink-100（设计稿浅色体系下的hover/active 面）
-        + "#dsh-mbtn:active{background:var(--ds-ink-100);}\n"
+        + "#dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}\n"
         + "#dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);"
         + "opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}\n"
         + "body.dsh-drawer-open #dsh-scrim{opacity:1;visibility:visible;}\n"
         + "@media (max-width:1023px){\n"
-        + "  #dsh-mtop{display:flex;}\n"
-        // 主区独占第一列；右栏列宽交给内容（关着时为 0），避免 auto 隐式列出怪
+        // 汉堡做成**悬浮圆钮**（不再整行占位、下面不需要留白）——
+        // 用户反馈"顶部汉堡不要单独占据一行"。
+        + "  #dsh-mtop{display:flex;align-items:center;}\n"
+        // 主区独占第一列；右栏列宽交给内容（关着时为 0），避免 auto 隐式列出怪。
+        // padding-top 收到 0：顶栏已是 position:fixed 悬浮，不需要再给主区让位。
         + "  div[class*=\"frame\"]{grid-template-columns:minmax(0,1fr) auto !important;"
-        + "padding-top:" + TOPBAR_H + "px !important;box-sizing:border-box !important;}\n"
-        // 侧栏脱离网格流 -> 抽屉。窄屏下开到接近全屏：dsh 的设置面板是「导航 + 内容」
-        // 两栏并排（导航列约 180px），侧栏太窄会把内容列压成一字一行。
+        + "padding-top:0 !important;box-sizing:border-box !important;}\n"
+        // 侧栏（设置面板真实宿主）脱离网格流 -> 抽屉。
+        // ⚠️ 宽度必须**精确等于视口宽**：之前用 calc(100vw - 20px) 想留出"抽屉感"，
+        //   结果右侧永远有一条 20px 灰条（用户反馈"没有铺满整个手机屏幕"）。
+        //   现在用 left:0 + right:0 + width:100% 三重保险，并把 top 也交给 topbar 高度变量。
         + "  div[class*=\"sidebarCol\"]{position:absolute !important;"
         + "top:" + TOPBAR_H + "px !important;bottom:0 !important;left:0 !important;"
-        + "width:calc(100vw - 20px) !important;max-width:none !important;z-index:62 !important;"
+        + "right:0 !important;width:100% !important;max-width:none !important;"
+        + "margin:0 !important;padding:0 !important;box-sizing:border-box !important;"
+        + "z-index:62 !important;"
         + "transform:translate3d(-102%,0,0);"
         + "transition:transform .22s cubic-bezier(.4,0,.2,1);"
         + "box-shadow:0 8px 40px rgba(0,0,0,.55);will-change:transform;}\n"
+        // ⚠️ 面板必须**能滚动**：dsh 的设置面板内容可能很长，
+        //   但它的滚动容器被 flex 布局限死，导致"页面无法往下滚动"（用户反馈）。
+        + "  div[class*=\"sidebarCol\"]{overflow-y:auto !important;"
+        + "-webkit-overflow-scrolling:touch !important;overscroll-behavior:contain !important;}\n"
         + "  body.dsh-drawer-open div[class*=\"sidebarCol\"]"
         + "{transform:translate3d(0,0,0) !important;}\n"
         // 挤成竖排的根因：flex/grid 子项默认 min-width:auto 会拒绝收缩，
@@ -205,6 +221,12 @@ public final class MobileTuning {
         + "  [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
         + "  [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
         + "  [class*=\"_entryValue\"],.dsh-s-l3 [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
+        // 内容列允许滚动：dsh 的 _content 是 flex:1，若不给 overflow 会把
+        // 长内容截断且无法滚动（用户反馈"页面无法往下滚动"）。
+        + "  [class*=\"_content\"]{overflow-y:auto !important;"
+        + "-webkit-overflow-scrolling:touch !important;}\n"
+        + "  [class*=\"_options\"]{overflow-y:auto !important;"
+        + "-webkit-overflow-scrolling:touch !important;}\n"
         // ===== 插件市场入口（注入卡片，挂在设置二级页顶部）=====
         + "  #dsh-market-card{display:none !important;margin:10px 26px 4px !important;"
         + "padding:14px 16px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;"
@@ -320,13 +342,23 @@ public final class MobileTuning {
         + "        if(!btn||!window.dshNative){return;}\n"
         + "        var v='';\n"
         + "        try{ v=window.dshNative.marketInstalled(); }catch(e){}\n"
-        + "        if(v){ btn.textContent='已安装 v'+v; btn.setAttribute('disabled','disabled'); }\n"
-        + "        else { btn.textContent='安装'; btn.removeAttribute('disabled'); }\n"
+        // 已安装 -> 按钮变成"打开市场"（**可点**）。
+        // dshmarket 是**独立路由页** /dsh-market（lib/routes.js 实测），
+        // 并不注册进设置面板，所以装完必须自己给出入口，否则"装了却用不了"。
+        + "        if(v){ btn.textContent='打开市场'; btn.removeAttribute('disabled');\n"
+        + "          btn.setAttribute('data-open','1'); }\n"
+        + "        else { btn.textContent='安装'; btn.removeAttribute('disabled');\n"
+        + "          btn.removeAttribute('data-open'); }\n"
         + "      }\n"
         + "      var installing=false;\n"
         + "      function onMarket(e){\n"
         + "        e.preventDefault();e.stopPropagation();\n"
         + "        if(installing){return;}\n"
+        // 已安装 -> 直接打开市场页面（同源相对路径，dsh 自己的 webserver 提供）
+        + "        if(btn.getAttribute('data-open')==='1'){\n"
+        + "          location.href='/dsh-market';\n"
+        + "          return;\n"
+        + "        }\n"
         + "        installing=true;\n"
         + "        var btn=document.getElementById('dsh-market-btn');\n"
         + "        btn.textContent='安装中…';btn.setAttribute('disabled','disabled');\n"
