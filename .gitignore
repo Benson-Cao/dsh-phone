@@ -1,0 +1,34 @@
+# ===== 打包产物（大文件 / 二进制，不入库）=====
+*.apk
+*.aab
+*.ap_
+*.dex
+*.so
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# termux-app 克隆目录（由 00-build-apk.sh 自动 clone）
+/termux-app/
+termux-app/
+
+# dsh 运行环境 bundle（204MB；在手机 Termux 上跑 02-build-bundle.sh 生成）
+dsh-bundle*.tar.gz
+dsh-node-*.tar.gz
+termux-*.tar.gz
+node-binary.tar.gz
+
+# 构建中间产物
+/build/
+/app/
+/.gradle/
+local.properties
+*.iml
+.idea/
+
+# 本地临时
+*.log
+.DS_Store
+Thumbs.db
+__pycache__/

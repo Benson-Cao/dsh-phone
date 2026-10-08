@@ -1,0 +1,19 @@
+# 默认按 LF 存入库，检出时按平台决定
+* text=auto eol=lf
+
+# shell / python 脚本必须是 LF：CRLF 会让 bash 直接报 "bad interpreter"
+*.sh text eol=lf
+*.py text eol=lf
+
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制
+*.apk binary
+*.tar binary
+*.gz binary
+*.zip binary
+*.so binary
+*.node binary
+*.png binary
