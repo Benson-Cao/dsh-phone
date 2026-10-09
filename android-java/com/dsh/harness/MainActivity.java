@@ -405,16 +405,30 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // ⚠️ r48：返回键**不能**用 webView.goBack()。
-        //   dsh 是 SPA（history.pushState 路由），goBack() 会让 WebView 重新加载
+        // ⚠️ r48/r49：返回一律走 history.back()，绝不用 webView.goBack()。
+        //   dsh 是 SPA（history.pushState 路由），goBack() 会让 WebView **重新加载**
         //   那个历史项的文档 —— 一旦历史里混进服务端不存在的路径（404 空响应），
-        //   重新加载就是一片空白，只剩注入层还在（用户反馈「从插件市场返回后白屏」）。
-        //   history.back() 走的是同文档历史，只触发 popstate，SPA 自己能处理；
-        //   对真正的跨文档历史项，浏览器也会正常重新导航。
+        //   重新加载就是一片空白，只剩注入层（用户反馈「侧滑返回后白屏」）。
+        //   history.back() 走同文档历史，只触发 popstate，SPA 自己能处理。
         if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
             webView.evaluateJavascript("window.history.back();", null);
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // r49：应用每次回到前台都清一次 WebView 历史。
+        //   侧滑返回在本项目里**不经过 Activity**（targetSdk=28，预测性返回未启用，
+        //   侧滑走 WebView 自己的历史回退），Java 层拦不住 —— 只能从源头保证
+        //   「历史里没有可回退的脏条目」：清掉之后canGoBack() 为 false，
+        //   侧滑/返回键会直接落到 Activity 的默认行为，而不是回退到 404 白屏页。
+        //   代价：dsh 自己的 SPA 前进导航也会被清（用户在应用内前进需重进应用），
+        //   但 dsh 主要靠汉堡侧栏导航，不依赖浏览器前进，可接受。
+        if (webView != null) {
+            try { webView.clearHistory(); } catch (Throwable ignored) { }
+        }
     }
 }

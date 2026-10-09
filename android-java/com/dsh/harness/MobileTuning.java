@@ -1161,24 +1161,36 @@ public final class MobileTuning {
         + "    setInterval(function(){tagHosts();syncOvFlag();},500);\n"
         + "    setInterval(detectDark,500);\n"
         + "    detectDark();\n"
-        // ===== 返回键自愈 =====
-        // MainActivity 的返回键走 webView.goBack()（浏览器历史）。dsh 是 SPA，
-        // 如果历史里混入过「服务端不存在的路径」（如 r43 那次整页跳 /dsh-market -> 404），
-        // 返回时 WebView 会重新加载那个 404 -> 白屏，只剩我们注入的汉堡。
-        // 这里记下真正的应用入口，返回后若发现当前文档既不是入口也没有 dsh 主区域，
-        // 就用 replace 回入口 —— replace 不会新增历史项，不会再死循环。
-        + "    window.__dshHomeUrl=location.href;\n"
-        + "    window.addEventListener('popstate',function(){\n"
-        + "      setTimeout(function(){\n"
-        + "        var ov=document.querySelector('[class*=\"_overlay\"]');\n"
-        + "        var center=document.querySelector('div[class*=\"centerCol\"]');\n"
-        + "        var home=document.getElementById('dsh-market-shell');\n"
-        + "        var dead=(!ov&&(!center||center.children.length===0)&&!home);\n"
-        + "        if(dead&&window.__dshHomeUrl&&location.href!==window.__dshHomeUrl){\n"
-        + "          try{ location.replace(window.__dshHomeUrl); }catch(e){}\n"
-        + "        }\n"
-        + "      },260);\n"
-        + "    });\n"
+        // ===== 返回后自愈 =====
+        // 现象：从插件市场侧滑返回 -> 整页白屏，只剩注入的汉堡。
+        // 成因：r43 时期的整页跳转在浏览器历史里留下了一条 **404 文档**。
+        //   targetSdk=28，Android 13 的预测性返回未启用，侧滑/返回走的是
+        //   **WebView 自己的历史回退**，完全不经过 Activity —— 拦不住。
+        //   回退到 404 文档 = 重新加载一个没有 dsh 的页面 = 白屏。
+        // 关键点：**跨文档回退不会触发 popstate**，所以自愈必须写在
+        //   「文档刚加载完」这条路上（mount 里），而不是只监听 popstate。
+        // 而且判定不能比 URL —— 404 文档里注入也会跑，此时 __dshHomeUrl
+        //   恰好就是那个 404 URL，自比对永远成立 -> 永远不自救（r48 的 bug）。
+        // 正确判据：**这个文档里有没有 dsh 的根节点**。
+        + "    function dshAlive(){\n"
+        + "      return !!(document.querySelector('div[class*=\"frame\"],div[class*=\"centerCol\"],'\n"
+        + "        + '[data-shell-overlay],#dsh-market-shell'));\n"
+        + "    }\n"
+        + "    function rescue(){\n"
+        + "      var entry=location.origin+'/';\n"
+        + "      if(!dshAlive()&&location.href!==entry){\n"
+        + "        try{ location.replace(entry); }catch(e){}\n"
+        + "        return true;\n"
+        + "      }\n"
+        + "      return false;\n"
+        + "    }\n"
+        // 立刻判一次（404 文档里 dsh 根本没起来，此时就该跳）
+        + "    rescue();\n"
+        // dsh 是 SPA，首屏渲染可能晚一点，所以再补两次延时判定
+        + "    setTimeout(rescue,600);\n"
+        + "    setTimeout(rescue,1800);\n"
+        // 同文档回退（SPA 内部导航）仍要兜底
+        + "    window.addEventListener('popstate',function(){ setTimeout(rescue,200); });\n"
         // 打标**不防抖**：只改 class，不增删节点，所以不会被 childList 观察者捕获、
         // 不会像 sync() 那样自激。这样设置面板一插进 DOM 就带上 .dsh-s-ov，
         // 第一帧就是最终形态（否则会先以 dsh 原生 800px 宽度闪一下）。
