@@ -140,15 +140,41 @@ public final class MobileTuning {
          * 供下方设置页/输入区等规则引用。 */
         // P0 品牌蓝压暗：#2b8ae8 作文字/承载白字只有 3.56:1（需 4.5）。
         //   保持色相 H210 / S80，只降明度 L54%→L40% -> 白字 5.80、白底 5.80、浅底 5.35。
-        ":root{--ds-brand-500:#1466b8;--ds-brand-600:#0f5296;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
-        + "--ds-ink-900:#0d1b2e;--ds-ink-700:#1e3450;--ds-ink-500:#5a6d84;--ds-ink-400:#8296ab;"
-        + "--ds-ink-200:#d8e1ea;--ds-ink-100:#eef2f6;--ds-ink-50:#f7f9fc;"
+        // ===== 设计token =====
+        // P3-3：**表面/ 文字色一律别名到 dsh 的语义变量**，主题切换自动跟随。
+        //   dsh 自己支持深色（跟随系统 + 可手动锁定），但**不打 DOM 主题标记**，
+        //   所以不能用 @media 硬写一套 —— 那样会和用户手动锁定的主题打架。
+        //   别名后无论 dsh 走 system 还是 manual，我们永远和它一致。
+        //   fallback 是 r45 审查过的浅色值，变量缺失也不会崩。
+        //⚠️ 必须定义在 **body** 上，不能用 :root ——
+        //   dsh 把全部 --dsw-* 变量定义在 body 上（源码：body{...} / body[data-ds-dark-theme]{...}），
+        //   :root 上var() 取不到 body 上定义的值，会静默退回 fallback，深色下等于没生效。
+        "body{"
+        + "--ds-ink-900:var(--dsw-alias-label-primary,#0d1b2e);"
+        + "--ds-ink-700:var(--dsw-alias-label-secondary,#1e3450);"
+        + "--ds-ink-500:var(--dsw-alias-label-tertiary,#5a6d84);"
+        + "--ds-ink-400:var(--dsw-alias-label-caption,#8296ab);"
+        + "--ds-ink-200:var(--dsw-alias-border-l3,#d8e1ea);"
+        + "--ds-ink-100:var(--dsw-alias-interactive-bg-hover,#eef2f6);"
+        + "--ds-ink-50:var(--dsw-alias-bg-layer-1,#f7f9fc);"
+        + "--ds-surface:var(--dsw-alias-bg-layer-2,#fff);"
+        // 品牌色是**我们的装饰色**，dsh 不管；深色下的覆写见 .dsh-dark 块（JS 打标）。
+        + "--ds-brand-500:#1466b8;--ds-brand-600:#0f5296;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
         + "--ds-r-sm:12px;--ds-r-md:16px;--ds-r-lg:22px;--ds-r-full:999px;}\n"
         /* 注入的外壳：默认 display:none，只有窄屏媒体查询里才启用 */
         // 汉堡做成**悬浮毛玻璃圆钮**：容器背景透明、高度贴合按钮，
         // 这样它只占左上角一小块，不再在内容上方留一整行空白
         // （用户反馈"顶部汉堡不要单独占据一行"）。
         // ⚠️ 容器必须 display:flex，否则 justify-content 无效（block 布局下不生效）。
+        // ===== 深色模式：装饰色覆写 =====
+        //由 JS 实测 dsh 渲染出的背景亮度后打 html.dsh-dark（见JS detectDark()）。
+        // 不用 @media (prefers-color-scheme)：dsh 允许用户手动锁定主题，
+        // 媒体查询只认系统，会和用户设置打架。
+        //深色覆写直接跟随 dsh 的真实标记 **body[data-ds-dark-theme]**（源码取证）：
+        //   零延迟、零轮询。比「实测背景亮度 + 500ms 轮询」可靠得多。
+        //   品牌蓝要提亮 —— #1466b8 在深底上只有 2.3:1。
+        + "  body[data-ds-dark-theme],html.dsh-dark{--ds-brand-500:#5aa9f5;--ds-brand-600:#8cc2f9;"
+        + "    --ds-brand-50:#143253;--ds-brand-100:#1d4a7a;}\n"
         + "#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;"
         + "display:none;align-items:flex-start;justify-content:flex-start;gap:8px;"
         + "padding:8px 8px 0 6px;box-sizing:border-box;"
@@ -166,7 +192,7 @@ public final class MobileTuning {
         //     此处不再保留空样式，避免死代码误导后续维护。
         // P2：42px 低于 44px 触控下限 -> 44px。
         + "#dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;"
-        + "background:rgba(247,249,252,.86);backdrop-filter:blur(10px);"
+        + "background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);"
         + "-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);"
         + "color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;"
         + "-webkit-tap-highlight-color:transparent;cursor:pointer;}\n"
@@ -327,6 +353,12 @@ public final class MobileTuning {
         // 选中态：浅品牌底 + 左侧 3px 色条（比整块灰底更有"当前位置"的方向感）
         + "  .dsh-s-nav [class*=\"_active\"]{background:var(--ds-brand-50,#eef7fe)!important;"
         + "border-radius:14px!important;}\n"
+        // 深色下品牌浅底变深，文字/图标要跟着换成浅品牌色才看得清
+        + "  body[data-ds-dark-theme] .dsh-s-nav [class*=\"_active\"] [class*=\"_navLabel\"],"
+        + "  body[data-ds-dark-theme] .dsh-s-nav [class*=\"_active\"] [class*=\"_navIcon\"],"
+        + "  html.dsh-dark .dsh-s-nav [class*=\"_active\"] [class*=\"_navLabel\"],"
+        + "  html.dsh-dark .dsh-s-nav [class*=\"_active\"] [class*=\"_navIcon\"]{"
+        + "color:var(--ds-brand-500,#5aa9f5)!important;}\n"
         + "  .dsh-s-nav [class*=\"_active\"]::after{content:'';position:absolute;"
         + "left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;"
         + "background:var(--ds-brand-500,#1466b8);}\n"
@@ -434,8 +466,11 @@ public final class MobileTuning {
         + "margin:14px 0 8px !important;padding:16px !important;"
         + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;"
         + "border-radius:18px !important;overflow:hidden !important;"
-        + "background:linear-gradient(180deg,#f9fcff 0%,#f2f7ff 100%) !important;"
+        + "background:linear-gradient(180deg,var(--ds-surface,#f9fcff) 0%,"
+        + "var(--ds-ink-50,#f2f7ff) 100%) !important;"
         + "box-shadow:0 1px 2px rgba(13,27,46,.04) !important;}\n"
+        + "  body[data-ds-dark-theme] #dsh-market-card,html.dsh-dark #dsh-market-card"
+        + "  {border-color:var(--ds-ink-400,#8296ab) !important;}\n"
         + "  .dsh-s-nav [data-dsh-dup]{display:none !important;}\n"
         + "  body.dsh-s-l2 #dsh-market-card{display:flex !important;"
         + "flex-direction:column !important;gap:12px !important;}\n"
@@ -456,12 +491,13 @@ public final class MobileTuning {
         + "white-space:normal !important;overflow-wrap:normal !important;}\n"
         + "  #dsh-market-card .dsh-mk-chip{flex:none !important;align-self:flex-start !important;"
         // P1：11px 在真机只有 38.5 物理像素，"已安装 v1.66.9"在户外读不出来 -> 提到 12.5px。
-        + "padding:4px 10px !important;border-radius:999px !important;font-size:12.5px !important;"
+        + "padding:4px 8px !important;border-radius:999px !important;font-size:12.5px !important;"
         + "font-weight:700 !important;line-height:18px !important;white-space:nowrap !important;"
         + "background:var(--ds-ink-100,#eef2f6) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;}\n"
-        + "  #dsh-market-card .dsh-mk-chip[data-on=\"1\"]{"
-        + "background:#e7f7ee !important;color:#12794a !important;}\n"
+        // 用 dsh 的 success 语义色，深色模式下自动跟随
+        + "  #dsh-market-card .dsh-mk-chip[data-on=\"1\"]{background:var(--dsw-alias-state-success-surface,#e7f7ee) !important;"
+        + "color:var(--dsw-alias-state-success-primary,#12794a) !important;}\n"
         // —— 操作区
         + "  #dsh-market-card .dsh-mk-actions{display:flex !important;flex-wrap:wrap !important;"
         + "align-items:center !important;gap:8px !important;min-width:0 !important;}\n"
@@ -656,6 +692,15 @@ public final class MobileTuning {
         + "    if(document.getElementById(SID)){return;}\n"
         + "    var mark=document.createElement('div');mark.id=SID;\n"
         + "    document.body.appendChild(mark);\n"
+        // P3-2：aria-live 播报区（视觉隐藏，屏幕阅读器可读）
+        + "    var live=document.createElement('div');\n"
+        + "    live.id='dsh-live';\n"
+        + "    live.setAttribute('role','status');\n"
+        + "    live.setAttribute('aria-live','polite');\n"
+        + "    live.setAttribute('aria-atomic','true');\n"
+        + "    live.style.cssText='position:absolute;width:1px;height:1px;margin:-1px;padding:0;"
+        + "overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';\n"
+        + "    document.body.appendChild(live);\n"
         // ⚠️ 作用域隔离（最重要的结构性问题修复）：
         //原方案把所有规则裸写在 @media(max-width:1023px) 里，
         //   而 dsh-market（/dsh-market 独立路由页）的类名与设置面板**同源**
@@ -795,6 +840,78 @@ public final class MobileTuning {
         + "        }\n"
         + "        return null;\n"
         + "      }\n"
+        // ===== P3-1 浮层焦点管理 =====
+        // 打开设置浮层时把焦点移进去，Tab 在浮层内循环（焦点陷阱），
+        // 关闭时把焦点还给汉堡按钮 —— 外接键盘 / TalkBack 用户否则会「跳到看不见的地方」。
+        + "      var FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])';\n"
+        + "      function focusables(ov){\n"
+        + "        var all=(ov||document).querySelectorAll(FOCUSABLE);\n"
+        + "        var out=[];\n"
+        + "        for(var i=0;i<all.length;i++){\n"
+        + "          var e=all[i],r=e.getBoundingClientRect();\n"
+        + "          if(r.width>0&&r.height>0){out.push(e);}\n"
+        + "        }\n"
+        + "        return out;\n"
+        + "      }\n"
+        + "      var lastFocus=null;\n"
+        + "      function trapFocus(e){\n"
+        + "        if(e.key!=='Tab'){return;}\n"
+        + "        var ov=document.querySelector('[class*=\"_panel\"]');\n"
+        + "        var f=focusables(ov);\n"
+        + "        if(!f.length){return;}\n"
+        + "        var first=f[0],last=f[f.length-1];\n"
+        + "        var ae=document.activeElement;\n"
+        + "        if(e.shiftKey&&(ae===first||!ov.contains(ae))){\n"
+        + "          e.preventDefault();last.focus();\n"
+        + "        }else if(!e.shiftKey&&(ae===last||!ov.contains(ae))){\n"
+        + "          e.preventDefault();first.focus();\n"
+        + "        }\n"
+        + "      }\n"
+        + "      function enterFocus(ov){\n"
+        + "        if(!ov){return;}\n"
+        + "        var f=focusables(ov);\n"
+        + "        if(f.length){try{f[0].focus();}catch(e){}}\n"
+        + "      }\n"
+        + "      function leaveFocus(){\n"
+        + "        var back=lastFocus||document.getElementById('dsh-mbtn');\n"
+        + "        lastFocus=null;\n"
+        + "        if(back&&back.focus){try{back.focus();}catch(e){}}\n"
+        + "      }\n"
+        // ===== P3-2 无障碍播报区 =====
+        // 安装/更新结果除alert() 外再播报一次，屏幕阅读器用户能听到。
+        + "      function announce(txt){\n"
+        + "        var box=document.getElementById('dsh-live');\n"
+        + "        if(!box){return;}\n"
+        + "        box.textContent='';\n"
+        + "        setTimeout(function(){box.textContent=txt;},30);\n"
+        + "      }\n"
+        // ===== P3-3f 深色探测 =====
+        // dsh 支持深色但不打 DOM 标记（无 data-theme/.dark），且允许用户手动锁定，
+        // 所以不能靠 @media。做法：**实测 dsh 渲染出来的背景色亮度**，
+        //   命中暗色就给 html 打 .dsh-dark，装饰色（品牌蓝/浅底）随之覆写。
+        //   主体色已在 CSS 里别名 --dsw-alias-*，本来就自动跟随。
+        // 兜底：dsh 现在的标记是 body[data-ds-dark-theme]，CSS 已经直接跟随它。
+        // 这里保留实测逻辑，只在「有深色底但没有 dsh 标记」时才补一个 .dsh-dark
+        //（例如未来 dsh 改了标记名），属于保险，不是主路径 —— 主路径零轮询即可。
+        + "      function detectDark(){\n"
+        + "        var b=document.body;\n"
+        + "        if(!b){return;}\n"
+        + "        if(b.hasAttribute('data-ds-dark-theme')){\n"
+        + "          if(document.documentElement.classList.contains('dsh-dark')){\n"
+        + "            document.documentElement.classList.remove('dsh-dark');\n"
+        + "          }\n"
+        + "          return;\n"
+        + "        }\n"
+        + "        var c=window.getComputedStyle(b).backgroundColor||'';\n"
+        + "        var m=c.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?/);\n"
+        + "        if(!m){return;}\n"
+        //⚠️ 关键：完全透明（alpha=0）时**不能**当成暗色 ——
+        //   实测浅色页body 背景是 transparent，误判会让整个界面套上深色覆写。
+        + "        var a=m[4]===undefined?1:parseFloat(m[4]);\n"
+        + "        if(a<0.5){document.documentElement.classList.remove('dsh-dark');return;}\n"
+        + "        var lum=(0.2126*+m[1]+0.7152*+m[2]+0.0722*+m[3])/255;\n"
+        + "        document.documentElement.classList.toggle('dsh-dark',lum<0.5);\n"
+        + "      }\n"
         + "      function dedupeMarket(){\n"
         + "        var c=marketCell();\n"
         + "        if(!c){return;}\n"
@@ -885,10 +1002,12 @@ public final class MobileTuning {
         + "        window.__dshPnpmDone=function(id,res){\n"
         + "          pnpmBusy=false;\n"
         + "          if(res&&res.ok){ pb.hidden=true; pb.removeAttribute('disabled');\n"
-        + "            if(note){ note.textContent='依赖已就绪，可直接安装插件'; } }\n"
+        + "            if(note){ note.textContent='依赖已就绪，可直接安装插件'; }\n"
+        + "            announce('pnpm 安装完成，可直接安装插件'); }\n"
         + "          else { pb.removeAttribute('disabled'); pb.textContent='重试';\n"
         + "            if(note){ note.textContent='pnpm 安装失败'; }\n"
-        + "            alert('pnpm 安装失败：'+((res&&res.message)||'未知错误')); }\n"
+        + "            alert('pnpm 安装失败：'+((res&&res.message)||'未知错误'));\n"
+        + "            announce('pnpm 安装失败'); }\n"
         + "        };\n"
         + "        try{ window.dshNative.installPnpm('pnpm'); }\n"
         + "        catch(err){ pnpmBusy=false; pb.removeAttribute('disabled'); pb.textContent='重试'; }\n"
@@ -908,16 +1027,19 @@ public final class MobileTuning {
         + "        var chip=document.getElementById('dsh-mk-chip');\n"
         + "        btn.setAttribute('disabled','disabled');btn.textContent='安装中…';\n"
         + "        if(note){ note.textContent='正在下载并安装插件…'; }\n"
+        + "        announce('正在下载并安装插件');\n"
         + "        window.__dshMarketDone=function(id,res){\n"
         + "          installing=false;\n"
         + "          if(res&&res.ok){ btn.removeAttribute('disabled');\n"
         + "            btn.textContent='打开市场'; btn.setAttribute('data-open','1');\n"
         + "            if(chip){ chip.textContent='已安装 v'+(res.version||'');\n"
         + "              chip.setAttribute('data-on','1'); }\n"
-        + "            if(note){ note.textContent='安装完成，点「打开市场」进入'; } }\n"
+        + "            if(note){ note.textContent='安装完成，点「打开市场」进入'; }\n"
+        + "            announce('插件市场安装完成'); }\n"
         + "          else { btn.removeAttribute('disabled'); btn.textContent='重试';\n"
         + "            if(note){ note.textContent='安装失败'; }\n"
-        + "            alert('安装失败：'+((res&&res.message)||'未知错误')); }\n"
+        + "            alert('安装失败：'+((res&&res.message)||'未知错误'));\n"
+        + "            announce('插件安装失败'); }\n"
         + "        };\n"
         + "        try{ window.dshNative.installMarket('mkt'); }\n"
         + "        catch(err){ installing=false; btn.removeAttribute('disabled'); btn.textContent='重试'; }\n"
@@ -931,6 +1053,7 @@ public final class MobileTuning {
         // 会出现图三的情况"：一大片空白 + 只有插件市场卡片）。
         + "          b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');\n"
         + "          syncOvFlag();\n"
+        + "          leaveFocus();\n"
         + "          var mc=document.getElementById('dsh-market-card');\n"
         + "          if(mc&&mc.parentNode){mc.parentNode.removeChild(mc);}\n"
         + "          syncBack();\n"
@@ -942,6 +1065,12 @@ public final class MobileTuning {
         + "        tagHosts();\n"
         + "        mkMarketCard();\n"
         + "        dedupeMarket();\n"
+        + "        detectDark();\n"
+        // 首次打开才移入焦点（sync 每次 DOM 变化都跑，重复 focus 会打断用户）
+        + "        if(!lastFocus){\n"
+        + "          lastFocus=document.activeElement;\n"
+        + "          enterFocus(document.querySelector('[class*=\"_panel\"]'));\n"
+        + "        }\n"
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
         + "        guardCard();\n"
         + "        syncBack();\n"
@@ -983,6 +1112,7 @@ public final class MobileTuning {
         + "        if(e.key==='Escape'&&b.classList.contains('dsh-s-l3')){\n"
         + "          e.preventDefault();e.stopPropagation();setL2();syncBack();\n"
         + "        }\n"
+        + "        trapFocus(e);\n"
         + "      },true);\n"
         // 面板是动态挂载/卸载的，DOM 变化时同步
         // 去抖：sync() 自身会改 DOM（插/拔返回按钮），直接observe 会自激循环
@@ -1014,6 +1144,8 @@ public final class MobileTuning {
         // 看门狗：指纹判定 + 打标每 500ms 重算一次（面板是 React 动态挂载/卸载的，
         // MutationObserver 会漏掉"属性未变但节点被替换"的情形）。
         + "    setInterval(function(){tagHosts();syncOvFlag();},500);\n"
+        + "    setInterval(detectDark,500);\n"
+        + "    detectDark();\n"
         // 打标**不防抖**：只改 class，不增删节点，所以不会被 childList 观察者捕获、
         // 不会像 sync() 那样自激。这样设置面板一插进 DOM 就带上 .dsh-s-ov，
         // 第一帧就是最终形态（否则会先以 dsh 原生 800px 宽度闪一下）。
