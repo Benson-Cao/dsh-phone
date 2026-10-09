@@ -53,8 +53,9 @@ public final class DshMarketInstaller {
     //   usr/bin 只有 bash + node）。市场用 `which pnpm` 探测，所以只要
     //   $PREFIX/bin/pnpm 存在即可被发现。
     //
-    // pnpm@12.10.1：**3.9MB、零依赖、纯 JS**（bin/pnpm.mjs）、要求 node>=18
+    // pnpm@12.10.1：**零依赖、纯 JS**（bin/pnpm.mjs）、要求 node>=18
     //（实测本机 node v24，满足）。所以只要解包 + 造一个 shim 即可，无需依赖树。
+    // 体积：tarball 实测 1,034,388 字节（≈1.03MB），解包后约 3.9MB。
     // C-02：同上，pnpm 版本与 tarball 地址也走 DshConfig（升级只改 DshConfig）
     private static final String PNPM_TARBALL = DshConfig.PNPM_TARBALL;
 
@@ -102,7 +103,8 @@ public final class DshMarketInstaller {
         }
         final String js =
             "const fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib');\n" +
-            "const home=process.env.HOME, url=process.argv[2], root=process.argv[3];\n" +
+            "const crypto=require('node:crypto');\n" +
+            "const home=process.env.HOME, url=process.argv[2], root=process.argv[3], sha512=process.argv[4];\n" +
             "const binDir=path.join(root,'bin'), opt=path.join(root,'opt','pnpm');\n" +
             "function log(m){process.stdout.write(m+'\\n');}\n" +
             "(async()=>{try{\n" +
@@ -112,6 +114,10 @@ public final class DshMarketInstaller {
             "  const res=await fetch(url);\n" +
             "  if(!res.ok){log('ERR:http-'+res.status);process.exit(4);}\n" +
             "  const buf=Buffer.from(await res.arrayBuffer());\n" +
+            // C-08：与 INSTALL_JS 同一套做法 —— 校验通过才落盘/解包
+            "  const got=crypto.createHash('sha512').update(buf).digest('hex');\n" +
+            "  if(!sha512||got!==sha512){log('ERR:sha512-mismatch got='+got);process.exit(5);}\n" +
+            "  log('SHA512:OK');\n" +
             "  fs.writeFileSync(tgz,buf); log('DOWNLOADED:'+buf.length);\n" +
             "  const raw=zlib.gunzipSync(fs.readFileSync(tgz));\n" +
             "  fs.rmSync(opt,{recursive:true,force:true}); fs.mkdirSync(opt,{recursive:true});\n" +
@@ -148,7 +154,8 @@ public final class DshMarketInstaller {
             "}catch(e){log('ERR:'+(e&&e.message||e));process.exit(6);}})();\n";
 
         String r = runNodeScript(ctx, "dsh-pnpm-install.js", js,
-            new String[]{PNPM_TARBALL, prefix.getAbsolutePath()});
+            // 末尾多传 DshConfig.PNPM_TGZ_SHA512：脚本解包前会比对（C-08）
+            new String[]{PNPM_TARBALL, prefix.getAbsolutePath(), DshConfig.PNPM_TGZ_SHA512});
         return r;
     }
 
@@ -216,9 +223,12 @@ public final class DshMarketInstaller {
         "const fs = require('node:fs');\n" +
         "const path = require('node:path');\n" +
         "const zlib = require('node:zlib');\n" +
+        // C-08：解包前校验 tarball 完整性，防止被改写的包被执行
+        "const crypto = require('node:crypto');\n" +
         "const home = process.env.HOME;\n" +
         "const url = process.argv[2];\n" +
         "const pkg = process.argv[3];\n" +
+        "const sha512 = process.argv[4];\n" +
         "const profileDir = path.join(home, '.dsh', 'profiles', 'web');\n" +
         "const target = path.join(profileDir, 'node_modules', pkg);\n" +
         "function log(m){ process.stdout.write(m + '\\n'); }\n" +
@@ -246,6 +256,15 @@ public final class DshMarketInstaller {
         "    const res = await fetch(url);\n" +
         "    if(!res.ok){ log('ERR:http-' + res.status); process.exit(4); }\n" +
         "    const buf = Buffer.from(await res.arrayBuffer());\n" +
+        // C-08：SHA-512 与 DshConfig 钉的值不符就**直接退出**——绝不解包，
+        // 更不会把里面的代码交给 node 执行。退出码 5 与 http 错误区分开。
+        // 失败信息走既有的 ERR: 前缀约定，Java 侧会原样回显给用户。
+        "    const got = crypto.createHash('sha512').update(buf).digest('hex');\n" +
+        "    if(!sha512 || got !== sha512){\n" +
+        "      log('ERR:sha512-mismatch got=' + got);\n" +
+        "      process.exit(5);\n" +
+        "    }\n" +
+        "    log('SHA512:OK');\n" +
         "    fs.writeFileSync(tgz, buf);\n" +
         "    log('DOWNLOADED:' + buf.length);\n" +
         // 3) 解包：**自己解 tar**（bundle 里只有 bash + node，没有 tar 命令）。
@@ -326,7 +345,9 @@ public final class DshMarketInstaller {
         StringBuilder out = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                node.getAbsolutePath(), js.getAbsolutePath(), TARBALL, PKG);
+                node.getAbsolutePath(), js.getAbsolutePath(), TARBALL, PKG,
+                // C-08：末尾传 SHA-512，脚本解包前比对，不符则退出码 5
+                DshConfig.MARKET_TGZ_SHA512);
             pb.directory(home);
             // ⚠️ 必须给全Termux 前缀环境：Android 的 node 靠 LD_LIBRARY_PATH 找 .so，
             //   缺了它会**静默退出码 1**（真机踩过：只设 HOME/NODE_PATH 时报"退出码 1"，

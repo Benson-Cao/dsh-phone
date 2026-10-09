@@ -106,14 +106,43 @@
       }
       function marketCell(){
         var cells=document.querySelectorAll('.dsh-s-nav [class*="_navCell"]');
-        for(var i=0;i<cells.length;i++){
-          var t=(cells[i].textContent||'').replace(/\s+/g,'');
+        var i,t,al;
+        // U7：分层匹配。原来只认 textContent **精确等于** '插件市场'/'PluginMarket'，
+        //   dsh 改一次文案（多个空格、换成「插件 Market」、加个图标字符）就静默失效，
+        //   症状是「点打开没反应」—— 用户完全无从判断是按钮坏了还是入口变了。
+        //   现在按稳定性从高到低依次尝试，任一层命中即可：
+        //   ① dsh 暴露的稳定 data 钩子 / testid；
+        //   ② aria-label 或 title（中英模糊，不要求全等）；
+        //   ③ 文本全等（保持原行为不变，作为快速路径）；
+        //   ④ 文本模糊（最后兜底）。
+        for(i=0;i<cells.length;i++){
+          if(cells[i].getAttribute('data-dsh-market')!=null
+             ||cells[i].getAttribute('data-plugin-market')!=null
+             ||cells[i].getAttribute('data-testid')==='plugin-market'){return cells[i];}
+        }
+        for(i=0;i<cells.length;i++){
+          al=((cells[i].getAttribute('aria-label')||'')+' '+(cells[i].getAttribute('title')||'')).toLowerCase();
+          if(al.indexOf('插件')>=0||al.indexOf('市场')>=0
+             ||al.indexOf('plugin')>=0||al.indexOf('market')>=0){return cells[i];}
+        }
+        for(i=0;i<cells.length;i++){
+          t=(cells[i].textContent||'').replace(/\s+/g,'');
           if(t==='插件市场'||t==='PluginMarket'){return cells[i];}
+        }
+        for(i=0;i<cells.length;i++){
+          t=(cells[i].textContent||'').replace(/\s+/g,'');
+          if(t.indexOf('插件市场')>=0||t.toLowerCase().indexOf('pluginmarket')>=0){return cells[i];}
         }
         return null;
       }
       var FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]';
+      // U9：Tab 陷阱每次都要 querySelectorAll + 逐个 getBoundingClientRect，
+      //   浮层里元素多时开销明显（每次 Tab 一轮布局测量）。加 500ms 缓存：
+      //   Tab 是连发的，人手跟不上 500ms 内的浮层结构变化，命中过期缓存也无感。
+      var _fcOv=null,_fcList=null,_fcAt=0;
       function focusables(ov){
+        var now=(new Date()).getTime();
+        if(_fcList&&_fcOv===ov&&(now-_fcAt)<500){return _fcList;}
         var all=(ov||document).querySelectorAll(FOCUSABLE);
         var out=[];
         for(var i=0;i<all.length;i++){
@@ -121,13 +150,18 @@
           if(e.getAttribute('tabindex')==='-1'){continue;}
           if(r.width>0&&r.height>0){out.push(e);}
         }
+        _fcOv=ov;_fcList=out;_fcAt=now;
         return out;
       }
       var lastFocus=null;
       var panelOpen=false;
       function trapFocus(e){
         if(e.key!=='Tab'){return;}
-        var ov=document.querySelector('[class*="_panel"]');
+        // U9：原来用 [class*="_panel"] 这个**宽泛**选择器取浮层 —— 页面上任何
+        //   可见的 _panel（dsh 自己别的面板也算）都会被误认成设置浮层，
+        //   于是 Tab 被困在错误的容器里，焦点看起来"丢了"。
+        //   改用我们自己打的指纹 .dsh-s-ov（由 tagHosts 维护），只认设置浮层。
+        var ov=document.querySelector('.dsh-s-ov');
         if(!ov){return;}
         var f=focusables(ov);
         if(!f.length){return;}
@@ -289,7 +323,10 @@
         detectDark();
         if(!panelOpen){panelOpen=true;
           lastFocus=document.activeElement;
-          enterFocus(document.querySelector('[class*="_panel"]'));
+          // U9：与 trapFocus 一致，改用我们自己的指纹 .dsh-s-ov。
+          // 上面 tagHosts() 已确保指纹已打上；宽泛的 [class*="_panel"]
+          // 可能命中 dsh 别的面板，焦点会进错容器。
+          enterFocus(document.querySelector('.dsh-s-ov'));
         }
         if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}
         guardCard();

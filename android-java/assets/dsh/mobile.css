@@ -3,6 +3,11 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
 #dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;display:none;align-items:flex-start;justify-content:flex-start;gap:8px;padding:8px 8px 0 6px;box-sizing:border-box;background:transparent;pointer-events:none;}
 #dsh-mtop>*{pointer-events:auto;}
   body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;z-index:65 !important;}
+  /* U11：抽屉打开时汉堡被移到右上角（z-index:65），会压住侧栏右上角自己的元素
+     （关闭按钮 / 账号区）。给侧栏补一段与顶栏等高的 padding-top，
+     把那些元素顶到汉堡下方。选择器比上面那条 sidebarCol 的 padding:0 更特异，
+     所以不必依赖声明顺序。 */
+  body.dsh-drawer-open div[class*="sidebarCol"]{padding-top:56px !important;}
 #dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent;cursor:pointer;}
 #dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}
 #dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}

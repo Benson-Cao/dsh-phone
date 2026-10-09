@@ -37,6 +37,12 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
+    <!-- C-06：FOREGROUND_SERVICE 上游 Termux 已声明（见上方 WAKE_LOCK 附近），这里不重复加。
+         但 FOREGROUND_SERVICE_DATA_SYNC 是 API 34 引入的 —— 一旦 targetSdk 升到 34+，
+         startForeground() 缺它会**直接抛异常**，前台服务起不来。
+         属于「现在无害、将来致命」：普通权限、不弹任何运行时授权框，API 28 上被系统忽略。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application android:networkSecurityConfig="@xml/network_security_config"
         android:name=".app.TermuxApplication"
         android:allowBackup="false"
