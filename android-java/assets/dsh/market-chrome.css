@@ -1,0 +1,8 @@
+[data-dsh-market-root]{--dsh-sat:env(safe-area-inset-top,0px);}
+#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:65;display:flex;
+  align-items:flex-start;justify-content:flex-end;
+  padding:calc(6px + var(--dsh-sat,0px)) 6px 0 6px;
+  pointer-events:none;background:transparent;}
+#dsh-mtop>*{pointer-events:auto;}
+body.dsh-ov-open #dsh-mtop{display:none !important;}
+#dsh-scrim{z-index:60;}

@@ -1,0 +1,21 @@
+  /*顶部头部：图标+名称+版本+主按钮 在窄屏会被挤成竖排，改为可换行横排 */
+  [data-dsh-market-root] [class*="_header"]{flex-wrap:wrap !important;align-items:center !important;gap:10px !important;}
+  [data-dsh-market-root] [class*="_headerTitle"],[data-dsh-market-root] [class*="_title"]{white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;line-height:1.35 !important;}
+  [data-dsh-market-root] [class*="_header"] span,[data-dsh-market-root] [class*="_header"] p,[data-dsh-market-root] [class*="_header"] div{word-break:keep-all !important;}
+  [data-dsh-market-root] [class*="_logo"],[data-dsh-market-root] [class*="_icon"]{flex:none !important;}
+  [data-dsh-market-root] button{white-space:nowrap !important;flex:none !important;max-width:100% !important;}
+  [data-dsh-market-root] input{white-space:normal !important;}
+  [data-dsh-market-root] pre,[data-dsh-market-root] code,[data-dsh-market-root] [class*="_log"],[data-dsh-market-root] [class*="_diag"],[data-dsh-market-root] [class*="_error"]{overflow-wrap:anywhere !important;word-break:break-word !important;white-space:pre-wrap !important;max-width:100% !important;}
+  [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}
+  html,body{overflow-x:hidden !important;}
+  [data-dsh-market-root]{padding-top:calc(52px + env(safe-area-inset-top,0px)) !important;padding-bottom:env(safe-area-inset-bottom,0px) !important;}
+  [data-dsh-market-root] input,[data-dsh-market-root] select,[data-dsh-market-root] [role="tab"],[data-dsh-market-root] [role="button"]{min-height:44px !important;box-sizing:border-box !important;}
+  [data-dsh-market-root]{padding-left:max(0px,env(safe-area-inset-left)) !important;padding-right:max(0px,env(safe-area-inset-right)) !important;}
+  @media (max-width:680px){
+    [data-dsh-market-root]{padding-left:16px !important;padding-right:16px !important;}
+    [data-dsh-market-root] [class*="_header"]{padding-top:12px !important;padding-bottom:8px !important;}
+    [data-dsh-market-root] [class*="_cardTitle"]{font-size:15px !important;line-height:1.4 !important;}
+  }
+  @media (min-width:681px){
+    [data-dsh-market-root]{max-width:1100px !important;margin:0 auto !important;}
+  }

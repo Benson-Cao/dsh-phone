@@ -45,10 +45,15 @@ mkdir -p "$BUILD_TREE/app/src/main/res/xml"
 for f in "$PUB_REPO"/android-java/res/xml/*.xml; do
     [ -e "$f" ] || continue
     cp -f "$f" "$BUILD_TREE/app/src/main/res/xml/"
-    echo "    ✓ $(basename "$f")"
+    echo "    ✓ res/xml/$(basename "$f")"
 done
-cp -f "$PUB_REPO/android-java/AndroidManifest.xml" \
-      "$BUILD_TREE/app/src/main/AndroidManifest.xml"
+
+# assets（A-04 起：注入的 CSS/JS 真源在 ③）
+if [ -d "$PUB_REPO/android-java/assets" ]; then
+    mkdir -p "$BUILD_TREE/app/src/main/assets"
+    cp -rf "$PUB_REPO/android-java/assets/." "$BUILD_TREE/app/src/main/assets/"
+    echo "    ✓ assets/ ($(find "$BUILD_TREE/app/src/main/assets" -type f | wc -l | tr -d ' ') 个文件)"
+fi
 
 echo "==> 校验三副本"
 bash "$PUB_REPO/scripts/verify-sync.sh"

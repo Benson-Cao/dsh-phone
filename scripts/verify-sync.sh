@@ -69,6 +69,24 @@ else
     echo "! 跳过 NSC 校验（③ 也没有该文件）"
 fi
 
+# ---- 4) assets（A-04）：③ → ② ----
+AD2="$BUILD_TREE/app/src/main/assets/dsh"
+AD3="$PUB_REPO/android-java/assets/dsh"
+if [ -d "$AD2" ] && [ -d "$AD3" ]; then
+    if diff -rq "$AD3" "$AD2" >/dev/null 2>&1; then
+        echo "✓ assets/dsh：③ ≡ ②"
+    else
+        echo "✗ assets/dsh 不一致："
+        diff -rq "$AD3" "$AD2" 2>&1 | sed 's/^/    /'
+        fail=1
+    fi
+elif [ -d "$AD3" ]; then
+    echo "✗ ② 缺少 assets/dsh（MobileTuning 注入的样式会整体失效）"
+    fail=1
+else
+    echo "! 跳过 assets 校验（③ 也没有 assets/dsh）"
+fi
+
 echo "---"
 if [ "$fail" = "0" ]; then
     echo "==> 全部一致"
