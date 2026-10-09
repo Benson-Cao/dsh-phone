@@ -321,7 +321,47 @@
           +'<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z"/></svg>'
           +'<span class="dshmine_navLabel">插件市场</span>';
         list.appendChild(c);
+        ensureArrow(c);          // r67：右侧 chevron（设计稿图 2）
         return c;
+      }
+      // ===== r67 · 列表项右侧 chevron（设计稿图 2）=====
+      // 用户拍板：设计稿 Screen 2 里四个列表项（插件市场 / 模型 / 插件 / Agent 预设）
+      // **每一项**右侧都有一个灰色 chevron。r66 我按"真机原生项没有箭头"取了不加的
+      // 方案，现在改回贴设计稿 —— 而且**四项都要有**：只给市场项加、其余没有，
+      // 列表里会出现"为什么只有它有"，比全都没有更不像设计稿。
+      // 三条铁律（沿用 r38 / r66）：
+      //   ① 类名带 dshmine_ 前缀、标记用 data-dsh-*，绝不碰 dsh 的类名；
+      //   ② append-only —— dsh 的节点由 React 管，**绝不移动/删除 dsh 的节点**
+      //      （React 卸载时对不在其列表里的节点 removeChild → NotFoundError 整页崩）；
+      //   ③ 幂等标记 data-dsh-arrow 挂在**我们自己的节点**上，而不是挂在 cell 上 ——
+      //      React 重渲染把节点冲掉时标记随之消失，下一轮 sync()/MutationObserver
+      //      就能补回来；挂在 cell 上会退化成"标记还在、箭头没了"的死状态。
+      var ARROW_SVG='<svg class="dshmine_navArrow" width="16" height="16" viewBox="0 0 24 24"'
+        +' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+        +' stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>';
+      function ensureArrow(cell){
+        if(!cell||!cell.querySelector){return null;}
+        var old=cell.querySelector('[data-dsh-arrow]');
+        if(old){return old;}                     // 幂等：已有就不再插
+        var wrap=document.createElement('span');
+        wrap.className='dshmine_navArrowWrap';
+        wrap.setAttribute('data-dsh-arrow','1');  // 标记随节点存亡 → 被冲掉可自愈
+        wrap.setAttribute('aria-hidden','true');  // 纯装饰，不进无障碍树
+        wrap.innerHTML=ARROW_SVG;
+        // 顺序（设计稿，左→右）：图标 → 标题 → 状态徽标 → chevron。
+        //   徽标由 decorateEntry() 追加、可能晚于箭头插入，那时它会落到箭头右边；
+        //   所以这里主动插到徽标**之后**，decorateEntry() 那边也对称地插在箭头之前。
+        var flag=cell.querySelector('.dsh-mkt-flag');
+        if(flag&&flag.parentNode===cell){ cell.insertBefore(wrap,flag.nextSibling); }
+        else{ cell.appendChild(wrap); }
+        return wrap;
+      }
+      function decorateNavArrows(){
+        var cells=document.querySelectorAll('.dsh-s-nav [class*="_navCell"]');
+        for(var i=0;i<cells.length;i++){
+          // 单项失败不许影响其它项、更不许影响点击（整体 try/catch）
+          try{ ensureArrow(cells[i]); }catch(e){}
+        }
       }
       // 在列表项右侧挂/移除状态徽标（原生项与注入项共用）
       function decorateEntry(cell){
@@ -338,7 +378,10 @@
         var bd=document.createElement('span');
         bd.className='dsh-mkt-flag';
         bd.textContent=txt;
-        cell.appendChild(bd);
+        // r67：徽标必须排在 chevron **左边**（设计稿：标题 → 徽标 → 箭头）
+        var ar=cell.querySelector('[data-dsh-arrow]');
+        if(ar&&ar.parentNode===cell){ cell.insertBefore(bd,ar); }
+        else{ cell.appendChild(bd); }
       }
       function marketEntry(){
         var n=marketCell();
@@ -346,6 +389,7 @@
           removeMineCell();      // dsh 自己画了原生项 → 我们的注入项退出
           n.setAttribute('data-dsh-mkt','1');
           decorateEntry(n);
+          ensureArrow(n);        // r67：原生市场项也要有 chevron（append-only）
           return;
         }
         // dsh 没画（= dshmarket 未安装）→ 我们补一个
@@ -568,6 +612,12 @@
         syncOvFlag();
         tagHosts();
         marketEntry();
+        // r67：四个列表项（插件市场 / 模型 / 插件 / Agent 预设）的右侧 chevron。
+        //   必须放在 marketEntry() **之后**：徽标先落位，箭头才能排在它右边。
+        //   dsh 是 React 管理的，重渲染可能把追加的节点冲掉 —— 靠这里每轮
+        //   sync()（MutationObserver + 500ms 轮询都会走到）幂等补回，与 r66
+        //   顶栏 ensureTopBar() 的自愈是同一套手法。
+        decorateNavArrows();
         ensureBackBar();
         backHint();
         detectDark();

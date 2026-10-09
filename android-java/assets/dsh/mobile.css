@@ -67,6 +67,26 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   .dsh-s-nav [data-dsh-mkt] [class*="_navIcon"],.dsh-s-nav [data-dsh-mine] [class*="_navIcon"],
   .dsh-s-nav [data-dsh-mkt] .dshmine_navIcon,.dsh-s-nav [data-dsh-mine] .dshmine_navIcon{color:var(--ds-ink-500,#5a6d84)!important;}
   .dsh-s-nav [data-dsh-mkt] .dsh-mkt-flag,.dsh-s-nav [data-dsh-mine] .dsh-mkt-flag{background:var(--ds-brand-50,#eef7fe)!important;color:var(--ds-brand-600,#0f5296)!important;}
+  /* ===== r67 · 列表项右侧 chevron（设计稿图 2）=====
+     设计稿 Screen 2：四个列表项（插件市场 / 模型 / 插件 / Agent 预设）**每一项**
+     右侧都有一个灰色 chevron。r66 按"真机原生项没有箭头"取了不加的方案，
+     用户拍板改回贴设计稿 —— 四项都要有。
+     节点由 mobile.js 的 ensureArrow() **追加**（类名 dshmine_* + data-dsh-arrow，
+     不碰 dsh 的类名 —— r38 铁律；append-only，绝不移动/删除 dsh 的节点）。
+     这里只负责样式，三条要点：
+       · margin-left:auto —— 标题是 flex:1 1 auto、本就把右侧空间吃满，再加 auto
+         是双保险：箭头恒在最右，徽标在左、箭头在右（设计稿顺序）；
+       · 颜色走 --ds-ink-400 变量（fallback #8296ab，深浅底都可读），**不写死色值**；
+       · pointer-events:none —— 箭头绝不能挡住列表项本体的 click / onEntryTap。*/
+  .dsh-s-nav [data-dsh-arrow],.dsh-s-nav .dshmine_navArrowWrap{display:flex!important;
+    align-items:center!important;justify-content:center!important;flex:0 0 auto!important;
+    width:18px!important;height:18px!important;margin-left:auto!important;margin-right:2px!important;
+    color:var(--ds-ink-400,#8296ab)!important;pointer-events:none!important;}
+  .dsh-s-nav [data-dsh-arrow] .dshmine_navArrow,.dsh-s-nav svg.dshmine_navArrow{
+    width:16px!important;height:16px!important;display:block!important;
+    color:inherit!important;pointer-events:none!important;}
+  body[data-ds-dark-theme] .dsh-s-nav [data-dsh-arrow],
+  html.dsh-dark .dsh-s-nav [data-dsh-arrow]{color:var(--ds-ink-400,#8296ab)!important;}
   /* ===== 「返回上一级」条（设计稿图 2）=====
      只在 dsh 没自带关闭按钮时注入 —— 插件页/Agent 预设页自带 ×，那边就不重复加，
      免得并排出现两个同样意思的出口。
