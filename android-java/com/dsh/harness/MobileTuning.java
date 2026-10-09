@@ -150,14 +150,21 @@ public final class MobileTuning {
         //   dsh 把全部 --dsw-* 变量定义在 body 上（源码：body{...} / body[data-ds-dark-theme]{...}），
         //   :root 上var() 取不到 body 上定义的值，会静默退回 fallback，深色下等于没生效。
         "body{"
-        + "--ds-ink-900:var(--dsw-alias-label-primary,#0d1b2e);"
-        + "--ds-ink-700:var(--dsw-alias-label-secondary,#1e3450);"
-        + "--ds-ink-500:var(--dsw-alias-label-tertiary,#5a6d84);"
-        + "--ds-ink-400:var(--dsw-alias-label-caption,#8296ab);"
-        + "--ds-ink-200:var(--dsw-alias-border-l3,#d8e1ea);"
-        + "--ds-ink-100:var(--dsw-alias-interactive-bg-hover,#eef2f6);"
-        + "--ds-ink-50:var(--dsw-alias-bg-layer-1,#f7f9fc);"
-        + "--ds-surface:var(--dsw-alias-bg-layer-2,#fff);"
+        // U6：fallback 单独拆成 --ds-ink-fb-* 一组，深色态只需覆写这一组。
+        //   之前 fallback 直接写死浅色值（#0d1b2e…），一旦 dsh 真实变量名不是
+        //   --dsw-alias-*（或变量缺失），深色下文字会退回**浅色**压在深底上 = 不可读（潜在 P0）。
+        //   dsh 变量存在时 var() 仍优先命中，别名跟随主题的行为不变（幂等）。
+        + "--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;"
+        + "--ds-ink-fb-400:#8296ab;--ds-ink-fb-200:#d8e1ea;--ds-ink-fb-100:#eef2f6;"
+        + "--ds-ink-fb-50:#f7f9fc;--ds-surface-fb:#fff;"
+        + "--ds-ink-900:var(--dsw-alias-label-primary,var(--ds-ink-fb-900));"
+        + "--ds-ink-700:var(--dsw-alias-label-secondary,var(--ds-ink-fb-700));"
+        + "--ds-ink-500:var(--dsw-alias-label-tertiary,var(--ds-ink-fb-500));"
+        + "--ds-ink-400:var(--dsw-alias-label-caption,var(--ds-ink-fb-400));"
+        + "--ds-ink-200:var(--dsw-alias-border-l3,var(--ds-ink-fb-200));"
+        + "--ds-ink-100:var(--dsw-alias-interactive-bg-hover,var(--ds-ink-fb-100));"
+        + "--ds-ink-50:var(--dsw-alias-bg-layer-1,var(--ds-ink-fb-50));"
+        + "--ds-surface:var(--dsw-alias-bg-layer-2,var(--ds-surface-fb));"
         // 品牌色是**我们的装饰色**，dsh 不管；深色下的覆写见 .dsh-dark 块（JS 打标）。
         + "--ds-brand-500:#1466b8;--ds-brand-600:#0f5296;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
         + "--ds-r-sm:12px;--ds-r-md:16px;--ds-r-lg:22px;--ds-r-full:999px;}\n"
@@ -173,8 +180,17 @@ public final class MobileTuning {
         //深色覆写直接跟随 dsh 的真实标记 **body[data-ds-dark-theme]**（源码取证）：
         //   零延迟、零轮询。比「实测背景亮度 + 500ms 轮询」可靠得多。
         //   品牌蓝要提亮 —— #1466b8 在深底上只有 2.3:1。
-        + "  body[data-ds-dark-theme],html.dsh-dark{--ds-brand-500:#5aa9f5;--ds-brand-600:#8cc2f9;"
-        + "    --ds-brand-50:#143253;--ds-brand-100:#1d4a7a;}\n"
+        // ⚠️ 选择器补 `html.dsh-dark body`：原先只有 `html.dsh-dark` 时，
+        //   它匹配的是 <html>，而 --ds-brand-*/--ds-ink-* 都声明在 body 上，
+        //   body 自己的声明会赢过从 html 继承的值 → JS 实测出的深色其实没生效（潜在 bug）。
+        //   加上 body 后两条深色路径（dsh 标记 / JS 实测）都真正生效。
+        // 自定义属性在**同一元素**上按级联解析，所以 body 上 --ds-ink-900 里的
+        //   var(--ds-ink-fb-900) 会取到下面覆写的深色值。
+        + "  body[data-ds-dark-theme],html.dsh-dark,html.dsh-dark body{--ds-brand-500:#5aa9f5;--ds-brand-600:#8cc2f9;"
+        + "    --ds-brand-50:#143253;--ds-brand-100:#1d4a7a;"
+        + "    --ds-ink-fb-900:#e6edf5;--ds-ink-fb-700:#c8d4e2;--ds-ink-fb-500:#a3b3c6;"
+        + "    --ds-ink-fb-400:#8296ab;--ds-ink-fb-200:#3c4d61;--ds-ink-fb-100:#26313f;"
+        + "    --ds-ink-fb-50:#1c242f;--ds-surface-fb:#141b23;}\n"
         + "#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;"
         + "display:none;align-items:flex-start;justify-content:flex-start;gap:8px;"
         + "padding:8px 8px 0 6px;box-sizing:border-box;"
@@ -198,6 +214,13 @@ public final class MobileTuning {
         + "-webkit-tap-highlight-color:transparent;cursor:pointer;}\n"
         // 按压反馈用 ink-100（设计稿浅色体系下的hover/active 面）
         + "#dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}\n"
+        // U5：抽屉是 width:100% + left/right:0 + z-index:62，**完整盖住** z-index:60 的
+        //   scrim，所以「点遮罩关闭」在当前布局下结构上不可达，属死代码
+        //   （实际只能靠汉堡或 Esc 关闭；Esc 已由 U8 收敛成状态机）。
+        //   ⚠️ 不删这个元素：全宽是**用户明确要求**的（见下方 sidebarCol 注释
+        //   「之前右侧永远有一条 20px 灰条」），不能为了点遮罩而改成非全宽；
+        //   但若 dsh 将来把抽屉改成非全宽，保留的 scrim 会立刻重新生效，
+        //   属于零成本的向前兼容兜底。这里只补注释，避免后人误判该点击有效。
         + "#dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);"
         + "opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}\n"
         + "body.dsh-drawer-open #dsh-scrim{opacity:1;visibility:visible;}\n"
@@ -536,6 +559,13 @@ public final class MobileTuning {
         + "  #dsh-pnpm-btn[hidden]{display:none !important;}\n"
         + "  #dsh-pnpm-btn[disabled]{color:var(--ds-ink-500,#5a6d84) !important;"
         + "background:var(--ds-ink-100,#eef2f6) !important;}\n"
+        // U14：深色下 #dsh-pnpm-btn 写死 background:#fff 是一块**白按钮**，与深色体系违和。
+        //   改为跟主题走：底取 --ds-ink-100、字取 --ds-ink-700（U6 已保证这两个
+        //   在深色下自动换成深底浅字的 fb 值），所以对比度仍达标。
+        + "  body[data-ds-dark-theme] #dsh-pnpm-btn,"
+        + "  html.dsh-dark #dsh-pnpm-btn,"
+        + "  html.dsh-dark body #dsh-pnpm-btn{"
+        + "background:var(--ds-ink-100,#26313f) !important;color:var(--ds-ink-700,#c8d4e2) !important;}\n"
         + "  #dsh-market-card .dsh-mk-note{font-size:12.5px !important;line-height:18px !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;white-space:normal !important;"
         + "overflow-wrap:anywhere !important;}\n"
@@ -1180,8 +1210,14 @@ public final class MobileTuning {
         + "    document.body.appendChild(scrim);\n"
         // 看门狗：指纹判定 + 打标每 500ms 重算一次（面板是 React 动态挂载/卸载的，
         // MutationObserver 会漏掉"属性未变但节点被替换"的情形）。
-        + "    setInterval(function(){tagHosts();syncOvFlag();},500);\n"
-        + "    setInterval(detectDark,500);\n"
+        // U10：两个常驻 500ms 轮询合并成一个，并在页面不可见时跳过。
+        //   长会话里两个 timer 一直空转，属纯常驻开销（电量/CPU）。
+        //   detectDark 只打标记、tagHosts/syncOvFlag 只改 class，
+        //   合并后行为等价：少一个 timer，也少一路 getComputedStyle。
+        + "    setInterval(function(){\n"
+        + "      if(document.hidden)return;\n"
+        + "      tagHosts();syncOvFlag();detectDark();\n"
+        + "    },500);\n"
         + "    detectDark();\n"
         // ===== 返回后自愈 =====
         // 现象：从插件市场侧滑返回 -> 整页白屏，只剩注入的汉堡。
@@ -1199,9 +1235,26 @@ public final class MobileTuning {
         + "      return !!(document.querySelector('div[class*=\"frame\"],div[class*=\"centerCol\"],'\n"
         + "        + '[data-shell-overlay],#dsh-market-shell'));\n"
         + "    }\n"
+        // U4 防御性收紧（**刻意不依赖真机确认路由身份**）：
+        //   隐患是 dshAlive() 只认 frame/centerCol/data-shell-overlay/#dsh-market-shell。
+        //   万一 /dsh-market 是 pushState 独立路由、而它的 DOM 不含上述任一，
+        //   rescue() 就会把用户**弹回首页** —— 一导航就被劫持（潜在 P0）。
+        //   与其赌「/dsh-market 到底是什么」，改成只救**明显坏掉**的文档：
+        //   ① 节点数充足 = 活页面（很可能就是 /dsh-market），一律不碰；
+        //   ② 加自愈次数上限，杜绝刷新循环。
+        //   这样无论它是 panel 还是独立路由都不会被劫持；等真机确认到真实根节点，
+        //   还可以再把判据收紧回精确选择器。
+        + "    var RESCUE_MAX=3,RESCUE_N=0;\n"
+        + "    function docLooksAlive(){\n"
+        + "      var b=document.body;\n"
+        + "      return !!(b&&b.getElementsByTagName('*').length>50);\n"
+        + "    }\n"
         + "    function rescue(){\n"
         + "      var entry=location.origin+'/';\n"
+        + "      if(RESCUE_N>=RESCUE_MAX)return false;\n"
+        + "      if(docLooksAlive())return false;\n"
         + "      if(!dshAlive()&&location.href!==entry){\n"
+        + "        RESCUE_N++;\n"
         + "        try{ location.replace(entry); }catch(e){}\n"
         + "        return true;\n"
         + "      }\n"
@@ -1217,9 +1270,22 @@ public final class MobileTuning {
         // 打标**不防抖**：只改 class，不增删节点，所以不会被 childList 观察者捕获、
         // 不会像 sync() 那样自激。这样设置面板一插进 DOM 就带上 .dsh-s-ov，
         // 第一帧就是最终形态（否则会先以 dsh 原生 800px 宽度闪一下）。
+        // U10：这个观察器原先**完全没节流**，每次 DOM 变动都同步跑一遍。
+        //   ⚠️ 但**不能**简单加 500ms debounce —— 打标必须与 dsh 插入面板**同帧**完成，
+        //   否则会先以 dsh 原生宽度（约 800px）闪一下再收窄。这正是原注释
+        //   「打标不防抖」的原因，不能推翻（下方 sed 注释仍保留该约定）。
+        //   改用 requestAnimationFrame 合并：同一帧内的多次变动只跑一次，
+        //   而 rAF 回调在**绘制前**执行 → 仍是「第一帧即最终形态」，
+        //   既消掉重复计算又不引入闪烁。
+        + "    var moRaf=false;\n"
         + "    if(window.MutationObserver){\n"
-        + "      new MutationObserver(function(){tagHosts();syncOvFlag();})\n"
-        + "        .observe(document.body,{childList:true,subtree:true});\n"
+        + "      new MutationObserver(function(){\n"
+        + "        if(moRaf)return;\n"
+        + "        moRaf=true;\n"
+        + "        var run=function(){moRaf=false;tagHosts();syncOvFlag();};\n"
+        + "        if(window.requestAnimationFrame){window.requestAnimationFrame(run);}\n"
+        + "        else{setTimeout(run,0);}\n"
+        + "      }).observe(document.body,{childList:true,subtree:true});\n"
         + "    }\n"
         + "    bar.querySelector('#dsh-mbtn').addEventListener('click',function(e){\n"
         + "      e.preventDefault();e.stopPropagation();\n"
@@ -1234,7 +1300,19 @@ public final class MobileTuning {
         + "      },140);\n"
         + "    });\n"
         + "    scrim.addEventListener('click',close);\n"
-        + "    document.addEventListener('keydown',function(e){if(e.key==='Escape'){close();}});\n"
+        // U8：原先这里有个**无条件** close() 的 Escape 监听，而设置面板自己
+        //   （上方 dsh-s-l3 分支）也监听 Escape 并调 setL2 + stopPropagation。
+        //   但 stopPropagation 拦不住**同一元素**上的其它监听器（那需要
+        //   stopImmediatePropagation），所以一次 Esc 会「既上移层级又关抽屉」，语义混乱。
+        //   改成状态机：设置浮层还开着时**不碰抽屉**，交由设置面板自己逐级消费；
+        //   只有浮层全关时 Esc 才关抽屉。
+        + "    document.addEventListener('keydown',function(e){\n"
+        + "      if(e.key!=='Escape')return;\n"
+        + "      var bb=document.body;\n"
+        + "      if(bb.classList.contains('dsh-s-l3'))return;\n"
+        + "      if(bb.classList.contains('dsh-s-l2')){bb.classList.remove('dsh-s-l2');return;}\n"
+        + "      close();\n"
+        + "    });\n"
         // dsh 会把 narrowExpanded 持久化。r16 那版点过原生折叠按钮，
         // 于是侧栏被持久化成「rail 形态」——抽屉里就只剩一列图标。
         // 这里在窄屏下把它恢复成展开态（走 dsh 自己的 toggle，状态会被它自己持久化）。

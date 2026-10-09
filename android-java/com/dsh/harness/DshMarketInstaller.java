@@ -39,11 +39,11 @@ import java.util.List;
 public final class DshMarketInstaller {
 
     private static final String TAG = "DshMarket";
-    private static final String PKG = "dshmarket";
-    private static final String PKG_VERSION = "1.66.11";
+    // C-02：包名 / 版本 / registry 收敛到 DshConfig，升级只改那一处
+    //（原先 PKG / PKG_VERSION / TARBALL 各自写死，改版本要翻文件、漏改不报错）
+    private static final String PKG = DshConfig.MARKET_PKG;
     /** 实测：undici@7.x + js-yaml@4.x 已在 bundle 里，安装时只需本包 tarball。 */
-    private static final String TARBALL =
-        "https://registry.npmjs.org/dshmarket/-/dshmarket-" + PKG_VERSION + ".tgz";
+    private static final String TARBALL = DshConfig.MARKET_TARBALL;
 
     // ===== pnpm（市场装插件需要它）=====
     //真机报错原文：
@@ -55,9 +55,36 @@ public final class DshMarketInstaller {
     //
     // pnpm@12.10.1：**3.9MB、零依赖、纯 JS**（bin/pnpm.mjs）、要求 node>=18
     //（实测本机 node v24，满足）。所以只要解包 + 造一个 shim 即可，无需依赖树。
-    private static final String PNPM_VERSION = "12.10.1";
-    private static final String PNPM_TARBALL =
-        "https://registry.npmjs.org/pnpm/-/pnpm-" + PNPM_VERSION + ".tgz";
+    // C-02：同上，pnpm 版本与 tarball 地址也走 DshConfig（升级只改 DshConfig）
+    private static final String PNPM_TARBALL = DshConfig.PNPM_TARBALL;
+
+    // ===== C-07 · 日志降噪 / 脱敏 =====
+    // 之前把 node 的**完整** stdout+stderr 打进 logcat（含本机绝对路径 $HOME、
+    // profile 目录与异常栈），同设备 adb 可读，属信息泄露（低危但应修）。
+    // 现在：release（非 debuggable）只打摘要；debug 才打全文，且截断 + HOME 替换成 ~。
+
+    private static boolean isDebuggable(Context ctx) {
+        try {
+            return (ctx.getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    /** 统一 node 脚本日志出口：release 只留摘要，debug 打截断+脱敏后的全文。 */
+    private static String summarize(Context ctx, String name, int code, String outAll) {
+        int len = outAll == null ? 0 : outAll.length();
+        String head = "[" + name + "] exit=" + code + " bytes=" + len;
+        if (!isDebuggable(ctx)) return head;
+        String s = outAll == null ? "" : outAll;
+        try {
+            String home = ShellRunner.home(ctx).getAbsolutePath();
+            if (home != null && home.length() > 1) s = s.replace(home, "~");
+        } catch (Throwable ignore) {}
+        if (s.length() > 500) s = s.substring(0, 500) + "…(truncated)";
+        return head + " out=" + s;
+    }
 
     /** pnpm 是否已就绪（$PREFIX/bin/pnpm 存在且可执行）。 */
     public static boolean pnpmReady(Context ctx) {
@@ -166,7 +193,7 @@ public final class DshMarketInstaller {
             while ((n = in.read(buf)) > 0) out.append(new String(buf, 0, n, "UTF-8"));
             int code = p.waitFor();
             String logAll = out.toString();
-            Log.i(TAG, scriptName + " exit=" + code + " out=" + logAll);
+            Log.i(TAG, summarize(ctx, scriptName, code, logAll));
             if (code != 0) {
                 for (String line : logAll.split("\n")) {
                     if (line.startsWith("ERR:")) return "失败: " + line.substring(4);
@@ -318,7 +345,7 @@ public final class DshMarketInstaller {
             while ((n = in.read(buf)) > 0) out.append(new String(buf, 0, n, "UTF-8"));
             int code = p.waitFor();
             String logAll = out.toString();
-            Log.i(TAG, "install exit=" + code + " out=" + logAll);
+            Log.i(TAG, summarize(ctx, "install", code, logAll));
             if (code != 0) {
                 for (String line : logAll.split("\n")) {
                     if (line.startsWith("ERR:")) return "安装失败: " + line.substring(4);

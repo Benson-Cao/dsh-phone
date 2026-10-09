@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# ============================================================================
+# pre-commit —— A-01 漂移守卫
+#
+# 提交前跑 verify-sync.sh：只要 ①/②/③ 任一处对不上就**拒绝提交**。
+# 这道闸门的意义：过去「改了 ① 忘了 cp 到 ②/③」不会报任何错，
+# 只会在真机上表现成"改了没生效"，是最难定位的一类回归。
+#
+# ⚠️ 启用方式（只需一次，hooksPath 指向仓库内目录即可随 clone 分发）：
+#     git config core.hooksPath .githooks
+# 不启用也不影响构建，只是失去这道自动守卫。
+# ============================================================================
+ROOT="$(git rev-parse --show-toplevel)"
+
+if bash "$ROOT/scripts/verify-sync.sh"; then
+    exit 0
+fi
+
+echo ""
+echo "✗ 提交被拒：三副本存在漂移（详见上方 diff）"
+echo "  修复：bash scripts/sync-from-source.sh"
+echo "  然后 git add -A 再提交。"
+exit 1
