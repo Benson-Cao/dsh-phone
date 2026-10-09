@@ -21,6 +21,28 @@
   function close(){document.body.classList.remove('dsh-drawer-open');}
   function mount(){
     if(document.getElementById(SID)){return;}
+    // ===== r68 · 汉堡图标常量必须声明在 mount() 的**最顶端** =====
+    //   真机故障：落地页左上角出现一个白底圆角胶囊、里面是文本 "undefined"，
+    //   而汉堡图标不见了。胶囊的白底 / 13px 圆角 / 轻阴影与 #dsh-mbtn 的 CSS 完全
+    //   吻合 —— 它就是汉堡按钮本身，只是 innerHTML 被拼成了字符串 "undefined"。
+    //   根因（可复现、非猜测）：`var` 会提升，**但赋值不会**。
+    //     MENU_SVG 原先声明在 mount 主体靠后的位置（r66 引入 ensureTopBar() 时），
+    //     而 ensureTopBar() 最早是被设置面板那个 IIFE 里的 sync() → syncOvFlag()
+    //     调起来的 —— 那个 IIFE 在源码里**排在 MENU_SVG 赋值之前**就执行完了。
+    //     于是这一刻 MENU_SVG 是 undefined，
+    //       bar.innerHTML='<button …>'+MENU_SVG+'</button>'
+    //     里的字符串拼接把 undefined 拼成了文本 "undefined"。
+    //     更糟的是**它不会自愈**：按钮一旦建好，后面 ensureTopBar() 看到
+    //     `#dsh-mbtn` 存在就不会重建，这个 "undefined" 会一直留在屏幕上。
+    //   为什么静态查不出来：构建产物里根本没有 "undefined" 这个字符串，
+    //     它是运行时拼出来的 —— 只能靠把脚本真跑起来扫 DOM 才能发现。
+    //   修法两条，一起上：
+    //     ① 常量提到 mount() 最顶端（在任何可能用到它的 IIFE 之前）——治本；
+    //     ② ensureTopBar() 增加**内容**校验（不只是"节点在不在"）——治标，
+    //       顺带覆盖 React 把按钮内容清空、只留壳子的情况。
+    var MENU_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+      +'<path d="M3 6h18M3 12h18M3 18h18"/></svg>';
     var mark=document.createElement('div');mark.id=SID;
     document.body.appendChild(mark);
     var live=document.createElement('div');
@@ -724,9 +746,7 @@
     //        子节点，它就被冲掉了，而注入脚本每页只跑一次、不会补。
     //   所以：创建 + 事件绑定全部收进这个幂等函数，交给 MutationObserver 与 500ms
     //   轮询兜底调用 —— 无论谁把顶栏弄丢，下一轮就会被原样补回，且不会重复绑定。
-    var MENU_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none"'
-      +' stroke="currentColor" stroke-width="2" stroke-linecap="round">'
-      +'<path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+    //   ⚠️ MENU_SVG 已上移到 mount() 最顶端（r68 修复 "undefined" 胶囊，见那里注释）。
     function onMenuClick(e){
       e.preventDefault();e.stopPropagation();
       var b=document.body;
@@ -744,6 +764,10 @@
       },140);
     }
     function onScrimClick(){close();syncBackMark();}
+    // 顶栏内容只有一处定义，避免三处手抄（r67 就是抄出了两份、其中一份拼错）。
+    function topBarHtml(){
+      return '<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+    }
     function ensureTopBar(){
       var b=document.body;
       if(!b){return null;}
@@ -751,7 +775,7 @@
       if(!bar){
         bar=document.createElement('div');
         bar.id='dsh-mtop';
-        bar.innerHTML='<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+        bar.innerHTML=topBarHtml();
         b.appendChild(bar);
       }else if(bar.parentNode!==b){
         b.appendChild(bar);   // 被挪走/被冲掉后重新挂回 body
@@ -759,9 +783,14 @@
       // __dshBound 是我们自己的幂等标记：节点是我们造的，只在创建时绑一次，
       // 重复调用 ensureTopBar() 不会叠加监听器。
       var btn=bar.querySelector('#dsh-mbtn')||document.getElementById('dsh-mbtn');
-      if(!btn){
-        // 顶栏在、但里面的按钮被 React 清掉了 —— 重建内容（同样只在需要时做）
-        bar.innerHTML='<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+      // r68：光判断"按钮在不在"**不够** —— r67 真机上按钮在、内容却是文本
+      //   "undefined"（常量还没赋值就被拼进 innerHTML），而"节点存在"恰好让这段
+      //   重建逻辑永远不触发，故障就永久留在屏幕上。
+      //   所以再校验**内容**：壳子里必须真的有 <svg，否则（被 React 清空 / 被换成
+      //   别的文本 / 拼进了 undefined）一律原样重建。
+      if(!btn||String(bar.innerHTML).indexOf('<svg')<0){
+        // 顶栏在、但里面的按钮被 React 清掉（或内容不对）—— 重建（只在需要时做）
+        bar.innerHTML=topBarHtml();
         btn=bar.querySelector('#dsh-mbtn');
       }
       if(btn&&!btn.__dshBound){btn.__dshBound=true;btn.addEventListener('click',onMenuClick);}
