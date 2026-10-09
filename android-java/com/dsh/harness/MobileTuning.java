@@ -686,6 +686,30 @@ public final class MobileTuning {
         "(function(){\n"
         + "  var SID='dsh-m-shell';\n"
         + "  if(document.getElementById(SID)){return;}\n"          // 幂等
+        // ===== P3-3f 深色探测（兜底）=====
+        // dsh 自己的深色标记是 body[data-ds-dark-theme]，CSS 已直接跟随；
+        // 这里只在「有深色底但没有 dsh 标记」时补一个 .dsh-dark（未来 dsh 改标记名的保险）。
+        //
+        // ⚠️ 必须定义在 **IIFE 顶层**（与 mq 同作用域）。
+        //   之前它被放在 if(!inMarket){...} 块内，而 setInterval(detectDark,500)
+        //   在块外 -> ReferenceError 打断 mount() -> 汉堡的 click 监听器**根本没绑上**
+        //   -> 「点汉堡无反应」（真机 11:39 事故）。
+        + "  function detectDark(){\n"
+        + "    var b=document.body;\n"
+        + "    if(!b){return;}\n"
+        + "    if(b.hasAttribute('data-ds-dark-theme')){\n"
+        + "      document.documentElement.classList.remove('dsh-dark');\n"
+        + "      return;\n"
+        + "    }\n"
+        + "    var c=window.getComputedStyle(b).backgroundColor||'';\n"
+        + "    var m=c.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?/);\n"
+        + "    if(!m){return;}\n"
+        // 完全透明（alpha=0）不能当暗色：实测浅色页 body 背景是 transparent
+        + "    var a=m[4]===undefined?1:parseFloat(m[4]);\n"
+        + "    if(a<0.5){document.documentElement.classList.remove('dsh-dark');return;}\n"
+        + "    var lum=(0.2126*+m[1]+0.7152*+m[2]+0.0722*+m[3])/255;\n"
+        + "    document.documentElement.classList.toggle('dsh-dark',lum<0.5);\n"
+        + "  }\n"
         + "  var mq=window.matchMedia('(max-width:1023px)');\n"
         + "  function close(){document.body.classList.remove('dsh-drawer-open');}\n"
         + "  function mount(){\n"
@@ -698,8 +722,7 @@ public final class MobileTuning {
         + "    live.setAttribute('role','status');\n"
         + "    live.setAttribute('aria-live','polite');\n"
         + "    live.setAttribute('aria-atomic','true');\n"
-        + "    live.style.cssText='position:absolute;width:1px;height:1px;margin:-1px;padding:0;"
-        + "overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';\n"
+        + "    live.style.cssText='position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';\n"
         + "    document.body.appendChild(live);\n"
         // ⚠️ 作用域隔离（最重要的结构性问题修复）：
         //原方案把所有规则裸写在 @media(max-width:1023px) 里，
@@ -843,17 +866,21 @@ public final class MobileTuning {
         // ===== P3-1 浮层焦点管理 =====
         // 打开设置浮层时把焦点移进去，Tab 在浮层内循环（焦点陷阱），
         // 关闭时把焦点还给汉堡按钮 —— 外接键盘 / TalkBack 用户否则会「跳到看不见的地方」。
-        + "      var FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])';\n"
+        + "      var FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]';\n"
         + "      function focusables(ov){\n"
         + "        var all=(ov||document).querySelectorAll(FOCUSABLE);\n"
         + "        var out=[];\n"
         + "        for(var i=0;i<all.length;i++){\n"
         + "          var e=all[i],r=e.getBoundingClientRect();\n"
+        // tabindex=-1 的元素（如 dsh 自己管理的浮层）要排除：FOCUSABLE 选择器
+        // 里不写 \"-1\" 是因为 Java 字符串转义会吞掉双引号，改在运行时判断。
+        + "          if(e.getAttribute('tabindex')==='-1'){continue;}\n"
         + "          if(r.width>0&&r.height>0){out.push(e);}\n"
         + "        }\n"
         + "        return out;\n"
         + "      }\n"
         + "      var lastFocus=null;\n"
+        + "      var panelOpen=false;\n"
         + "      function trapFocus(e){\n"
         + "        if(e.key!=='Tab'){return;}\n"
         + "        var ov=document.querySelector('[class*=\"_panel\"]');\n"
@@ -884,33 +911,6 @@ public final class MobileTuning {
         + "        if(!box){return;}\n"
         + "        box.textContent='';\n"
         + "        setTimeout(function(){box.textContent=txt;},30);\n"
-        + "      }\n"
-        // ===== P3-3f 深色探测 =====
-        // dsh 支持深色但不打 DOM 标记（无 data-theme/.dark），且允许用户手动锁定，
-        // 所以不能靠 @media。做法：**实测 dsh 渲染出来的背景色亮度**，
-        //   命中暗色就给 html 打 .dsh-dark，装饰色（品牌蓝/浅底）随之覆写。
-        //   主体色已在 CSS 里别名 --dsw-alias-*，本来就自动跟随。
-        // 兜底：dsh 现在的标记是 body[data-ds-dark-theme]，CSS 已经直接跟随它。
-        // 这里保留实测逻辑，只在「有深色底但没有 dsh 标记」时才补一个 .dsh-dark
-        //（例如未来 dsh 改了标记名），属于保险，不是主路径 —— 主路径零轮询即可。
-        + "      function detectDark(){\n"
-        + "        var b=document.body;\n"
-        + "        if(!b){return;}\n"
-        + "        if(b.hasAttribute('data-ds-dark-theme')){\n"
-        + "          if(document.documentElement.classList.contains('dsh-dark')){\n"
-        + "            document.documentElement.classList.remove('dsh-dark');\n"
-        + "          }\n"
-        + "          return;\n"
-        + "        }\n"
-        + "        var c=window.getComputedStyle(b).backgroundColor||'';\n"
-        + "        var m=c.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?/);\n"
-        + "        if(!m){return;}\n"
-        //⚠️ 关键：完全透明（alpha=0）时**不能**当成暗色 ——
-        //   实测浅色页body 背景是 transparent，误判会让整个界面套上深色覆写。
-        + "        var a=m[4]===undefined?1:parseFloat(m[4]);\n"
-        + "        if(a<0.5){document.documentElement.classList.remove('dsh-dark');return;}\n"
-        + "        var lum=(0.2126*+m[1]+0.7152*+m[2]+0.0722*+m[3])/255;\n"
-        + "        document.documentElement.classList.toggle('dsh-dark',lum<0.5);\n"
         + "      }\n"
         + "      function dedupeMarket(){\n"
         + "        var c=marketCell();\n"
@@ -1053,7 +1053,11 @@ public final class MobileTuning {
         // 会出现图三的情况"：一大片空白 + 只有插件市场卡片）。
         + "          b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');\n"
         + "          syncOvFlag();\n"
-        + "          leaveFocus();\n"
+        // ⚠️ r47：leaveFocus 只能在「开 -> 关」那一跳调用。首页永远没有设置面板，
+        //   若每次 sync 都调，它内部的 focus() 会反复抢焦点：
+        //   点汉堡 -> mousedown 焦点落按钮 -> DOM 变化 -> sync -> 焦点被抢走
+        //   -> mouseup 落空 -> click 不派发 -> **抽屉打不开**。
+        + "          if(panelOpen){panelOpen=false;leaveFocus();}\n"
         + "          var mc=document.getElementById('dsh-market-card');\n"
         + "          if(mc&&mc.parentNode){mc.parentNode.removeChild(mc);}\n"
         + "          syncBack();\n"
@@ -1067,7 +1071,7 @@ public final class MobileTuning {
         + "        dedupeMarket();\n"
         + "        detectDark();\n"
         // 首次打开才移入焦点（sync 每次 DOM 变化都跑，重复 focus 会打断用户）
-        + "        if(!lastFocus){\n"
+        + "        if(!panelOpen){panelOpen=true;\n"
         + "          lastFocus=document.activeElement;\n"
         + "          enterFocus(document.querySelector('[class*=\"_panel\"]'));\n"
         + "        }\n"
