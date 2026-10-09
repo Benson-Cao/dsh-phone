@@ -405,8 +405,14 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // ⚠️ r48：返回键**不能**用 webView.goBack()。
+        //   dsh 是 SPA（history.pushState 路由），goBack() 会让 WebView 重新加载
+        //   那个历史项的文档 —— 一旦历史里混进服务端不存在的路径（404 空响应），
+        //   重新加载就是一片空白，只剩注入层还在（用户反馈「从插件市场返回后白屏」）。
+        //   history.back() 走的是同文档历史，只触发 popstate，SPA 自己能处理；
+        //   对真正的跨文档历史项，浏览器也会正常重新导航。
         if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
-            webView.goBack();
+            webView.evaluateJavascript("window.history.back();", null);
             return true;
         }
         return super.onKeyDown(keyCode, event);

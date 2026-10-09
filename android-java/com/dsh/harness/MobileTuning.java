@@ -396,6 +396,14 @@ public final class MobileTuning {
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] [class*=\"_name\"],"
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] span{white-space:nowrap !important;"
         + "word-break:keep-all !important;}\n"
+        // ⚠️ r48：插件市场三级页（dshmarket 渲染）的头部元素类名**不受我们控制**，
+        //   上面按 _title/_name/span 兜底漏掉了它用的 div -> 标题被压到最窄、
+        //   「插件市场」竖成一列（同族问题在 ③ 修过一次，这里是另一个页面）。
+        //   通用防御：header 的**直接子元素**一律 nowrap + 不参与收缩 ——
+        //   放不下时整块 wrap 到下一行（header 已有 flex-wrap:wrap），而不是把中文压成竖排。
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] > *{white-space:nowrap !important;"
+        + "word-break:keep-all !important;flex-shrink:0 !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] *{word-break:keep-all !important;}\n"
         + "  .dsh-s-ov [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:19px !important;"
         + "font-weight:750 !important;letter-spacing:.2px !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;min-width:0 !important;}\n"
@@ -883,7 +891,11 @@ public final class MobileTuning {
         + "      var panelOpen=false;\n"
         + "      function trapFocus(e){\n"
         + "        if(e.key!=='Tab'){return;}\n"
+        // ⚠️ r48：ov 可能为 null（面板已卸载但 keydown 监听还在）。
+        //   旧代码直接 ov.contains(ae) 会抛 TypeError，keydown 监听器一旦抛错，
+        //   同一次事件的后续处理全部中断 —— 返回键/Enter 导航时可能就断在这里。
         + "        var ov=document.querySelector('[class*=\"_panel\"]');\n"
+        + "        if(!ov){return;}\n"
         + "        var f=focusables(ov);\n"
         + "        if(!f.length){return;}\n"
         + "        var first=f[0],last=f[f.length-1];\n"
@@ -918,22 +930,21 @@ public final class MobileTuning {
         + "        c.setAttribute('data-dsh-dup','1');\n"
         + "        c.style.setProperty('display','none','important');\n"
         + "      }\n"
-        // ⚠️ r43：这里原来直接 `location.href='/dsh-market'`。dsh web 入口地址带 ?token=，
-        //   相对路径整页跳会**丢掉 token**；而该路由是插件注册的客户端路由，服务端也不保证
-        //   为这个路径吐 SPA 外壳 —— 真机表现就是「点打开市场没反应」。
-        //   现在优先点 dsh 自己注册的那个导航项，交给它的前端路由；兜底才做整页跳转，
-        //   并且**把 query 带上**。
+        // ⚠️ r48 重写（r43 的方案是错的）：
+        //   r43 以为 /dsh-market 是「插件注册的客户端路由」，于是保留了一个
+        //   `location.assign('/dsh-market')` 的整页跳转兜底。实测真机证明：
+        //   dshmarket 其实是**设置面板里的一个 panel**（截图里它带✘ 和「打开配置文件」，
+        //   就是设置浮层内的三级页），服务端**根本没有** /dsh-market 这条路由。
+        //   一旦走到这个兜底 -> GET /dsh-market -> 404 -> WebView 整页白屏，
+        //   而且这条 404 还进了浏览器历史，用户按返回键会再回到这个白屏页（真机图2）。
+        //   现在**彻底不做整页跳转**：只点 dsh 注册的那个导航项；点不到就如实提示。
         + "      function openMarket(btn){\n"
         + "        var cell=marketCell();\n"
         + "        if(cell){ try{ cell.click(); return 'nav'; }catch(e){} }\n"
-        + "        var base=location.pathname.replace(/[^/]*$/,'')+'dsh-market';\n"
-        + "        try{ location.assign(base+location.search); return 'assign'; }\n"
-        + "        catch(e2){\n"
-        + "          var note=document.getElementById('dsh-mk-note');\n"
-        + "          if(note){ note.textContent='打不开市场页：请用桌面端浏览器打开 dsh market'; }\n"
-        + "          if(btn){ btn.textContent='打开失败'; }\n"
-        + "          return 'fail';\n"
-        + "        }\n"
+        + "        var note=document.getElementById('dsh-mk-note');\n"
+        + "        if(note){ note.textContent='未能定位市场入口，请重新打开设置页'; }\n"
+        + "        if(btn){ btn.textContent='打开失败'; }\n"
+        + "        return 'fail';\n"
         + "      }\n"
         + "      function guardCard(){\n"
         + "        var c=document.getElementById('dsh-market-card');\n"
@@ -1150,6 +1161,24 @@ public final class MobileTuning {
         + "    setInterval(function(){tagHosts();syncOvFlag();},500);\n"
         + "    setInterval(detectDark,500);\n"
         + "    detectDark();\n"
+        // ===== 返回键自愈 =====
+        // MainActivity 的返回键走 webView.goBack()（浏览器历史）。dsh 是 SPA，
+        // 如果历史里混入过「服务端不存在的路径」（如 r43 那次整页跳 /dsh-market -> 404），
+        // 返回时 WebView 会重新加载那个 404 -> 白屏，只剩我们注入的汉堡。
+        // 这里记下真正的应用入口，返回后若发现当前文档既不是入口也没有 dsh 主区域，
+        // 就用 replace 回入口 —— replace 不会新增历史项，不会再死循环。
+        + "    window.__dshHomeUrl=location.href;\n"
+        + "    window.addEventListener('popstate',function(){\n"
+        + "      setTimeout(function(){\n"
+        + "        var ov=document.querySelector('[class*=\"_overlay\"]');\n"
+        + "        var center=document.querySelector('div[class*=\"centerCol\"]');\n"
+        + "        var home=document.getElementById('dsh-market-shell');\n"
+        + "        var dead=(!ov&&(!center||center.children.length===0)&&!home);\n"
+        + "        if(dead&&window.__dshHomeUrl&&location.href!==window.__dshHomeUrl){\n"
+        + "          try{ location.replace(window.__dshHomeUrl); }catch(e){}\n"
+        + "        }\n"
+        + "      },260);\n"
+        + "    });\n"
         // 打标**不防抖**：只改 class，不增删节点，所以不会被 childList 观察者捕获、
         // 不会像 sync() 那样自激。这样设置面板一插进 DOM 就带上 .dsh-s-ov，
         // 第一帧就是最终形态（否则会先以 dsh 原生 800px 宽度闪一下）。
