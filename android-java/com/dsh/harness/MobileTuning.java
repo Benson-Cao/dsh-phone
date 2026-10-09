@@ -116,6 +116,11 @@ public final class MobileTuning {
      *      `_header` / `_close` / `_options` / `_cards` 同理。
      *      设置浮层的**唯一指纹**是「同一个 `_overlay` 里同时有 `_panel` 与 `_navList`」，
      *      JS 用它判定并打上 `.dsh-s-ov`，CSS 只认这个自打的类。
+     * 七、**跳转插件页面不要用 `location.href='/xxx'`**。
+     *      dsh web 入口地址带 `?token=`，相对路径整页跳会把 query 丢掉；而插件页是
+     *      **插件自己注册的客户端路由**，服务端不保证为该路径吐 SPA 外壳。
+     *      正确做法：点该插件在 UI 上注册的那个入口（`.click()`），交给 dsh 的前端路由；
+     *      实在要整页跳就 `location.assign(path + location.search)` 把 token 带上。
      * 六、**别写 `容器 * {…}` 这种全通配的"重置"规则**。
      *      `div[class*="sidebarCol"] *{min-width:0}` 的特异性 (0,1,1) 高于 dsh 自己
      *      的组件规则 (0,1,0)，会把 `.addButton{min-width:180px}` 之类的设计参数
@@ -306,8 +311,10 @@ public final class MobileTuning {
         + "background:var(--ds-ink-100,#eef2f6)!important;}\n"
         // 行分隔线：从图标右侧（48px）起，右边收 12px
         + "  .dsh-s-nav [class*=\"_navCell\"]+[class*=\"_navCell\"]::before{"
+        // 颜色从 ink-100 提到 ink-200：ink-100(#eef2f6) 在白底上几乎看不见，
+        // 逐页截图复核时发现导航项之间"没有分隔线"（真机②也是同样观感）。
         + "content:'';position:absolute;left:48px;right:12px;top:0;height:1px;"
-        + "background:var(--ds-ink-100,#eef2f6);}\n"
+        + "background:var(--ds-ink-200,#d8e1ea);}\n"
         + "  .dsh-s-nav [class*=\"_navIcon\"]{width:22px!important;height:22px!important;"
         + "flex:none!important;color:var(--ds-ink-500,#5a6d84)!important;}\n"
         + "  .dsh-s-nav [class*=\"_navLabel\"]{font-size:15.5px!important;"
@@ -420,6 +427,7 @@ public final class MobileTuning {
         + "border-radius:18px !important;overflow:hidden !important;"
         + "background:linear-gradient(180deg,#f9fcff 0%,#f2f7ff 100%) !important;"
         + "box-shadow:0 1px 2px rgba(13,27,46,.04) !important;}\n"
+        + "  .dsh-s-nav [data-dsh-dup]{display:none !important;}\n"
         + "  body.dsh-s-l2 #dsh-market-card{display:flex !important;"
         + "flex-direction:column !important;gap:12px !important;}\n"
         // —— 头部
@@ -736,14 +744,39 @@ public final class MobileTuning {
         // 所以这里用**实测几何**兜底：卡片只要越出视口、或被拉伸到异常高度，
         // 立刻用内联样式把它钉成「视口宽-32px、高度自适应、不参与 flex 伸缩」。
         // 宽高恢复正常后自动撤销内联样式（不残留，便于日后排查）。
-        + "      function dedupeMarket(){\n"
+        // dshmarket 装好后，dsh 会**自己**在设置导航里注册一个「插件市场」项。
+        // 它和我们的注入卡片同名同目标 -> 二级页出现两个「插件市场」（真机②）。
+        //   这里只做**视觉隐藏**（保留在 DOM 里），因为 openMarket() 还要靠它跳转：
+        //   市场路由是插件注册的客户端路由，必须由 dsh 自己的路由处理。
+        + "      function marketCell(){\n"
         + "        var cells=document.querySelectorAll('.dsh-s-nav [class*=\"_navCell\"]');\n"
         + "        for(var i=0;i<cells.length;i++){\n"
         + "          var t=(cells[i].textContent||'').replace(/\\s+/g,'');\n"
-        + "          if(t==='插件市场'||t==='PluginMarket'){\n"
-        + "            cells[i].style.setProperty('display','none','important');\n"
-        + "            cells[i].setAttribute('data-dsh-dup','1');\n"
-        + "          }\n"
+        + "          if(t==='插件市场'||t==='PluginMarket'){return cells[i];}\n"
+        + "        }\n"
+        + "        return null;\n"
+        + "      }\n"
+        + "      function dedupeMarket(){\n"
+        + "        var c=marketCell();\n"
+        + "        if(!c){return;}\n"
+        + "        c.setAttribute('data-dsh-dup','1');\n"
+        + "        c.style.setProperty('display','none','important');\n"
+        + "      }\n"
+        // ⚠️ r43：这里原来直接 `location.href='/dsh-market'`。dsh web 入口地址带 ?token=，
+        //   相对路径整页跳会**丢掉 token**；而该路由是插件注册的客户端路由，服务端也不保证
+        //   为这个路径吐 SPA 外壳 —— 真机表现就是「点打开市场没反应」。
+        //   现在优先点 dsh 自己注册的那个导航项，交给它的前端路由；兜底才做整页跳转，
+        //   并且**把 query 带上**。
+        + "      function openMarket(btn){\n"
+        + "        var cell=marketCell();\n"
+        + "        if(cell){ try{ cell.click(); return 'nav'; }catch(e){} }\n"
+        + "        var base=location.pathname.replace(/[^/]*$/,'')+'dsh-market';\n"
+        + "        try{ location.assign(base+location.search); return 'assign'; }\n"
+        + "        catch(e2){\n"
+        + "          var note=document.getElementById('dsh-mk-note');\n"
+        + "          if(note){ note.textContent='打不开市场页：请用桌面端浏览器打开 dsh market'; }\n"
+        + "          if(btn){ btn.textContent='打开失败'; }\n"
+        + "          return 'fail';\n"
         + "        }\n"
         + "      }\n"
         + "      function guardCard(){\n"
@@ -829,7 +862,7 @@ public final class MobileTuning {
         //   "打开市场"永远点不动。把声明提到函数最前面。
         + "        var btn=document.getElementById('dsh-market-btn');\n"
         + "        if(!btn){return;}\n"
-        + "        if(btn.getAttribute('data-open')==='1'){ location.href='/dsh-market'; return; }\n"
+        + "        if(btn.getAttribute('data-open')==='1'){ openMarket(btn); return; }\n"
         + "        if(installing){return;}\n"
         + "        installing=true;\n"
         + "        var note=document.getElementById('dsh-mk-note');\n"
