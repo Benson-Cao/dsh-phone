@@ -246,6 +246,13 @@
         b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
         b.classList.remove('dsh-ov-open');
       }
+      // 「返回上一级」条。**无条件注入** —— 这是 r63 的简化：
+      //   r60~r62 连续三次败在同一个地方 —— 「要不要注入」这个判断本身。
+      //   判存在性错、判computedStyle 也错（看不见祖先隐藏）、判几何虽对但真机仍未出现。
+      //   教训：与其把判断做得更聪明，不如**去掉判断**。
+      // 现在固定注入，并优先插到 _header 最前 —— 那里正是 dsh 自带 × 按钮的位置，
+      // 于是它落在 × 左边、视觉上取代 ×，任何层级下左上角都只有一个出口，
+      // 行为也统一（都是「退出设置回到聊天页」）。
       function ensureBackBar(){
         var ov=settingsOverlay();
         var bar=document.getElementById('dsh-back');
@@ -253,10 +260,12 @@
           if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
           return;
         }
-        if(bar){return;}
-        // 面板**可见地**自带关闭按钮时才跳过（插件页/Agent 预设页顶部有 ×），
-        // 避免并排出现两个同样意思的出口
-        if(visibleClose(ov)){return;}
+        if(bar){
+          // 面板换层级时（header 出现/消失）把已有的条挪到正确位置
+          var host=ov.querySelector('[class*="_header"]')||ov;
+          if(bar.parentNode!==host){host.insertBefore(bar,host.firstChild);}
+          return;
+        }
         bar=document.createElement('div');
         bar.id='dsh-back';
         bar.innerHTML='<button id="dsh-back-btn" type="button" aria-label="返回">'
@@ -264,7 +273,8 @@
           +' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
           +'<path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
           +'<span class="dsh-back-t">设置</span></button>';
-        ov.insertBefore(bar, ov.firstChild);
+        var host=ov.querySelector('[class*="_header"]')||ov;
+        host.insertBefore(bar, host.firstChild);
         bar.querySelector('#dsh-back-btn').addEventListener('click',function(e){
           e.preventDefault();e.stopPropagation();
           closeSettings();
