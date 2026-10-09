@@ -116,6 +116,11 @@ public final class MobileTuning {
      *      `_header` / `_close` / `_options` / `_cards` 同理。
      *      设置浮层的**唯一指纹**是「同一个 `_overlay` 里同时有 `_panel` 与 `_navList`」，
      *      JS 用它判定并打上 `.dsh-s-ov`，CSS 只认这个自打的类。
+     * 六、**别写 `容器 * {…}` 这种全通配的"重置"规则**。
+     *      `div[class*="sidebarCol"] *{min-width:0}` 的特异性 (0,1,1) 高于 dsh 自己
+     *      的组件规则 (0,1,0)，会把 `.addButton{min-width:180px}` 之类的设计参数
+     *      一起干掉，按钮里的中文随即按字换行竖排（真机模型页/插件市场页）。
+     *      要放开收缩就点名文本元素，别碰控件。
      * 五、**任何"隐藏 UI"的规则都必须由指纹判定驱动**。
      *      r40 事故：`overlay()` 裸查 `_overlay` -> 首页命中布局浮层 -> body 被加上
      *      dsh-ov-open -> 汉堡按钮 display:none -> 「无法打开设置」（应用基本不可用）。
@@ -191,13 +196,32 @@ public final class MobileTuning {
         + "  div[class*=\"sidebarCol\"]{overflow-y:auto !important;"
         + "-webkit-overflow-scrolling:touch !important;overscroll-behavior:contain !important;}\n"
         + "  body.dsh-drawer-open div[class*=\"sidebarCol\"]"
-        + "  {transform:translate3d(0,0,0) !important;}\n"
+        + "  {transform:translate3d(0,0,0) !important;"
+        + "display:block !important;visibility:visible !important;opacity:1 !important;"
+        + "background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#fff)) !important;}\n"
+        + "  body.dsh-drawer-open div[class*=\"sidebarCol\"] [class*=\"_collapsed\"]"
+        + "  {padding:6px 12px !important;}\n"
+        + "  body.dsh-drawer-open div[class*=\"sidebarCol\"] [class*=\"_newSessionLabel\"],"
+        + "  body.dsh-drawer-open div[class*=\"sidebarCol\"] [class*=\"_panelTitle\"]"
+        + "  {max-width:none !important;}\n"
+        + "  body.dsh-drawer-open div[class*=\"sidebarCol\"] [class*=\"_panelRow\"]"
+        + "  {width:100% !important;height:auto !important;min-height:36px !important;"
+        + "justify-content:flex-start !important;padding:0 8px !important;}\n"
+        + "  body.dsh-drawer-open div[class*=\"sidebarCol\"] [class*=\"_newSession\"]:not([class*=\"Label\"])"
+        + "  {width:100% !important;height:auto !important;min-height:40px !important;"
+        + "gap:8px !important;padding:0 10px !important;justify-content:flex-start !important;}\n"
         // 挤成竖排的根因：flex/grid 子项默认 min-width:auto 会拒绝收缩，
         // 叠上中文的 word-break 规则就成了「一字一行」。允许收缩 + 允许折行即可。
-        + "  div[class*=\"sidebarCol\"] *{min-width:0;}\n"
         + "  div[class*=\"sidebarCol\"] p,div[class*=\"sidebarCol\"] span,"
-        + "div[class*=\"sidebarCol\"] label,div[class*=\"sidebarCol\"] div,"
-        + "div[class*=\"sidebarCol\"] button{overflow-wrap:anywhere;}\n"
+        + "div[class*=\"sidebarCol\"] label,div[class*=\"sidebarCol\"] li,"
+        + "div[class*=\"sidebarCol\"] h1,div[class*=\"sidebarCol\"] h2,"
+        + "div[class*=\"sidebarCol\"] h3,div[class*=\"sidebarCol\"] div{min-width:0;}\n"
+        + "  div[class*=\"sidebarCol\"] p,div[class*=\"sidebarCol\"] span,"
+        + "div[class*=\"sidebarCol\"] label,div[class*=\"sidebarCol\"] li,"
+        + "div[class*=\"sidebarCol\"] div{overflow-wrap:anywhere;}\n"
+        + "  div[class*=\"sidebarCol\"] p,div[class*=\"sidebarCol\"] span,"
+        + "div[class*=\"sidebarCol\"] label,div[class*=\"sidebarCol\"] li,"
+        + "div[class*=\"sidebarCol\"] div{word-break:keep-all !important;}\n"
         // 窄屏隐藏 dsh 原生折叠按钮：入口统一到顶栏汉堡键
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"收起侧边栏\"],"
         + "  div[class*=\"sidebarCol\"] button[aria-label=\"打开侧边栏\"],"
@@ -318,10 +342,18 @@ public final class MobileTuning {
         // 头栏：固定最小高度 + 底部细分割线（L3 详情页的层次靠它撑起来）；
         // padding-top 叠 safe-area-inset-top，刘海/挖孔屏不压字（非全面屏机型为 0，无副作用）
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"]{display:flex !important;"
-        + "align-items:center !important;gap:10px !important;"
+        + "align-items:center !important;gap:10px !important;flex-wrap:wrap !important;"
+        + "row-gap:10px !important;"
         + "box-sizing:border-box !important;height:auto !important;min-height:58px !important;"
         + "padding:calc(12px + env(safe-area-inset-top,0px)) 16px 10px !important;"
         + "border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] button,"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] a{flex:none !important;"
+        + "white-space:nowrap !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] [class*=\"_title\"],"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] [class*=\"_name\"],"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_header\"] span{white-space:nowrap !important;"
+        + "word-break:keep-all !important;}\n"
         + "  .dsh-s-ov [class*=\"_panel\"] div[class*=\"_headerTitle\"]{font-size:19px !important;"
         + "font-weight:750 !important;letter-spacing:.2px !important;"
         + "color:var(--ds-ink-900,#0d1b2e) !important;flex:1 !important;min-width:0 !important;}\n"
@@ -359,6 +391,14 @@ public final class MobileTuning {
         // 统一成显式作用域前缀，才和文件头的「作用域铁律」一致。
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_entryValue\"],"
         + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] *{overflow-wrap:anywhere !important;}\n"
+        // ⚠️ r42：上面这条会连**按钮**一起打上 anywhere（`*` 选择器），按钮被 flex 挤窄时
+        //   中文会按字断行竖排（真机③「添加自定义提供 方」）。所以表单控件单独恢复：
+        //   不断字 + keep-all；宽度不够时交给 flex-wrap 换行，而不是竖排。
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] button,"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] input,"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] select,"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"] textarea"
+        + "  {overflow-wrap:normal !important;word-break:keep-all !important;}\n"
         // 内容列允许滚动：dsh 的 _content 是 flex:1，若不给 overflow 会把
         // 长内容截断且无法滚动（用户反馈"页面无法往下滚动"）。
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{overflow-y:auto !important;"
@@ -680,7 +720,7 @@ public final class MobileTuning {
         + "          +' stroke-linejoin=\"round\"><path d=\"M4 7h16M4 12h16M4 17h10\"/></svg></span>'\n"
         + "          +'<div class=\"dsh-mk-htxt\">'\n"
         + "          +'<div class=\"dsh-mk-title\">插件市场</div>'\n"
-        + "          +'<div class=\"dsh-mk-sub\">浏览社区插件，一键装到本机</div></div>'\n"
+        + "          +'<div class=\"dsh-mk-sub\">社区插件 · 一键装到本机</div></div>'\n"
         + "          +'<span class=\"dsh-mk-chip\" id=\"dsh-mk-chip\">检测中</span></div>'\n"
         + "          +'<div class=\"dsh-mk-actions\">'\n"
         + "          +'<button id=\"dsh-market-btn\" type=\"button\">检测中…</button>'\n"
@@ -696,6 +736,16 @@ public final class MobileTuning {
         // 所以这里用**实测几何**兜底：卡片只要越出视口、或被拉伸到异常高度，
         // 立刻用内联样式把它钉成「视口宽-32px、高度自适应、不参与 flex 伸缩」。
         // 宽高恢复正常后自动撤销内联样式（不残留，便于日后排查）。
+        + "      function dedupeMarket(){\n"
+        + "        var cells=document.querySelectorAll('.dsh-s-nav [class*=\"_navCell\"]');\n"
+        + "        for(var i=0;i<cells.length;i++){\n"
+        + "          var t=(cells[i].textContent||'').replace(/\\s+/g,'');\n"
+        + "          if(t==='插件市场'||t==='PluginMarket'){\n"
+        + "            cells[i].style.setProperty('display','none','important');\n"
+        + "            cells[i].setAttribute('data-dsh-dup','1');\n"
+        + "          }\n"
+        + "        }\n"
+        + "      }\n"
         + "      function guardCard(){\n"
         + "        var c=document.getElementById('dsh-market-card');\n"
         + "        if(!c){return;}\n"
@@ -819,6 +869,7 @@ public final class MobileTuning {
         + "        syncOvFlag();\n"
         + "        tagHosts();\n"
         + "        mkMarketCard();\n"
+        + "        dedupeMarket();\n"
         + "        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}\n"
         + "        guardCard();\n"
         + "        syncBack();\n"
@@ -900,7 +951,15 @@ public final class MobileTuning {
         + "    }\n"
         + "    bar.querySelector('#dsh-mbtn').addEventListener('click',function(e){\n"
         + "      e.preventDefault();e.stopPropagation();\n"
-        + "      document.body.classList.toggle('dsh-drawer-open');\n"
+        + "      var b=document.body;\n"
+        + "      if(b.classList.contains('dsh-drawer-open')){close();return;}\n"
+        + "      try{expandSidebarOnce();}catch(err){}\n"
+        + "      b.classList.add('dsh-drawer-open');\n"
+        + "      var n=0;\n"
+        + "      var iv=setInterval(function(){\n"
+        + "        try{expandSidebarOnce();}catch(err){}\n"
+        + "        if(++n>8){clearInterval(iv);}\n"
+        + "      },140);\n"
         + "    });\n"
         + "    scrim.addEventListener('click',close);\n"
         + "    document.addEventListener('keydown',function(e){if(e.key==='Escape'){close();}});\n"
