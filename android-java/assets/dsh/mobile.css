@@ -59,6 +59,12 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
     cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
   #dsh-back-btn svg{flex:none !important;}
   #dsh-back-btn .dsh-back-t{font-weight:600 !important;white-space:nowrap !important;}
+  /* dsh 的 tab 面板靠 hidden 属性切换显隐（取证：dsh-client-ui-settings-plugins/
+     lib/client.js 里 `role:"tabpanel"` + `hidden: !selected`）。但 `.panel` 这类
+     CSS-module 类自带 display，会**盖过浏览器 UA 的 [hidden]{display:none}** ——
+     于是 hidden=true 也不隐藏，点「插件列表」后上一个 tab 的配置内容赖着不走。
+     这类"class 规则压过 UA 样式表"的坑只能靠一条高优先级兜底修掉。*/
+  [role="tabpanel"][hidden]{display:none !important;}
   .dsh-s-ov [class*="_panel"] [class*="_content"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}
   /* U13：把「深层级按返回 = 退出应用」这个已知权衡固化到界面上。
      MainActivity.onResume 的 clearHistory() 会清空 SPA 全部历史（否则侧滑回到

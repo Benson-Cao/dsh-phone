@@ -218,13 +218,31 @@
       // 回到聊天页。**自适应**：如果 dsh 自己已经在面板里画了关闭按钮（×，插件页/
       // Agent 预设页就是这样），就不再重复加我们的返回条；只有像设置首页那样
       // 没有关闭按钮的界面才补一个。
+      // 判断元素是否「用户真的看得见」。
+      // ⚠️ 不能只看 getComputedStyle：它只反映元素**自身**的样式，不反映祖先。
+      // 设置首页的 _close 就是这种：自身 display:block，但它所在的 header 在那个层级
+      // 整体不显示 —— 只看 computed style 会误判成「可见」，于是返回条永远不注入。
+      // getBoundingClientRect 返回 0 才是真的看不见（这条对祖先 display:none 也成立）。
+      function reallyVisible(el){
+        var cs=window.getComputedStyle(el);
+        if(cs.display==='none'||cs.visibility==='hidden'){return false;}
+        if(parseFloat(cs.opacity||'1')===0){return false;}
+        var r=el.getBoundingClientRect();
+        return !!(r&&r.width>0&&r.height>0);
+      }
+      // 找「真正可见」的关闭按钮
+      function visibleClose(ov){
+        var list=ov.querySelectorAll('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+        for(var i=0;i<list.length;i++){ if(reallyVisible(list[i])){return list[i];} }
+        return null;
+      }
       function closeSettings(){
         var ov=settingsOverlay();
         if(ov){
-          var c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+          var c=visibleClose(ov);
           if(c){ try{ c.click(); return; }catch(e){} }
         }
-        // 找不到 dsh 的关闭按钮就退而求其次：把状态复位，让面板自然收起
+        // 找不到可见的关闭按钮就退而求其次：把状态复位，让面板自然收起
         b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
         b.classList.remove('dsh-ov-open');
       }
@@ -236,10 +254,9 @@
           return;
         }
         if(bar){return;}
-        // 面板自带关闭按钮就别再加一条返回条，避免与 × 并排出现两个同样意思的出口
-        if(ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]')){
-          return;
-        }
+        // 面板**可见地**自带关闭按钮时才跳过（插件页/Agent 预设页顶部有 ×），
+        // 避免并排出现两个同样意思的出口
+        if(visibleClose(ov)){return;}
         bar=document.createElement('div');
         bar.id='dsh-back';
         bar.innerHTML='<button id="dsh-back-btn" type="button" aria-label="返回">'
@@ -305,6 +322,7 @@
         tagHosts();
         marketEntry();
         ensureBackBar();
+        diagTabs();   // 【临时诊断 · r62】拿到截图后删掉这两处调用
         backHint();
         detectDark();
         if(!panelOpen){panelOpen=true;
@@ -334,13 +352,13 @@
         var ov=settingsOverlay();
         var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));
         if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}
-        // dsh 的 tab 切换必须同时切到 l3。tab 元素是 role="tab"（取证：dsh-client-ui-*/
-        // lib/client.js 里 `role:"tab"` + `aria-selected` + `aria-controls`）。
-        // 原因：l2 状态下我们把 [class*="_content"] 隐藏了（见 mobile.css
-        //   body.dsh-s-l2 .dsh-s-ov [class*="_panel"] [class*="_content"]{display:none}），
-        // 而 tab 切换出来的内容正是在 _content 里 —— 于是「下划线切了、内容还是上一个
-        // tab 的」。用户看到的现象就是：插件页点「插件列表」，「插件配置」的内容不消失。
-        if(t.closest('[role="tab"]')){ setL3(); }
+        // r60 曾在这里加过 `if(t.closest('[role="tab"]')){ setL3(); }`，**r61 已移除**。
+        //   当时的判断是「tab 的内容在 [class*="_content"] 里，被 l2 的 display:none 藏住了」。
+        //   真因查清了：dsh 的 tab 面板 class 是 CSS-module 哈希名（不含 _content），
+        //   它靠 hidden 属性切换，是 `.panel` 自带的 display **盖过了** UA 的
+        //   `[hidden]{display:none}` —— 已在 mobile.css 用
+        //   `[role="tabpanel"][hidden]{display:none !important}` 兜底。
+        //   强行 setL3() 解决不了问题，只会污染 l2/l3 状态机（把普通面板也顶到 L3）。
         // r58：插件市场列表项缺依赖时先补依赖（确认框 → 安装）；
         // 已装齐时 onEntryTap 返回 false，不拦截 —— 由 dsh 原生项自己跳市场页。
         var ent=t.closest('[data-dsh-mkt]');
@@ -467,7 +485,36 @@
     // 放在 mount 的收尾处，任何一次整页加载都会执行；内部幂等，重复调用无副作用。
     // ⚠️ try/catch 是刻意加的防线：这是**纯附加功能**，不该有能力把 mount 打断。
     // r58 那次事故正是这里抛了 ReferenceError，顺手打掉了后面 6 项关键功能。
+    // ===== 【临时诊断 · r62 · 拿到截图后立刻删掉本段】=====
+    // 为什么需要：「点插件列表、配置内容不消失」这个问题我已经猜错两次 ——
+    //   第一次猜是 l2 的 display:none 藏了 [class*="_content"]；
+    //   第二次查 dsh 源码又发现 .pbvGtq_panel{min-width:0;padding-top:2px}
+    //   压根没设 display，hidden 属性本该生效，推翻了前一个假设。
+    // 不能继续猜。把 tabpanel 的真实状态直接显示出来，一截图就够。
+    function diagTabs(){
+      var panels=document.querySelectorAll('[role="tabpanel"]');
+      if(!panels.length){return;}
+      var old=document.getElementById('dsh-diag');
+      if(old&&old.parentNode){old.parentNode.removeChild(old);}
+      var d=document.createElement('div');
+      d.id='dsh-diag';
+      d.style.cssText='position:fixed;top:56px;left:6px;right:6px;z-index:2147483647;'
+        +'background:#000;color:#4f4;font:10px/1.35 monospace;padding:6px 8px;'
+        +'border-radius:6px;white-space:pre-wrap;opacity:.93';
+      var L=['[diag] tabpanel x'+panels.length];
+      for(var i=0;i<panels.length&&i<6;i++){
+        var p=panels[i],r=p.getBoundingClientRect();
+        L.push('#'+i+' hidden='+p.hasAttribute('hidden')
+              +' shown='+(r.width>0&&r.height>0)
+              +' h='+Math.round(r.height)
+              +' cls='+String(p.className||'?').slice(0,26));
+      }
+      d.textContent=L.join('\n');
+      document.body.appendChild(d);
+    }
     try{ marketPageBar(); }catch(e){ if(window.console)console.error('[dsh] marketPageBar', e); }
+    // tab 面板是 React 后渲染的，所以诊断跑两次：mount 时 + 1.2s 后
+    setTimeout(diagTabs,1200);
     function dshAlive(){
       if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')!=null){return true;}
       // ⚠️ #dsh-market-shell **必须保留**。独立审查建议删它，理由是「无产出方」——
