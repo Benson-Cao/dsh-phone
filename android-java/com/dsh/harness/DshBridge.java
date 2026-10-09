@@ -74,6 +74,63 @@ public final class DshBridge {
     }
 
     /**
+     * A-02 纵深防御：确认 WebView **此刻**仍停在本地 dsh 上，才允许执行
+     * 「下载远程 tarball 并由 node 执行」这类高危操作。
+     *
+     * fail-safe：拿不到 Activity / WebView / URL 一律拒绝。
+     * 每种拒绝都写日志 —— 万一真机上误拦，日志能立刻指出是哪一环拿不到，
+     * 而不是让人对着「点了没反应」猜（评审特别提到「加校验若配错会打断桥」）。
+     */
+    private boolean localOriginAllowed(String api) {
+        Activity a = act();
+        if (a == null) {
+            Log.w(TAG, api + " 拒绝：Activity 已失效");
+            return false;
+        }
+        android.webkit.WebView w;
+        try {
+            w = ((MainActivity) a).webViewRef();
+        } catch (Throwable t) {
+            w = null;
+        }
+        if (w == null) {
+            Log.w(TAG, api + " 拒绝：WebView 为空");
+            return false;
+        }
+        String url = null;
+        try {
+            // getUrl() 只是读字段，实践上可跨线程调用；这里仍兜一层 catch。
+            url = w.getUrl();
+        } catch (Throwable t) {
+            // ignore
+        }
+        boolean ok = DshOrigin.isLocalUrl(url);
+        if (!ok) Log.w(TAG, api + " 拒绝：当前页面非本地来源 url=" + url);
+        return ok;
+    }
+
+    /** 统一的「拒绝执行」回执：把原因送回 JS，避免卡片永久卡在「安装中…」。 */
+    private void notifyRejected(String jsFn, String callbackId, String msg) {
+        final Activity ua = act();
+        if (ua == null) return;
+        ua.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    JSONObject o = new JSONObject();
+                    o.put("ok", false);
+                    o.put("message", msg);
+                    final String js = "window." + jsFn + "&&window." + jsFn + "("
+                        + JSONObject.quote(callbackId) + "," + o.toString() + ");";
+                    android.webkit.WebView w = ((MainActivity) ua).webViewRef();
+                    if (w != null) w.evaluateJavascript(js, null);
+                } catch (Exception e) {
+                    Log.e(TAG, "拒绝回执失败", e);
+                }
+            }
+        });
+    }
+
+    /**
      * 安装 pnpm（后台线程，完成后回调 JS）。
      * 真机上市场会报"找不到 npm/corepack…请单独装一个 pnpm"，就是这个。
      */
@@ -83,6 +140,10 @@ public final class DshBridge {
             @Override public void run() {
                 final Activity a = act();
                 if (a == null) return;   // Activity 已死，放弃，避免泄漏/回调丢失
+                if (!localOriginAllowed("installPnpm")) {
+                    notifyRejected("__dshPnpmDone", callbackId, "拒绝：当前页面不是本地 dsh");
+                    return;
+                }
                 String err;
                 try {
                     err = DshMarketInstaller.installPnpm(a);
@@ -125,6 +186,11 @@ public final class DshBridge {
             @Override public void run() {
                 final Activity a = act();
                 if (a == null) return;   // Activity 已死，放弃
+                // A-02 纵深防御：远程 tarball + node 执行，只允许在本地 dsh 上发起
+                if (!localOriginAllowed("installMarket")) {
+                    notifyRejected("__dshMarketDone", callbackId, "拒绝：当前页面不是本地 dsh");
+                    return;
+                }
                 String err;
                 try {
                     err = DshMarketInstaller.install(a);

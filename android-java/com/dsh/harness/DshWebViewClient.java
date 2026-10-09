@@ -25,13 +25,39 @@ public class DshWebViewClient extends WebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         if (request == null || request.getUrl() == null) return false;
-        Uri url = request.getUrl();
-        String host = url.getHost();
-        if ("127.0.0.1".equals(host) || "localhost".equals(host)) return false;
-        try {
-            view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, url));
-        } catch (Exception ignored) { }
-        return true;
+        return handleUrl(view, request.getUrl().toString());
+    }
+
+    /**
+     * API 24 以下**不会**回调上面那个 WebResourceRequest 版本，只走这个 String 重载。
+     * minSdk=21，两个都必须实现 —— 否则老系统（5.0~7.0）上所有外链会直接
+     * inside WebView 加载，等于把远程页面放进已注入 dshNative 桥的 WebView 里，
+     * 正是 A-02 要堵的面。
+     */
+    @Override
+    public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        if (url == null) return false;
+        return handleUrl(view, url);
+    }
+
+    /**
+     * A-02 兜底：本地源留在 WebView 内，远程 http(s) 丢系统浏览器，
+     * 非 http(s)（tel:/mailto:/intent: 等）交回系统默认处理。
+     * 判定统一走 {@link DshOrigin}（大小写、IPv6、userinfo 欺骗都归它管）。
+     */
+    private boolean handleUrl(WebView view, String url) {
+        if (DshOrigin.isLocalUrl(url)) return false;
+        Uri u = Uri.parse(url);
+        String scheme = u.getScheme();
+        if (scheme == null) return true;          // 判不出协议 → 拦
+        scheme = scheme.toLowerCase(java.util.Locale.ROOT);
+        if ("http".equals(scheme) || "https".equals(scheme)) {
+            try {
+                view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, u));
+            } catch (Exception ignored) { }
+            return true;
+        }
+        return false;
     }
 
     @Override
