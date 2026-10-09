@@ -1,6 +1,7 @@
 package com.dsh.harness;
 
 import android.content.Context;
+import android.system.Os;
 import android.util.Log;
 
 import java.io.BufferedInputStream;
@@ -366,7 +367,7 @@ public final class DshBootstrap {
 
     private static String readStamp(File f) {
         try {
-            return new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").trim();
+            return new String(IoUtil.readAllBytes(f), "UTF-8").trim();
         } catch (Exception e) {
             return null;
         }
@@ -374,7 +375,7 @@ public final class DshBootstrap {
 
     private static void writeStamp(File f, String v) {
         try {
-            java.nio.file.Files.write(f.toPath(), v.getBytes("UTF-8"));
+            IoUtil.writeAllBytes(f, v.getBytes("UTF-8"));
         } catch (Exception ignored) { }
     }
 
@@ -429,8 +430,7 @@ public final class DshBootstrap {
                 if (s.isFile() && s.length() > 0 && s.getName().startsWith(base)
                         && !s.getName().equals(name)) {
                     try {
-                        java.nio.file.Files.createSymbolicLink(
-                            f.toPath(), new File(libDir, s.getName()).toPath());
+                        Os.symlink(new File(libDir, s.getName()).getAbsolutePath(), f.getAbsolutePath());
                         Log.i(TAG, "重建符号链接 " + name + " -> " + s.getName());
                     } catch (Exception ignored) { }
                     break;
@@ -454,12 +454,11 @@ public final class DshBootstrap {
             if (link.exists() && link.length() > 0) continue;
             try {
                 if (link.exists()) link.delete();
-                java.nio.file.Files.createSymbolicLink(link.toPath(), real.toPath());
+                Os.symlink(real.getAbsolutePath(), link.getAbsolutePath());
                 Log.i(TAG, "补 ICU 软链 " + p[0] + " -> " + p[1]);
             } catch (Exception e) {
                 try {
-                    java.nio.file.Files.copy(real.toPath(), link.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    IoUtil.copyFile(real, link);
                     Log.i(TAG, "复制 ICU 库 " + p[0]);
                 } catch (Exception e2) {
                     Log.e(TAG, "ICU 软链与复制都失败: " + p[0], e2);
@@ -671,14 +670,12 @@ public final class DshBootstrap {
                     if (link.getParentFile() != null) link.getParentFile().mkdirs();
                     try {
                         if (link.exists()) link.delete();
-                        java.nio.file.Files.createSymbolicLink(link.toPath(),
-                            java.nio.file.Paths.get(target));
+                        Os.symlink(target, link.getAbsolutePath());
                         fileCount++;
                     } catch (Exception e) {
                         try {
                             File src = new File(link.getParentFile(), target);
-                            java.nio.file.Files.copy(src.toPath(), link.toPath(),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            IoUtil.copyFile(src, link);
                             fileCount++;
                         } catch (Exception e2) {
                             skippedCount++;

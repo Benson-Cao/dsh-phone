@@ -51,30 +51,48 @@ public final class ShellRunner {
             ctx.getFilesDir());
     }
 
-    /** 执行一条命令（阻塞到结束），返回退出码。 */
+    /** 执行一条命令（阻塞到结束），返回退出码。会抽干 stdio 防止管道死锁。 */
     public static int exec(Context ctx, String cmd) {
+        Process p = null;
         try {
-            return start(ctx, cmd).waitFor();
+            p = start(ctx, cmd);
+            Thread out = drain(p.getInputStream());
+            Thread err = drain(p.getErrorStream());
+            out.start(); err.start();
+            int code = p.waitFor();
+            out.join(); err.join();
+            return code;
         } catch (Exception e) {
+            if (p != null) p.destroy();
             e.printStackTrace();
             return -1;
         }
     }
 
-    /** 执行并捕获标准输出。 */
+    /** 执行并捕获标准输出（同时抽干 stderr，避免其撑爆管道）。 */
     public static String execForOutput(Context ctx, String cmd) {
         Process p = null;
         try {
             p = start(ctx, cmd);
+            Thread err = drain(p.getErrorStream()); err.start();
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            StringBuilder sb = new StringBuilder();
-            String line;
+            StringBuilder sb = new StringBuilder(); String line;
             while ((line = r.readLine()) != null) sb.append(line).append('\n');
+            p.waitFor(); err.join();
             return sb.toString();
         } catch (Exception e) {
             return "";
         } finally {
             if (p != null) p.destroy();
         }
+    }
+
+    /** 把输入流抽干到 /dev/null（防止写满管道阻塞对端）。 */
+    private static Thread drain(final java.io.InputStream is) {
+        return new Thread(new Runnable() {
+            @Override public void run() {
+                try { byte[] b = new byte[4096]; while (is.read(b) >= 0); } catch (Exception ignored) {}
+            }
+        });
     }
 }

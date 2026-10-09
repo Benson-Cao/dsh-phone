@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -14,9 +15,11 @@ import android.webkit.WebViewClient;
 public class DshWebViewClient extends WebViewClient {
 
     private static final String ERROR_HTML =
-        "<html><body style='font-family:sans-serif;padding:24px;color:#333'>"
+        "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;color:#333'>"
         + "<h2>服务还没就绪</h2>"
         + "<p>dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。</p>"
+        + "<button onclick='location.reload()' style='margin-top:12px;padding:8px 16px;"
+        + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
         + "</body></html>";
 
     @Override
@@ -33,6 +36,13 @@ public class DshWebViewClient extends WebViewClient {
 
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        if (request != null && request.isForMainFrame() && view != null) {
+            view.loadDataWithBaseURL(null, ERROR_HTML, "text/html", "utf-8", null);
+        }
+    }
+
+    @Override
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
         if (request != null && request.isForMainFrame() && view != null) {
             view.loadDataWithBaseURL(null, ERROR_HTML, "text/html", "utf-8", null);
         }

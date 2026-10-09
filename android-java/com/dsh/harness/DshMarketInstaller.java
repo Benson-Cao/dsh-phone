@@ -258,7 +258,7 @@ public final class DshMarketInstaller {
         File f = new File(profileDir(ctx), "node_modules/" + PKG + "/package.json");
         if (!f.isFile()) return null;
         try {
-            String s = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
+            String s = new String(IoUtil.readAllBytes(f), "UTF-8");
             java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("\"version\"\\s*:\\s*\"([^\"]+)\"").matcher(s);
             return m.find() ? m.group(1) : "unknown";

@@ -515,6 +515,17 @@ public final class MobileTuning {
         + "font-size:15px !important;font-weight:600 !important;cursor:pointer !important;"
         + "box-shadow:0 4px 12px rgba(43,138,232,.24) !important;"
         + "-webkit-tap-highlight-color:transparent !important;}\n"
+        // 深色模式：市场按钮/图标固定深色品牌底+白字（覆盖被浅蓝化的 --ds-brand-500）
+        + "  body[data-ds-dark-theme] #dsh-market-btn,"
+        + "  html.dsh-dark #dsh-market-btn,"
+        + "  body[data-ds-dark-theme] .dsh-mk-ico,"
+        + "  html.dsh-dark .dsh-mk-ico{"
+        + "    background:#0f5296 !important;color:#fff !important;}\n"
+        + "  body[data-ds-dark-theme] #dsh-market-btn:hover,"
+        + "  html.dsh-dark #dsh-market-btn:hover,"
+        + "  body[data-ds-dark-theme] #dsh-market-btn:active,"
+        + "  html.dsh-dark #dsh-market-btn:active{"
+        + "    background:#0b437a !important;}\n"
         + "  #dsh-market-btn[disabled]{background:var(--ds-ink-200,#d8e1ea) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;box-shadow:none !important;}\n"
         + "  #dsh-pnpm-btn{flex:0 0 auto !important;height:44px !important;padding:0 14px !important;"
@@ -692,6 +703,7 @@ public final class MobileTuning {
 
     private static final String JS =
         "(function(){\n"
+        + "  if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')){return;}\n"
         + "  var SID='dsh-m-shell';\n"
         + "  if(document.getElementById(SID)){return;}\n"          // 幂等
         // ===== P3-3f 深色探测（兜底）=====
@@ -1173,6 +1185,7 @@ public final class MobileTuning {
         //   恰好就是那个 404 URL，自比对永远成立 -> 永远不自救（r48 的 bug）。
         // 正确判据：**这个文档里有没有 dsh 的根节点**。
         + "    function dshAlive(){\n"
+        + "      if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')!=null){return true;}\n"
         + "      return !!(document.querySelector('div[class*=\"frame\"],div[class*=\"centerCol\"],'\n"
         + "        + '[data-shell-overlay],#dsh-market-shell'));\n"
         + "    }\n"

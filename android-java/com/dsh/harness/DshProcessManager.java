@@ -95,7 +95,7 @@ public final class DshProcessManager {
         File log = new File(DshBootstrap.home(ctx), LOG_NAME);
         if (!log.exists() || log.length() == 0) return null;
         try {
-            String text = new String(java.nio.file.Files.readAllBytes(log.toPath()), "UTF-8");
+            String text = new String(IoUtil.readAllBytes(log), "UTF-8");
             // ⚠️ 日志是子进程追加写的，我们可能在它写到一半时读取。
             // 如果末尾没有换行符，说明最后一行可能不完整 —— 必须丢掉，
             // 否则会拿到"半截 token"，长度对不上 → 鉴权永远失败。
@@ -154,7 +154,7 @@ public final class DshProcessManager {
             return sb.toString();
         }
         try {
-            List<String> lines = java.nio.file.Files.readAllLines(log.toPath());
+            List<String> lines = IoUtil.readAllLines(log);
             int from = Math.max(0, lines.size() - n);
             StringBuilder sb = new StringBuilder();
             for (int i = from; i < lines.size(); i++) sb.append(lines.get(i)).append('\n');
