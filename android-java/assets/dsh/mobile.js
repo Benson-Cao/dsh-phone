@@ -274,12 +274,12 @@
         return true;
       }
       // marketPageBar() 已上移到 mount 主体（只在市场页有意义，且必须能被 mount 直接调用）。
-      // U13：把「深层级按返回 = 退出应用」这个**已知权衡**固化到界面上。
-      // 背景：MainActivity.onResume 里的 clearHistory() 会清空 SPA 全部前进/后退历史
-      //   —— 因为 WebView 历史里会留一条 404 文档，侧滑回去就是白屏（r49 的教训）。
-      //   代价就是返回键/侧滑一律退 App，而不是回上一级。
-      // 这个权衡在代码注释里写着，但**用户看不到**：于是「返回键好像失灵了」
-      // 会被反复当成 bug 上报。��里显式说明，并讲清**为什么**是这样。
+      // U13：把返回键的预期固化到界面上（文案在 r60 已按新行为更新）。
+      // 背景：r49 那版 MainActivity.onResume 每次回前台都 clearHistory()，因为 r43
+      //   整页跳 /dsh-market 在历史里留了 404 文档，侧滑回去就是一整页白屏。
+      //   代价是返回键/侧滑一律退 App —— 用户看不到代码注释，只会觉得「返回键失灵」。
+      // r60 起 clearHistory() 改为**每个进程只清一次**，侧滑/返回键可以逐级回退了，
+      //   所以文案也从「会直接退出应用」改成「可回到上一级（第一级时才退出）」。
       // 只插一次（幂等），挂在**我们自己的** .dsh-s-nav 里，不碰 dsh 类名（r38 铁律）。
       var backHintShown=false;
       function backHint(){
@@ -289,7 +289,7 @@
         backHintShown=true;
         var t=document.createElement('div');
         t.className='dsh-s-tip';t.id='dsh-s-tip';
-        t.textContent='提示：此页面按返回键或侧滑会直接退出应用 —— 这是为避免返回到已失效的历史页面。';
+        t.textContent='提示：侧滑或按返回键可回到上一级页面（已在第一级时会退出应用）。';
         nav.appendChild(t);
       }
       function sync(){
