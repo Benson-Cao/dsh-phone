@@ -43,6 +43,18 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   .dsh-s-nav [class*="_active"]::after{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--ds-brand-500,#1466b8);}
   .dsh-s-nav [class*="_active"] [class*="_navLabel"],.dsh-s-nav [class*="_active"] [class*="_navIcon"]{color:var(--ds-brand-500,#1466b8)!important;}
   .dsh-s-ov [class*="_panel"] [class*="_content"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}
+  /* U13：把「深层级按返回 = 退出应用」这个已知权衡固化到界面上。
+     MainActivity.onResume 的 clearHistory() 会清空 SPA 全部历史（否则侧滑回到
+     404 文档就白屏），代价是返回键一律退 App。代码注释里写着但用户看不到，
+     于是「返回键失灵」会被反复当成 bug 上报。
+     按 r38 铁律，作用域挂在**我们自己的指纹** .dsh-s-nav 上，不碰 dsh 的类名。
+     颜色走 --ds-ink-* 变量，深色模式自动跟随（r52 的 U6 已保证 fallback 可读）。 */
+  .dsh-s-nav .dsh-s-tip{margin:10px 8px 4px !important;padding:8px 10px !important;
+    border-radius:10px !important;background:var(--ds-ink-100,#eef2f6) !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:12px !important;
+    line-height:17px !important;font-weight:400 !important;
+    white-space:normal !important;overflow-wrap:anywhere !important;
+    flex:0 0 auto !important;width:auto !important;max-width:100% !important;}
   .dsh-s-ov [class*="_panel"] [class*="_options"]{padding:14px 16px 28px !important;}
   .dsh-s-ov [class*="_panel"] *{overflow-wrap:normal !important;word-break:normal !important;}
   .dsh-s-ov [class*="_panel"] [class*="_options"] *{max-width:100% !important;}

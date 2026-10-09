@@ -305,6 +305,24 @@
         try{ window.dshNative.installMarket('mkt'); }
         catch(err){ installing=false; btn.removeAttribute('disabled'); btn.textContent='重试'; }
       }
+      // U13：把「深层级按返回 = 退出应用」这个**已知权衡**固化到界面上。
+      // 背景：MainActivity.onResume 里的 clearHistory() 会清空 SPA 全部前进/后退历史
+      //   —— 因为 WebView 历史里会留一条 404 文档，侧滑回去就是白屏（r49 的教训）。
+      //   代价就是返回键/侧滑一律退 App，而不是回上一级。
+      // 这个权衡在代码注释里写着，但**用户看不到**：于是「返回键好像失灵了」
+      // 会被反复当成 bug 上报。��里显式说明，并讲清**为什么**是这样。
+      // 只插一次（幂等），挂在**我们自己的** .dsh-s-nav 里，不碰 dsh 类名（r38 铁律）。
+      var backHintShown=false;
+      function backHint(){
+        if(backHintShown){return;}
+        var nav=document.querySelector('.dsh-s-nav');
+        if(!nav){return;}
+        backHintShown=true;
+        var t=document.createElement('div');
+        t.className='dsh-s-tip';t.id='dsh-s-tip';
+        t.textContent='提示：此页面按返回键或侧滑会直接退出应用 —— 这是为避免返回到已失效的历史页面。';
+        nav.appendChild(t);
+      }
       function sync(){
         var ov=settingsOverlay();
         if(!ov){
@@ -320,6 +338,7 @@
         tagHosts();
         mkMarketCard();
         dedupeMarket();
+        backHint();
         detectDark();
         if(!panelOpen){panelOpen=true;
           lastFocus=document.activeElement;
