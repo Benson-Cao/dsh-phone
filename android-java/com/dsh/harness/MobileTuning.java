@@ -138,7 +138,9 @@ public final class MobileTuning {
          * 之前顶栏用的是 dsh 深色主题（#101215 底 + 白字），与设计稿的浅色体系冲突。
          * 现在统一到设计稿配色，并顺带把品牌 token 注入为 CSS 变量，
          * 供下方设置页/输入区等规则引用。 */
-        ":root{--ds-brand-500:#2b8ae8;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
+        // P0 品牌蓝压暗：#2b8ae8 作文字/承载白字只有 3.56:1（需 4.5）。
+        //   保持色相 H210 / S80，只降明度 L54%→L40% -> 白字 5.80、白底 5.80、浅底 5.35。
+        ":root{--ds-brand-500:#1466b8;--ds-brand-600:#0f5296;--ds-brand-50:#eef7fe;--ds-brand-100:#d6ecfc;"
         + "--ds-ink-900:#0d1b2e;--ds-ink-700:#1e3450;--ds-ink-500:#5a6d84;--ds-ink-400:#8296ab;"
         + "--ds-ink-200:#d8e1ea;--ds-ink-100:#eef2f6;--ds-ink-50:#f7f9fc;"
         + "--ds-r-sm:12px;--ds-r-md:16px;--ds-r-lg:22px;--ds-r-full:999px;}\n"
@@ -149,7 +151,7 @@ public final class MobileTuning {
         // ⚠️ 容器必须 display:flex，否则 justify-content 无效（block 布局下不生效）。
         + "#dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;"
         + "display:none;align-items:flex-start;justify-content:flex-start;gap:8px;"
-        + "padding:6px 6px 0 6px;box-sizing:border-box;"
+        + "padding:8px 8px 0 6px;box-sizing:border-box;"
         + "background:transparent;pointer-events:none;}\n"
         + "#dsh-mtop>*{pointer-events:auto;}\n"
         // 抽屉打开时汉堡**移到右上角**（用户要求：不单独占一行，但始终可见可点）。
@@ -162,7 +164,8 @@ public final class MobileTuning {
         // 设计稿「首页布局规格」：工具条按钮 42×42pt
         // 注：`.dsh-mtitle` 规则已在 r33 删除（顶栏不再显示标题文字），
         //     此处不再保留空样式，避免死代码误导后续维护。
-        + "#dsh-mbtn{width:42px;height:42px;border:0;border-radius:12px;"
+        // P2：42px 低于 44px 触控下限 -> 44px。
+        + "#dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;"
         + "background:rgba(247,249,252,.86);backdrop-filter:blur(10px);"
         + "-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);"
         + "color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;"
@@ -326,10 +329,10 @@ public final class MobileTuning {
         + "border-radius:14px!important;}\n"
         + "  .dsh-s-nav [class*=\"_active\"]::after{content:'';position:absolute;"
         + "left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;"
-        + "background:var(--ds-brand-500,#2b8ae8);}\n"
+        + "background:var(--ds-brand-500,#1466b8);}\n"
         + "  .dsh-s-nav [class*=\"_active\"] [class*=\"_navLabel\"],"
         + ".dsh-s-nav [class*=\"_active\"] [class*=\"_navIcon\"]{"
-        + "color:var(--ds-brand-500,#2b8ae8)!important;}\n"
+        + "color:var(--ds-brand-500,#1466b8)!important;}\n"
         // 内容：全宽单列
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_content\"]{width:100% !important;min-width:0 !important;"
         + "flex:1 1 auto !important;}\n"
@@ -377,9 +380,15 @@ public final class MobileTuning {
         + "padding-left:12px !important;}\n"
         // 三级页里 ✘ 换成 chevron-left 的视觉（用 CSS 旋转90° 的十字→箭头不现实，
         // 改为放大点击区+品牌色，和设计稿的圆形返回键观感一致）
+        // P2：视觉保持 34px（三级页头部空间紧张），用**伪元素把点击区撑到 44×44**，
+        //   这样不改变视觉重量，但手指命中面积达标（WCAG 2.5.5 / Android 44dp）。
         + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]{width:34px !important;height:34px !important;"
         + "border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;"
-        + "color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;}\n"
+        + "color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;"
+        + "position:relative !important;}\n"
+        + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]::after{content:'' !important;"
+        + "position:absolute !important;left:50% !important;top:50% !important;"
+        + "width:44px !important;height:44px !important;transform:translate(-50%,-50%) !important;}\n"
         + "  body.dsh-s-l3 .dsh-s-ov [class*=\"_close\"]:active{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
         // 二级页的面板/导航间距
         + "  body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}\n"
@@ -392,7 +401,7 @@ public final class MobileTuning {
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_cardTitle\"]{font-size:15.5px !important;font-weight:600 !important;}\n"
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_group\"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;"
         + "padding-top:14px !important;margin-top:4px !important;}\n"
-        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_catalogHeading\"]{font-size:13.5px !important;color:var(--ds-ink-500,#5a6d84) !important;}\n"
         + "  .dsh-s-ov [class*=\"_panel\"] [class*=\"_details\"]{grid-template-columns:76px minmax(0,1fr) !important;}\n"
         // 收窄到 _panel：原来靠 .dsh-s-l3 兜着，但那是"碰巧"（body 上只有它一个），
         // 统一成显式作用域前缀，才和文件头的「作用域铁律」一致。
@@ -435,7 +444,7 @@ public final class MobileTuning {
         + "align-items:flex-start !important;gap:12px !important;min-width:0 !important;}\n"
         + "  #dsh-market-card .dsh-mk-ico{flex:none !important;width:36px !important;"
         + "height:36px !important;border-radius:11px !important;"
-        + "background:var(--ds-brand-500,#2b8ae8) !important;color:#fff !important;"
+        + "background:var(--ds-brand-500,#1466b8) !important;color:#fff !important;"
         + "display:flex !important;align-items:center !important;justify-content:center !important;"
         + "box-shadow:0 4px 10px rgba(43,138,232,.26) !important;}\n"
         + "  #dsh-market-card .dsh-mk-htxt{flex:1 1 auto !important;min-width:0 !important;}\n"
@@ -446,8 +455,9 @@ public final class MobileTuning {
         + "margin-top:2px !important;color:var(--ds-ink-500,#5a6d84) !important;"
         + "white-space:normal !important;overflow-wrap:normal !important;}\n"
         + "  #dsh-market-card .dsh-mk-chip{flex:none !important;align-self:flex-start !important;"
-        + "padding:4px 9px !important;border-radius:999px !important;font-size:11px !important;"
-        + "font-weight:700 !important;line-height:1.3 !important;white-space:nowrap !important;"
+        // P1：11px 在真机只有 38.5 物理像素，"已安装 v1.66.9"在户外读不出来 -> 提到 12.5px。
+        + "padding:4px 10px !important;border-radius:999px !important;font-size:12.5px !important;"
+        + "font-weight:700 !important;line-height:18px !important;white-space:nowrap !important;"
         + "background:var(--ds-ink-100,#eef2f6) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;}\n"
         + "  #dsh-market-card .dsh-mk-chip[data-on=\"1\"]{"
@@ -455,24 +465,24 @@ public final class MobileTuning {
         // —— 操作区
         + "  #dsh-market-card .dsh-mk-actions{display:flex !important;flex-wrap:wrap !important;"
         + "align-items:center !important;gap:8px !important;min-width:0 !important;}\n"
-        + "  #dsh-market-btn{flex:1 1 auto !important;min-width:0 !important;height:42px !important;"
+        + "  #dsh-market-btn{flex:1 1 auto !important;min-width:0 !important;height:44px !important;"
         + "padding:0 16px !important;border:0 !important;border-radius:12px !important;"
-        + "background:var(--ds-brand-500,#2b8ae8) !important;color:#fff !important;"
+        + "background:var(--ds-brand-500,#1466b8) !important;color:#fff !important;"
         + "font-size:15px !important;font-weight:600 !important;cursor:pointer !important;"
         + "box-shadow:0 4px 12px rgba(43,138,232,.24) !important;"
         + "-webkit-tap-highlight-color:transparent !important;}\n"
         + "  #dsh-market-btn[disabled]{background:var(--ds-ink-200,#d8e1ea) !important;"
         + "color:var(--ds-ink-500,#5a6d84) !important;box-shadow:none !important;}\n"
-        + "  #dsh-pnpm-btn{flex:0 0 auto !important;height:42px !important;padding:0 14px !important;"
+        + "  #dsh-pnpm-btn{flex:0 0 auto !important;height:44px !important;padding:0 14px !important;"
         + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;border-radius:12px !important;"
         + "background:#fff !important;color:var(--ds-ink-700,#1e3450) !important;"
-        + "font-size:13.5px !important;font-weight:600 !important;cursor:pointer !important;"
-        + "-webkit-tap-highlight-color:transparent !important;}\n"
+        + "font-size:13.5px !important;line-height:19px !important;font-weight:600 !important;"
+        + "cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}\n"
         + "  #dsh-pnpm-btn[hidden]{display:none !important;}\n"
         + "  #dsh-pnpm-btn[disabled]{color:var(--ds-ink-500,#5a6d84) !important;"
         + "background:var(--ds-ink-100,#eef2f6) !important;}\n"
-        + "  #dsh-market-card .dsh-mk-note{font-size:12px !important;line-height:1.5 !important;"
-        + "color:var(--ds-ink-400,#8296ab) !important;white-space:normal !important;"
+        + "  #dsh-market-card .dsh-mk-note{font-size:12.5px !important;line-height:18px !important;"
+        + "color:var(--ds-ink-500,#5a6d84) !important;white-space:normal !important;"
         + "overflow-wrap:anywhere !important;}\n"
         // 手机上没有文件管理器，dsh 自带的「无法打开配置文件」红字只会让人困惑 -> 隐藏
         // 同样收窄到 _panel 内（见类注释的「作用域铁律」）
@@ -483,18 +493,20 @@ public final class MobileTuning {
         // 输入卡圆角 24px、边框 #E6E8EB（聚焦转 #C3CFE0）
         + "  div[class*=\"frame\"] textarea,div[class*=\"frame\"] input[type=\"text\"]{"
         + "border-radius:24px !important;background:var(--ds-ink-50,#f7f9fc) !important;"
-        + "border:1px solid var(--ds-ink-200,#d8e1ea) !important;}\n"
+        // P0：控件边界属WCAG 1.4.11 非文本对比，需 >=3:1；ink-200 只有 1.32 -> 改 ink-400(3.04)。
+        + "border:1px solid var(--ds-ink-400,#8296ab) !important;}\n"
         + "  div[class*=\"frame\"] textarea:focus,div[class*=\"frame\"] input[type=\"text\"]:focus{"
-        + "border-color:#c3cfe0 !important;background:#fff !important;}\n"
+        + "border-color:var(--ds-brand-500,#1466b8) !important;background:#fff !important;}\n"
         // 发送按钮 38pt，占位态淡紫蓝 #B8C7F2
         + "  div[class*=\"frame\"] button[aria-label*=\"发送\"],"
         + "div[class*=\"frame\"] button[aria-label*=\"Send\"]{"
         + "width:38px !important;height:38px !important;border-radius:var(--ds-r-full,999px) !important;"
         + "background:#b8c7f2 !important;transition:background 150ms cubic-bezier(.4,0,.2,1) !important;}\n"
-        // 预览版徽章胶囊（设计稿：#DFE8FF 底 / #2B4A7D 字 / 10.5px 半粗）
+        // 预览版徽章胶囊（设计稿：#DFE8FF 底 / #2B4A7D 字 / 半粗）
+        // P1：10.5px 在真机(dpr3.5)只有 36.8 物理像素，中文笔画粘连 ->提到 Caption 档 12.5px。
         + "  span[class*=\"badge\"],div[class*=\"badge\"]{border-radius:var(--ds-r-full,999px) !important;"
-        + "background:#dfe8ff !important;color:#2b4a7d !important;font-size:10.5px !important;"
-        + "font-weight:600 !important;}\n"
+        + "background:#dfe8ff !important;color:#2b4a7d !important;font-size:12.5px !important;"
+        + "line-height:18px !important;font-weight:600 !important;}\n"
         // 主内容垂直居中，底部预留 48px 视觉配重（设计稿）
         + "  div[class*=\"frame\"] > div[class*=\"col\"]{justify-content:center !important;"
         + "padding-bottom:48px !important;}\n"
@@ -521,6 +533,19 @@ public final class MobileTuning {
         + ".dsh-s-ov [class*=\"_panel\"] [class*=\"_options\"]{max-width:760px!important;"
         + "margin-left:auto!important;margin-right:auto!important;}\n"
         + "}\n"
+        // ===== P2 无障碍：焦点可见 + 悬停态 =====
+        // :focus-visible 全项目此前0 处 —— 外接键盘 / 蓝牙键盘 / TalkBack 导航时看不到焦点位置
+        //（WCAG 2.4.7 Focus Visible, AA）。:hover 补平板/桌面触屏有指针时的悬停反馈。
+        + "  #dsh-mbtn:focus-visible,#dsh-market-btn:focus-visible,#dsh-pnpm-btn:focus-visible,"
+        + "  .dsh-s-nav [class*=\"_navCell\"]:focus-visible,"
+        + "  .dsh-s-ov [class*=\"_close\"]:focus-visible{outline:2px solid var(--ds-brand-500,#1466b8) !important;"
+        + "outline-offset:2px !important;}\n"
+        + "  #dsh-mbtn:hover,#dsh-pnpm-btn:hover{background:var(--ds-ink-100,#eef2f6) !important;}\n"
+        + "  #dsh-market-btn:hover{background:var(--ds-brand-600,#0f5296) !important;}\n"
+        + "  #dsh-market-btn:active{background:var(--ds-brand-600,#0f5296) !important;"
+        + "transform:translateY(1px) !important;}\n"
+        + "  .dsh-s-nav [class*=\"_navCell\"]:hover{background:var(--ds-ink-100,#eef2f6) !important;}\n"
+        + "  .dsh-s-ov [class*=\"_close\"]:hover{background:var(--ds-ink-200,#d8e1ea) !important;}\n"
         + "@media (prefers-reduced-motion:reduce){"
         + "div[class*=\"sidebarCol\"],#dsh-scrim{transition:none !important;}}\n";
 
