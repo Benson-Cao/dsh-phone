@@ -81,28 +81,41 @@
       var b=document.body;
       function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}
       function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}
-      function mkMarketCard(){
-        if(document.getElementById('dsh-market-card')){return;}
-        var nav=document.querySelector('.dsh-s-nav');
-        if(!nav){return;}
-        var c=document.createElement('div');c.id='dsh-market-card';
-        c.innerHTML='<div class="dsh-mk-head">'
-          +'<span class="dsh-mk-ico">'
-          +'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"'
-          +' stroke="currentColor" stroke-width="1.9" stroke-linecap="round"'
-          +' stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>'
-          +'<div class="dsh-mk-htxt">'
-          +'<div class="dsh-mk-title">插件市场</div>'
-          +'<div class="dsh-mk-sub">社区插件 · 一键装到本机</div></div>'
-          +'<span class="dsh-mk-chip" id="dsh-mk-chip">检测中</span></div>'
-          +'<div class="dsh-mk-actions">'
-          +'<button id="dsh-market-btn" type="button">检测中…</button>'
-          +'<button id="dsh-pnpm-btn" type="button" hidden>安装 pnpm</button></div>'
-          +'<div class="dsh-mk-note" id="dsh-mk-note">安装插件需要 pnpm 包管理器</div>';
-        c.querySelector('#dsh-market-btn').addEventListener('click',onMarket);
-        c.querySelector('#dsh-pnpm-btn').addEventListener('click',onPnpm);
-        nav.insertBefore(c, nav.firstChild);
-        refreshMarket();
+      // r58 · 按设计稿：插件市场入口是**纯标题列表项**（与模型/插件/Agent 预设同格式），
+      // r39 那个大卡片（图标 + 副标题 + 两个按钮）到此为止。
+      // 检测安装状态：market=dshmarket 版本（空=未装），pnpm=是否就绪。
+      function marketState(){
+        var v='',p='';
+        if(window.dshNative){
+          try{ v=window.dshNative.marketInstalled(); }catch(e){}
+          try{ p=window.dshNative.pnpmReady(); }catch(e){}
+        }
+        return {market:v||'', pnpm:!!p};
+      }
+      // 在**原生** navCell 右侧挂/移除状态徽标。
+      // ⚠️ 为什么不直接把安装按钮删干净：市场页（浏览/搜索/已安装列表）本身
+      //   要 dshmarket **已安装**才能打开。若设置页只剩纯列表项，未装用户会陷入
+      //   「点进去什么都没有、也装不了」的死锁。所以未安装时保留一个最小入口：
+      //   同一个列表项 + 右侧小徽标，点它弹确认框后安装；装完徽标自动移除，
+      //   入口才真正退化成设计稿要求的纯列表项。
+      function marketEntry(){
+        var cell=marketCell();
+        if(!cell){return;}
+        cell.setAttribute('data-dsh-mkt','1');
+        var st=marketState();
+        var old=cell.querySelector('.dsh-mkt-flag');
+        var txt=st.market?(st.pnpm?'':'装 pnpm'):'未安装';
+        if(!txt){
+          if(old&&old.parentNode){old.parentNode.removeChild(old);}
+          cell.removeAttribute('data-dsh-mkt-need');
+          return;
+        }
+        cell.setAttribute('data-dsh-mkt-need',txt==='未安装'?'market':'pnpm');
+        if(old){ old.textContent=txt; return; }
+        var b=document.createElement('span');
+        b.className='dsh-mkt-flag';
+        b.textContent=txt;
+        cell.appendChild(b);
       }
       function marketCell(){
         var cells=document.querySelectorAll('.dsh-s-nav [class*="_navCell"]');
@@ -189,121 +202,105 @@
         box.textContent='';
         setTimeout(function(){box.textContent=txt;},30);
       }
-      function dedupeMarket(){
-        var c=marketCell();
-        if(!c){return;}
-        c.setAttribute('data-dsh-dup','1');
-        c.style.setProperty('display','none','important');
-      }
-      function openMarket(btn){
-        var cell=marketCell();
-        if(cell){ try{ cell.click(); return 'nav'; }catch(e){} }
-        var note=document.getElementById('dsh-mk-note');
-        if(note){ note.textContent='未能定位市场入口，请重新打开设置页'; }
-        if(btn){ btn.textContent='打开失败'; }
-        return 'fail';
-      }
-      function guardCard(){
-        var c=document.getElementById('dsh-market-card');
-        if(!c){return;}
-        var vw=document.documentElement.clientWidth||window.innerWidth||360;
-        var w=Math.max(220,Math.round(vw)-32);
-        var r=c.getBoundingClientRect();
-        var bad=(r.width>vw+1)||(r.right>vw+1)||(r.left<-1)||(r.height>vw*1.6);
-        if(bad){
-          c.style.setProperty('flex','0 0 auto','important');
-          c.style.setProperty('align-self','flex-start','important');
-          c.style.setProperty('width',w+'px','important');
-          c.style.setProperty('max-width',w+'px','important');
-          c.style.setProperty('min-width','0','important');
-          c.style.setProperty('height','auto','important');
-          c.style.setProperty('box-sizing','border-box','important');
-          c.style.setProperty('overflow','hidden','important');
-          c.style.setProperty('margin-left','16px','important');
-          c.style.setProperty('margin-right','16px','important');
-          c.setAttribute('data-dsh-guarded','1');
-        }else if(c.getAttribute('data-dsh-guarded')==='1'){
-          var ks=['flex','align-self','width','max-width','min-width','height',
-                  'box-sizing','overflow','margin-left','margin-right'];
-          for(var i=0;i<ks.length;i++){c.style.removeProperty(ks[i]);}
-          c.removeAttribute('data-dsh-guarded');
-        }
-      }
-      function refreshMarket(){
-        var btn=document.getElementById('dsh-market-btn');
-        if(!btn){return;}
-        var chip=document.getElementById('dsh-mk-chip');
-        var v='';
-        if(window.dshNative){try{ v=window.dshNative.marketInstalled(); }catch(e){}}
-        if(v){ btn.textContent='打开市场'; btn.removeAttribute('disabled');
-          btn.setAttribute('data-open','1');
-          if(chip){ chip.textContent='已安装 v'+v; chip.setAttribute('data-on','1'); } }
-        else { btn.textContent='一键安装'; btn.removeAttribute('disabled');
-          btn.removeAttribute('data-open');
-          if(chip){ chip.textContent='未安装'; chip.removeAttribute('data-on'); } }
-        refreshPnpm();
-      }
-      var pnpmBusy=false;
-      function refreshPnpm(){
-        var pb=document.getElementById('dsh-pnpm-btn');
-        var note=document.getElementById('dsh-mk-note');
-        if(!pb){return;}
-        var ready='';
-        if(window.dshNative){try{ ready=window.dshNative.pnpmReady(); }catch(e){}}
-        if(ready){ pb.hidden=true;
-          if(note){ note.textContent='依赖已就绪，可直接安装插件'; } }
-        else { pb.hidden=false; pb.textContent='安装 pnpm'; pb.removeAttribute('disabled');
-          if(note){ note.textContent='安装插件需要 pnpm 包管理器'; } }
-      }
-      function onPnpm(e){
-        e.preventDefault();e.stopPropagation();
+      // r58 移除：dedupeMarket / openMarket / guardCard
+      // 这三个函数都是为 r39 那个注入大卡片服务的：
+      //   dedupeMarket —— 把原生「插件市场」navCell 藏起来（display:none），
+      //                   好让大卡片取而代之。列表项化后**必须不再藏**，
+      //                   否则设计稿要求的那个列表项根本不存在。
+      //   openMarket   —— 大卡片按钮点了去 cell.click()，本质是「用 JS 代替
+      //                   用户点击原生项」。现在用户直接点原生项，dsh 自己处理，
+      //                   这层绕路整体删除。
+      //   guardCard    —— 大卡片塞进 dsh 的 flex 容器后被挤变形时的几何自愈。
+      //                   列表项是 dsh 自己的元素，天然被正确布局，**用不上**。
+      // r58 移除：refreshMarket / refreshPnpm
+      // 原先负责给大卡片的按钮与 chip 刷状态（「一键安装」→「打开市场」），
+      // 并写 #dsh-mk-note 文案。现在状态统一由 marketState() 读取、
+      // marketEntry() 把结果显示成列表项右侧的小徽标，不再需要 note 文案位。
+      // ===== r58 · 安装动作（设置页列表项 与 市场页操作条 共用）=====
+      var pnpmBusy=false, installing=false;
+      function installPnpmNow(after){
         if(pnpmBusy){return;}
         pnpmBusy=true;
-        var pb=document.getElementById('dsh-pnpm-btn');
-        var note=document.getElementById('dsh-mk-note');
-        pb.setAttribute('disabled','disabled');pb.textContent='安装中…';
-        if(note){ note.textContent='正在下载并安装 pnpm…'; }
+        announce('正在下载并安装 pnpm');
         window.__dshPnpmDone=function(id,res){
           pnpmBusy=false;
-          if(res&&res.ok){ pb.hidden=true; pb.removeAttribute('disabled');
-            if(note){ note.textContent='依赖已就绪，可直接安装插件'; }
-            announce('pnpm 安装完成，可直接安装插件'); }
-          else { pb.removeAttribute('disabled'); pb.textContent='重试';
-            if(note){ note.textContent='pnpm 安装失败'; }
+          if(res&&res.ok){
+            announce('pnpm 安装完成');
+            marketEntry();
+            if(after){after(res);}
+          }else{
             alert('pnpm 安装失败：'+((res&&res.message)||'未知错误'));
-            announce('pnpm 安装失败'); }
+            announce('pnpm 安装失败');
+          }
         };
         try{ window.dshNative.installPnpm('pnpm'); }
-        catch(err){ pnpmBusy=false; pb.removeAttribute('disabled'); pb.textContent='重试'; }
+        catch(err){ pnpmBusy=false; alert('pnpm 安装失败：'+((err&&err.message)||err)); }
       }
-      var installing=false;
-      function onMarket(e){
-        e.preventDefault();e.stopPropagation();
-        var btn=document.getElementById('dsh-market-btn');
-        if(!btn){return;}
-        if(btn.getAttribute('data-open')==='1'){ openMarket(btn); return; }
+      function installMarketNow(after){
         if(installing){return;}
         installing=true;
-        var note=document.getElementById('dsh-mk-note');
-        var chip=document.getElementById('dsh-mk-chip');
-        btn.setAttribute('disabled','disabled');btn.textContent='安装中…';
-        if(note){ note.textContent='正在下载并安装插件…'; }
-        announce('正在下载并安装插件');
+        announce('正在下载并安装插件市场');
         window.__dshMarketDone=function(id,res){
           installing=false;
-          if(res&&res.ok){ btn.removeAttribute('disabled');
-            btn.textContent='打开市场'; btn.setAttribute('data-open','1');
-            if(chip){ chip.textContent='已安装 v'+(res.version||'');
-              chip.setAttribute('data-on','1'); }
-            if(note){ note.textContent='安装完成，点「打开市场」进入'; }
-            announce('插件市场安装完成'); }
-          else { btn.removeAttribute('disabled'); btn.textContent='重试';
-            if(note){ note.textContent='安装失败'; }
+          if(res&&res.ok){
+            announce('插件市场安装完成');
+            marketEntry();
+            if(after){after(res);}
+          }else{
             alert('安装失败：'+((res&&res.message)||'未知错误'));
-            announce('插件安装失败'); }
+            announce('插件安装失败');
+          }
         };
         try{ window.dshNative.installMarket('mkt'); }
-        catch(err){ installing=false; btn.removeAttribute('disabled'); btn.textContent='重试'; }
+        catch(err){ installing=false; alert('安装失败：'+((err&&err.message)||err)); }
+      }
+      // 列表项点击：缺什么就先装什么。已装齐则返回 false，交给 dsh 原生逻辑
+      // （它自己会跳到市场页），我们不干预。
+      // confirm 在某些 WebView 上不可用，此时退化为直接装 —— 宁可多装一次，
+      // 也不能因为弹不出框就把功能卡死。
+      function onEntryTap(e){
+        var need=e.currentTarget.getAttribute('data-dsh-mkt-need');
+        if(!need){return false;}
+        e.preventDefault();e.stopPropagation();
+        var msg=(need==='market')
+          ? '插件市场尚未安装。\n\n安装后即可浏览并安装插件。\n\n现在下载安装？'
+          : '安装插件需要 pnpm 包管理器。\n\n现在下载安装？';
+        var ok=true;
+        try{ ok=window.confirm(msg); }catch(err){ ok=true; }
+        if(!ok){return true;}
+        if(need==='market'){ installMarketNow(); }else{ installPnpmNow(); }
+        return true;
+      }
+      // 设计稿图 3：市场页标题区下方有一行操作（导出日志 / 更新插件市场）。
+      // 「导出日志」是 dshmarket 页面自带的；「更新插件市场」由我们注入
+      // ——设置页那个入口只在**未安装**时可用，装完之后"更新"这个动作
+      // 就只能在这里做了。
+      function marketPageBar(){
+        var root=document.querySelector('[data-dsh-market-root]');
+        if(!root){return;}
+        var bar=document.getElementById('dsh-mkt-bar');
+        if(!bar){
+          bar=document.createElement('div');
+          bar.id='dsh-mkt-bar';
+          bar.innerHTML='<button id="dsh-mkt-pnpm" type="button">安装 pnpm</button>'
+            +'<button id="dsh-mkt-upd" type="button">更新插件市场</button>';
+          root.insertBefore(bar, root.firstChild);
+          bar.querySelector('#dsh-mkt-upd').addEventListener('click',function(e){
+            e.preventDefault();e.stopPropagation();
+            var v=marketState().market||'未知';
+            if(window.confirm('将重新下载并安装插件市场（当前版本 '+v+'）。继续？')){
+              installMarketNow();
+            }
+          });
+          bar.querySelector('#dsh-mkt-pnpm').addEventListener('click',function(e){
+            e.preventDefault();e.stopPropagation();
+            installPnpmNow();
+          });
+        }
+        // pnpm 缺失时才显示「安装 pnpm」；就绪则隐藏（market.css 适配窄屏排版）
+        var need=!marketState().pnpm;
+        var pb=bar.querySelector('#dsh-mkt-pnpm');
+        if(need){ pb.removeAttribute('hidden'); }else{ pb.setAttribute('hidden','hidden'); }
       }
       // U13：把「深层级按返回 = 退出应用」这个**已知权衡**固化到界面上。
       // 背景：MainActivity.onResume 里的 clearHistory() 会清空 SPA 全部前进/后退历史
@@ -336,8 +333,7 @@
         }
         syncOvFlag();
         tagHosts();
-        mkMarketCard();
-        dedupeMarket();
+        marketEntry();
         backHint();
         detectDark();
         if(!panelOpen){panelOpen=true;
@@ -348,7 +344,6 @@
           enterFocus(document.querySelector('.dsh-s-ov'));
         }
         if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}
-        guardCard();
         syncBack();
       }
       function syncBack(){
@@ -368,6 +363,14 @@
         var ov=settingsOverlay();
         var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));
         if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}
+        // r58：插件市场列表项缺依赖时先补依赖（确认框 → 安装）；
+        // 已装齐时 onEntryTap 返回 false，不拦截 —— 由 dsh 原生项自己跳市场页。
+        var ent=t.closest('[data-dsh-mkt]');
+        if(ent&&onEntryTap({currentTarget:ent,
+                            preventDefault:function(){e.preventDefault();},
+                            stopPropagation:function(){e.stopPropagation();}})){
+          return;
+        }
         var cell=t.closest('[class*="_navCell"]');
         if(cell&&b.classList.contains('dsh-s-l2')){setL3();syncBack();}
         else{sync();}
@@ -403,6 +406,9 @@
       tagHosts();syncOvFlag();detectDark();
     },500);
     detectDark();
+    // r58：若当前就是市场页，注入「安装 pnpm / 更新插件市场」操作条。
+    // 放在 mount 的收尾处，任何一次整页加载都会执行；内部幂等，重复调用无副作用。
+    marketPageBar();
     function dshAlive(){
       if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')!=null){return true;}
       return !!(document.querySelector('div[class*="frame"],div[class*="centerCol"],'

@@ -19,3 +19,24 @@
   @media (min-width:681px){
     [data-dsh-market-root]{max-width:1100px !important;margin:0 auto !important;}
   }
+  /* ===== r58 · 市场页操作条（设计稿图 3 标题区下方的「更新插件市场」）=====
+     设计稿把它放在标题行里、与「导出日志」同一行；「导出日志」是 dshmarket
+     页面自带的，我们只注入「更新插件市场」（+ pnpm 缺失时的「安装 pnpm」）。
+     ⚠️ 样式必须写在 **market.css** 里 —— applyDshScope 在市场页只注入
+     MARKET_CSS（mobile.css 不注入），放错文件会完全不生效。
+     设置页那个入口只在**未安装**时可用，装完之后的「更新」动作只能在这里做。*/
+  [data-dsh-market-root] #dsh-mkt-bar{display:flex !important;flex-wrap:wrap !important;
+    align-items:center !important;gap:8px !important;margin:0 0 12px !important;}
+  [data-dsh-market-root] #dsh-mkt-bar button{flex:none !important;height:36px !important;
+    padding:0 14px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;
+    border-radius:8px !important;background:var(--ds-ink-50,#f7f9fc) !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;font-size:13px !important;
+    line-height:18px !important;font-weight:500 !important;cursor:pointer !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  [data-dsh-market-root] #dsh-mkt-bar button[hidden]{display:none !important;}
+  /* 深色下按钮跟着换色（用 --ds-ink-* 变量，r52 的 U6 已保证 fallback 可读）*/
+  body[data-ds-dark-theme] [data-dsh-market-root] #dsh-mkt-bar button,
+  html.dsh-dark [data-dsh-market-root] #dsh-mkt-bar button,
+  html.dsh-dark body [data-dsh-market-root] #dsh-mkt-bar button{
+    background:var(--ds-ink-100,#26313f) !important;color:var(--ds-ink-700,#c8d4e2) !important;
+    border-color:var(--ds-ink-200,#3c4d61) !important;}
