@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -68,6 +69,16 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private DshChromeClient chromeClient;
+
+    /**
+     * r65：返回键去重时间戳。同一次物理按下在部分系统上会先走
+     * {@link #onKeyDown} 再走 {@link #onBackPressed}，两者共用一个实现，
+     * 必须防重复处理（否则一次返回退两级，甚至直接退出 App）。
+     */
+    private long mLastBackAt = 0L;
+
+    /** r65：注入脚本上报的"当前返回该由 JS 处理"（设置面板 / 抽屉开着）。 */
+    private volatile boolean mJsBackHandled = false;
 
     /**
      * WebView 历史是否已清理过（每个 App 进程一次）。r60 起只在首次清理 ——
@@ -416,21 +427,75 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // ⚠️ r48/r49：返回一律走 history.back()，**绝不用** webView.goBack()。
-        //   dsh 是 SPA（history.pushState 路由），goBack() 会让 WebView **重新加载**
-        //   那个历史项的文档 —— 一旦历史里混进服务端不存在的路径（404 空响应），
-        //   重新加载就是一片空白，只剩注入层（用户反馈「侧滑返回后白屏」）。
-        //   history.back() 走同文档历史，只触发 popstate，SPA 自己能处理。
-        // r60：我一度以为「异步不可靠」而改成 goBack()，**这是错的** ——
-        //   上面这个避免白屏的理由比「异步 vs 同步」重要得多，已回退。
-        //   顺带说明：侧滑手势走的是 WebView 默认回退（≈goBack 语义），我们无法干预；
-        //   它现在能安全工作，靠的是 r60「clearHistory 只清一次」清掉了旧 404 脏条目
-        //   + r48 起不再整页跳转产生新脏条目 + rescue() 兜底，三者叠加。
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
-            webView.evaluateJavascript("window.history.back();", null);
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            handleBack();
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    /**
+     * 侧滑手势返回 / 三个虚拟键返回 / 部分 ROM 的手势回退，最终都会走到这里。
+     *
+     * <p>r65 新增。为什么不能只有 {@link #onKeyDown}：
+     * <ul>
+     *   <li>不同 ROM / 导航方式（手势导航、EMUI/MIUI 手势、Android 15 的
+     *       OnBackInvoked 路径）把 BACK 分发成"按键"还是"回调"并不一致，只挂
+     *       一条路就会在某些机器上彻底收不到；</li>
+     *   <li>{@code onKeyDown} 与 {@code onBackPressed} 在部分系统上**会同一次
+     *       按下里被先后调用**（onKeyUp 转 onBackPressed），所以两者必须共用
+     *       同一段实现并做去重，否则一次返回会退两级、甚至直接退出 App。</li>
+     * </ul>
+     */
+    @Override
+    public void onBackPressed() {
+        handleBack();
+    }
+
+    /**
+     * 统一的"返回上一级"实现 —— 由 {@link #onKeyDown} 与 {@link #onBackPressed} 共用。
+     *
+     * <p>优先级：
+     * <ol>
+     *   <li>注入脚本上报"现在有覆盖层（设置面板 / 抽屉），应当由 JS 处理" →
+     *       调 {@code window.__dshBack()}。覆盖层是 SPA 内的 DOM，原生侧看不见
+     *       它们，只有 JS 知道该退到哪一级；</li>
+     *   <li>否则看 WebView 是否有历史可退 → {@code history.back()}；</li>
+     *   <li>都没有 → 交给系统默认行为（退出 Activity）。</li>
+     * </ol>
+     *
+     * <p>⚠️ 一律走 {@code history.back()}，**绝不用** {@code webView.goBack()}：
+     * dsh 是 SPA（history.pushState 路由），goBack() 会让 WebView **重新加载**
+     * 那个历史项的文档 —— 一旦历史里混进服务端不存在的路径（404 空响应），
+     * 重新加载就是一片空白（用户反馈"侧滑返回后白屏"）。
+     */
+    private void handleBack() {
+        // 同一次物理按下可能同时触发 onKeyDown 与 onBackPressed，去重，
+        // 否则一次返回退两级。200ms 远小于人手连按两次的间隔。
+        long now = SystemClock.uptimeMillis();
+        if (now - mLastBackAt < 200L) return;
+        mLastBackAt = now;
+
+        if (webView == null) { super.onBackPressed(); return; }
+        if (mJsBackHandled) {
+            // 面板/抽屉开着：交给注入脚本的返回状态机（闸门 / L3→L2 / 退出设置）
+            webView.evaluateJavascript(
+                "try{window.__dshBack&&window.__dshBack()}catch(e){}", null);
+            return;
+        }
+        if (webView.canGoBack()) {
+            webView.evaluateJavascript("window.history.back();", null);
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    /**
+     * 注入脚本通过 {@code dshNative.setBackHandled()} 上报的"原生返回该由 JS 处理"。
+     * volatile：由 JavaBridge 线程写、UI 线程读。
+     */
+    void setJsBackHandled(boolean handled) {
+        mJsBackHandled = handled;
     }
 
     @Override

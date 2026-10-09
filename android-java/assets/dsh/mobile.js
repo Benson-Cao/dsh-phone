@@ -67,6 +67,82 @@
       }
       return ov;
     }
+    // ===== 真正关闭设置面板 / 原生返回状态上报（r65）=====
+      // 这一簇**必须待在 mount 主体**：popstate（侧滑 / 返回键）处理器就在 mount
+      // 作用域，够不到设置面板那个 IIFE 里的函数 —— r65 之前它只能删几个 body
+      // class 当作"关闭"，而 dsh 的浮层是 React 组件，`dsh-ov-open` 只是我们的
+      // 布局开关，删掉它并不等于把浮层关掉。
+      // 判断元素是否「用户真的看得见」。
+      // ⚠️ 不能只看 getComputedStyle：它只反映元素**自身**的样式，不反映祖先。
+      // 设置首页的 _close 就是这种：自身 display:block，但它所在的 header 在那个层级
+      // 整体不显示 —— 只看 computed style 会误判成「可见」，于是返回条永远不注入。
+      // getBoundingClientRect 返回 0 才是真的看不见（这条对祖先 display:none 也成立）。
+      function reallyVisible(el){
+        var cs=window.getComputedStyle(el);
+        if(cs.display==='none'||cs.visibility==='hidden'){return false;}
+        if(parseFloat(cs.opacity||'1')===0){return false;}
+        var r=el.getBoundingClientRect();
+        return !!(r&&r.width>0&&r.height>0);
+      }
+      // 找「真正可见」的关闭按钮
+      function visibleClose(ov){
+        var list=ov.querySelectorAll('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+        for(var i=0;i<list.length;i++){ if(reallyVisible(list[i])){return list[i];} }
+        return null;
+      }
+      // U15（r65）：真正关闭设置浮层。
+      //   为什么不自己删 class 了事：dsh 的浮层归 React 管，我们的 class 只管布局。
+      //   必须点到 dsh 自己的出口（× 或遮罩）才会真的卸载。
+      //   ⚠️ 第二段"放宽到存在即可"是关键：设置首页（l2）下 dsh 的 × 就在
+      //   mobile.css:84 被我们 display:none 掉的 _content 里，几何可见性为 0，
+      //   visibleClose() 永远找不到它 —— 于是「返回条点了没反应」。
+      //   display:none 只影响布局，不影响事件派发，程序化 .click() 依然会
+      //   冒泡到 React 的根监听器，所以这里可以放心放宽。
+      //   ⚠️ 最后那道"重试 → 兜底重载"是**护栏**：万一 dsh 某个版本的 × 不再响应
+      //   程序化点击，用户就会**彻底关不掉设置面板**（连返回键也会被我们自己的
+      //   状态机吃掉）。宁可重载一次本地页面（代价约 1s），也不能给用户一个死界面。
+      var ovCloseTried=false;
+      // 用户已经明确要求关闭浮层（点了返回条 / 侧滑返回），但 dsh 的浮层还在（
+      // React 尚未卸载）。此时**不能**再把它顶回 l2 —— 那会把 _content 重新
+      // display:none 掉，连 dsh 自己的 × 都被藏起来，等于把用户锁死。
+      var ovCloseRequested=false;
+      function closeSettingsPanel(){
+        ovCloseRequested=true;
+        var ov=settingsOverlay();
+        if(ov){
+          var c=visibleClose(ov);
+          if(!c){ c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]'); }
+          if(c){ try{ c.click(); }catch(e){} }
+        }
+        // 兜底：无论有没有点到 dsh 的出口，都把我们自己的布局状态复位，
+        // 至少不能让用户卡在一个"既没有出口、返回键也没反应"的界面里。
+        var bd=document.body;
+        if(bd){bd.classList.remove('dsh-s-l2');bd.classList.remove('dsh-s-l3');bd.classList.remove('dsh-ov-open');}
+        if(!ov){ ovCloseTried=false; return; }
+        if(ovCloseTried){
+          try{ location.reload(); }catch(e){}
+          return;
+        }
+        ovCloseTried=true;
+        try{
+          setTimeout(function(){ if(settingsOverlay()){closeSettingsPanel();} },350);
+        }catch(e){}
+      }
+      // U16（r65）：把"现在原生返回该由 JS 处理"同步给原生侧（DshBridge.setBackHandled）。
+      //   为什么需要：MainActivity 只能同步地问 WebView「能不能回退」，而设置浮层
+      //   与抽屉是**覆盖层**，它们的存在与否只有 JS 知道。没有这个上报，原生只能
+      //   靠 canGoBack() 猜，猜错就是「返回键直接退出 App」。
+      //   只在值变化时过桥，避免每次 sync 都跨线程调用。
+      var _backHandled=null;
+      function syncBackHandled(){
+        var bd=document.body;
+        var v=!!(bd&&(bd.classList.contains('dsh-ov-open')||bd.classList.contains('dsh-drawer-open')));
+        if(v===_backHandled){return;}
+        _backHandled=v;
+        try{
+          if(window.dshNative&&window.dshNative.setBackHandled){window.dshNative.setBackHandled(v);}
+        }catch(e){}
+      }
     // ===== 侧滑返回支持（r64）=====
       // 根因：设置面板是**覆盖层**，打开它**不改变 URL**，因此根本不产生 WebView 历史项。
       // 侧滑手势没有东西可退 → 直接落到 Activity 默认行为 → 退出 App
@@ -86,17 +162,30 @@
           if(history.state&&history.state[PANEL_MARK]){history.back();}
         }catch(e){}
       }
+      // U17（r65）· P0 修复：这里原来写的是 `b.classList...`，而 `b` 只在
+      //   mount() 里那个设置面板 IIFE 内定义（var b=document.body）。
+      //   本处理器在 **mount 作用域**，读一个未声明变量必然抛 ReferenceError；
+      //   事件监听器一抛异常就当场中断，后面几行 remove 永远执行不到
+      //   → 面板关不掉 → 用户看到的就是「侧滑返回没反应」；而历史项已被消费，
+      //   再滑一次就退出 App。**这才是「侧滑返回不能用」的真正根因**，
+      //   跟 MainActivity 有没有 onBackPressed 无关。
+      //   修法：处理器内部自取 body，并整体包 try/catch（监听器绝不能抛）。
       window.addEventListener('popstate',function(){
-        // 只处理「状态里没有我们的标记」的情况 = 用户侧滑退回来了
-        var st=null;
-        try{ st=history.state; }catch(e){}
-        if(st&&st[PANEL_MARK])return;
-        if(b.classList.contains('dsh-ov-open')){
-          b.classList.remove('dsh-ov-open');
-          b.classList.remove('dsh-s-l2');
-          b.classList.remove('dsh-s-l3');
-          b.classList.remove('dsh-ov-open');
-        }
+        try{
+          var bd=document.body;
+          if(!bd){return;}
+          // 只处理「状态里没有我们的标记」的情况 = 用户侧滑/返回键退回来了
+          var st=null;
+          try{ st=history.state; }catch(e){}
+          if(st&&st[PANEL_MARK]){return;}
+          if(bd.classList.contains('dsh-ov-open')){
+            // 真的关，而不是"删掉我们的 class 假装关了"
+            closeSettingsPanel();
+          }
+          // 抽屉是我们的 CSS 画出来的（transform），删 class 就是真关闭
+          bd.classList.remove('dsh-drawer-open');
+        }catch(e){}
+        syncBackHandled();
       });
       function syncOvFlag(){
         var b=document.body;
@@ -105,12 +194,21 @@
         if(on!==b.classList.contains('dsh-ov-open')){
           if(on){
             b.classList.add('dsh-ov-open');
-            pushPanelHistory();
           }else{
             b.classList.remove('dsh-ov-open');
-            popPanelHistory();
           }
         }
+        syncBackMark();
+      }
+      // 覆盖层（设置面板 / 抽屉）与"压一条历史"必须严格同进同出：
+      //   只要有一个覆盖层开着，历史里就该有我们压的那一条，侧滑才有东西可退；
+      //   都关了，就该把它消费掉，免得后面多退一次。
+      function syncBackMark(){
+        var bd=document.body;
+        if(!bd){return;}
+        var need=!!settingsOverlay()||bd.classList.contains('dsh-drawer-open');
+        if(need){pushPanelHistory();}else{popPanelHistory();}
+        syncBackHandled();
       }
     if(!inMarket){
     (function(){
@@ -133,10 +231,52 @@
       //   「点进去什么都没有、也装不了」的死锁。所以未安装时保留一个最小入口：
       //   同一个列表项 + 右侧小徽标，点它弹确认框后安装；装完徽标自动移除，
       //   入口才真正退化成设计稿要求的纯列表项。
-      function marketEntry(){
-        var cell=marketCell();
-        if(!cell){return;}
-        cell.setAttribute('data-dsh-mkt','1');
+      // ===== U15（r65）· 插件市场入口 —— 这一节的根因有硬证据，不是猜 =====
+      // 用户反馈「插件市场坏了」+ 截图：设置首页只有 通用设置/模型/插件/Agent 预设 四项。
+      // 取证（可复现）：
+      //   dsh-bundle 里 @deepseek-ai/dsh-web-frontend/dist 全量 grep「插件市场」= **0 处**；
+      //   设置导航是由 dsh-client-ui-settings-* 这批客户端模块拼出来的，而包里只有
+      //   settings-general / settings-models / settings-plugins / agent-preset，
+      //   **没有 settings-market**。
+      //   ⇒ 「插件市场」这一项是 dshmarket 这个独立 bundle 装上之后才注册进来的。
+      // 于是 r58 那套「找到 dsh 原生 navCell、在它右侧挂个徽标」在**未安装**的机器上
+      // 必然找不到节点 → 入口和徽标一起消失。用户看到的就是「市场入口没了」。
+      // 修法：找不到原生项时**由我们注入一个同格式的列表项**（图标 + 标题 + 右侧徽标）。
+      //   一旦 dshmarket 装好、dsh 渲染出原生项，我们的注入项自动退场。
+      var MKT_MINE='dsh-mine-mkt';
+      function mineCell(){
+        var c=document.getElementById(MKT_MINE);
+        if(!c||!c.parentNode){return null;}
+        return c;
+      }
+      function removeMineCell(){
+        var c=mineCell();
+        if(c&&c.parentNode){c.parentNode.removeChild(c);}
+      }
+      function ensureMineCell(){
+        var c=mineCell();
+        if(c){return c;}                       // 幂等：已有就不再插
+        var list=document.querySelector('.dsh-s-nav [class*="_navList"]');
+        if(!list){return null;}
+        // 类名刻意用 dshmine_ 前缀，并且**内含 _navCell / _navIcon / _navLabel** 子串：
+        //   mobile.css 的适配规则全是按 [class*="_navCell"] 这种**子串**写的，
+        //   于是注入项天然与 dsh 原生项同款外观（54px 行高 / 14px 圆角 / 15.5px 字重），
+        //   不必再写一套样式，也不会因为挑中 dsh 的类名而误伤它（r38 铁律）。
+        c=document.createElement('button');
+        c.type='button';
+        c.id=MKT_MINE;
+        c.className='dshmine_navCell';
+        c.setAttribute('data-dsh-mine','1');
+        c.innerHTML='<svg class="dshmine_navIcon" width="16" height="16" viewBox="0 0 16 16"'
+          +' fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"'
+          +' stroke-linejoin="round" aria-hidden="true">'
+          +'<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z"/></svg>'
+          +'<span class="dshmine_navLabel">插件市场</span>';
+        list.appendChild(c);
+        return c;
+      }
+      // 在列表项右侧挂/移除状态徽标（原生项与注入项共用）
+      function decorateEntry(cell){
         var st=marketState();
         var old=cell.querySelector('.dsh-mkt-flag');
         var txt=st.market?(st.pnpm?'':'装 pnpm'):'未安装';
@@ -147,10 +287,24 @@
         }
         cell.setAttribute('data-dsh-mkt-need',txt==='未安装'?'market':'pnpm');
         if(old){ old.textContent=txt; return; }
-        var b=document.createElement('span');
-        b.className='dsh-mkt-flag';
-        b.textContent=txt;
-        cell.appendChild(b);
+        var bd=document.createElement('span');
+        bd.className='dsh-mkt-flag';
+        bd.textContent=txt;
+        cell.appendChild(bd);
+      }
+      function marketEntry(){
+        var n=marketCell();
+        if(n){
+          removeMineCell();      // dsh 自己画了原生项 → 我们的注入项退出
+          n.setAttribute('data-dsh-mkt','1');
+          decorateEntry(n);
+          return;
+        }
+        // dsh 没画（= dshmarket 未安装）→ 我们补一个
+        var m=ensureMineCell();
+        if(!m){return;}
+        m.setAttribute('data-dsh-mkt','1');
+        decorateEntry(m);
       }
       function marketCell(){
         var cells=document.querySelectorAll('.dsh-s-nav [class*="_navCell"]');
@@ -163,21 +317,28 @@
         //   ② aria-label 或 title（中英模糊，不要求全等）；
         //   ③ 文本全等（保持原行为不变，作为快速路径）；
         //   ④ 文本模糊（最后兜底）。
+        // U15：**必须跳过我们自己注入的那一项**。否则第 ④ 层（文本模糊）会命中
+        //   注入项（它的 textContent 是「插件市场未安装」），marketCell() 便"找到了
+        //   原生项"，removeMineCell() 与 ensureMineCell() 互相打架，入口反复闪。
         for(i=0;i<cells.length;i++){
+          if(cells[i].getAttribute('data-dsh-mine')){continue;}
           if(cells[i].getAttribute('data-dsh-market')!=null
              ||cells[i].getAttribute('data-plugin-market')!=null
              ||cells[i].getAttribute('data-testid')==='plugin-market'){return cells[i];}
         }
         for(i=0;i<cells.length;i++){
+          if(cells[i].getAttribute('data-dsh-mine')){continue;}
           al=((cells[i].getAttribute('aria-label')||'')+' '+(cells[i].getAttribute('title')||'')).toLowerCase();
           if(al.indexOf('插件')>=0||al.indexOf('市场')>=0
              ||al.indexOf('plugin')>=0||al.indexOf('market')>=0){return cells[i];}
         }
         for(i=0;i<cells.length;i++){
+          if(cells[i].getAttribute('data-dsh-mine')){continue;}
           t=(cells[i].textContent||'').replace(/\s+/g,'');
           if(t==='插件市场'||t==='PluginMarket'){return cells[i];}
         }
         for(i=0;i<cells.length;i++){
+          if(cells[i].getAttribute('data-dsh-mine')){continue;}
           t=(cells[i].textContent||'').replace(/\s+/g,'');
           if(t.indexOf('插件市场')>=0||t.toLowerCase().indexOf('pluginmarket')>=0){return cells[i];}
         }
@@ -255,34 +416,11 @@
       // 回到聊天页。**自适应**：如果 dsh 自己已经在面板里画了关闭按钮（×，插件页/
       // Agent 预设页就是这样），就不再重复加我们的返回条；只有像设置首页那样
       // 没有关闭按钮的界面才补一个。
-      // 判断元素是否「用户真的看得见」。
-      // ⚠️ 不能只看 getComputedStyle：它只反映元素**自身**的样式，不反映祖先。
-      // 设置首页的 _close 就是这种：自身 display:block，但它所在的 header 在那个层级
-      // 整体不显示 —— 只看 computed style 会误判成「可见」，于是返回条永远不注入。
-      // getBoundingClientRect 返回 0 才是真的看不见（这条对祖先 display:none 也成立）。
-      function reallyVisible(el){
-        var cs=window.getComputedStyle(el);
-        if(cs.display==='none'||cs.visibility==='hidden'){return false;}
-        if(parseFloat(cs.opacity||'1')===0){return false;}
-        var r=el.getBoundingClientRect();
-        return !!(r&&r.width>0&&r.height>0);
-      }
-      // 找「真正可见」的关闭按钮
-      function visibleClose(ov){
-        var list=ov.querySelectorAll('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
-        for(var i=0;i<list.length;i++){ if(reallyVisible(list[i])){return list[i];} }
-        return null;
-      }
-      function closeSettings(){
-        var ov=settingsOverlay();
-        if(ov){
-          var c=visibleClose(ov);
-          if(c){ try{ c.click(); return; }catch(e){} }
-        }
-        // 找不到可见的关闭按钮就退而求其次：把状态复位，让面板自然收起
-        b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
-        b.classList.remove('dsh-ov-open');
-      }
+      // 判断元素是否「用户真的看得见」的 reallyVisible()、找可见关闭按钮的
+      // visibleClose()、以及真正关闭浮层的 closeSettingsPanel() 已上移到
+      // **mount 主体**（见上方）—— popstate 处理器也要用它们，而它在 mount 作用域。
+      // 这里只留一个薄封装，保持 IIFE 内部调用点的可读性。
+      function closeSettings(){ closeSettingsPanel(); }
       // 「返回上一级」条 —— **只出现在设置第一页**（用户明确要求）。
       //   第一页 = 导航列表页（通用设置/模型/插件/Agent 预设），此时 body 是 dsh-s-l2；
       //   详情页（插件、Agent 预设…）是 dsh-s-l3，**dsh 自己已经画了关闭按钮**，
@@ -305,7 +443,15 @@
           +' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
           +'<path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
           +'<span class="dsh-back-t">设置</span></button>';
-        var host=ov.querySelector('[class*="_header"]')||ov;
+        // U16（r65）· 返回条必须插进**真的可见**的容器 —— 这是「设置首页没有
+        //   返回按钮」的真因，而且解释了为什么 r60~r64 连改四轮判断条件都没用：
+        //   条件从来不是问题。dsh 的面板结构是
+        //     panel > nav(.) + content > header(含 ×) + options
+        //   而 mobile.css:84 在 l2（设置首页）把整个 _content display:none 掉
+        //   —— 返回条插进 _content 里的 _header，等于插进一个不显示的容器：
+        //   DOM 里有（所以冒烟测试一直是绿的）、屏幕上看不见。
+        //   .dsh-s-nav 是我们自己打的指纹（tagHosts 维护），l2 下必然可见，改插它。
+        var host=document.querySelector('.dsh-s-nav')||ov.querySelector('[class*="_header"]')||ov;
         host.insertBefore(bar, host.firstChild);
         bar.querySelector('#dsh-back-btn').addEventListener('click',function(e){
           e.preventDefault();e.stopPropagation();
@@ -317,8 +463,18 @@
       // confirm 在某些 WebView 上不可用，此时退化为直接装 —— 宁可多装一次，
       // 也不能因为弹不出框就把功能卡死。
       function onEntryTap(e){
-        var need=e.currentTarget.getAttribute('data-dsh-mkt-need');
-        if(!need){return false;}
+        var cell=e.currentTarget;
+        var need=cell.getAttribute('data-dsh-mkt-need');
+        var mine=cell.getAttribute('data-dsh-mine')==='1';
+        if(!need){
+          if(!mine){return false;}   // dsh 原生项、依赖已齐 → 交给 dsh 自己的路由
+          // 我们自己注入的项：依赖已齐却仍没有原生项 = 刚装完还没重启 dsh。
+          // 这里绝不能返回 false —— 那会落到下面 `t.closest('_navCell')` 分支把
+          // 界面顶到 l3（隐藏导航列表），变成"点了一下界面就没了"。
+          try{ window.alert('插件市场已安装。重启应用后，这里会变成 dsh 原生的市场入口。'); }catch(err){}
+          announce('插件市场已安装，重启应用后生效');
+          return true;
+        }
         e.preventDefault();e.stopPropagation();
         var msg=(need==='market')
           ? '插件市场尚未安装。\n\n安装后即可浏览并安装插件。\n\n现在下载安装？'
@@ -354,6 +510,7 @@
       function sync(){
         var ov=settingsOverlay();
         if(!ov){
+          ovCloseRequested=false;   // 浮层真没了 → 清掉"用户要求关闭"的标记
           b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
           syncOvFlag();
           if(panelOpen){panelOpen=false;leaveFocus();}
@@ -373,11 +530,43 @@
           // 可能命中 dsh 别的面板，焦点会进错容器。
           enterFocus(document.querySelector('.dsh-s-ov'));
         }
-        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){setL2();}
+        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')&&!ovCloseRequested){setL2();}
         syncBack();
       }
       function syncBack(){
       }
+      // U16（r65）：原生返回（返回键 / 侧滑手势）的**唯一入口**。
+      //   MainActivity.handleBack() 会先问 `dshNative.setBackHandled()` 上报的状态，
+      //   需要 JS 处理时就 evaluateJavascript 调这里，而不是盲目 history.back()。
+      //   返回 true = 这一级已经被消化掉（原生不该再退出 App）。
+      //   状态机（与 Escape / 返回条的语义保持一条线）：
+      //     抽屉开着      → 关抽屉
+      //     L3（详情页）  → 回 L2（列表页）
+      //     L2（列表页）  → 退出设置（= 回聊天页）
+      function backOneLevel(){
+        var handled=false;
+        try{
+          if(b){
+            if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();handled=true;}
+            else if(settingsOverlay()){
+              if(b.classList.contains('dsh-s-l3')){setL2();syncBack();}
+              else{closeSettings();}
+              handled=true;
+            }
+          }
+        }catch(e){}
+        if(!handled){
+          // 自愈：走到这里说明原生侧的上报已经过期（例如浮层被 dsh 自己关掉、
+          // 而我们还没跑下一轮 sync）。若不立刻纠正，原生会继续以为"该由 JS 处理"，
+          // 表现就是**返回键彻底没反应** —— 比退出 App 更难排查。
+          _backHandled=false;
+          try{
+            if(window.dshNative&&window.dshNative.setBackHandled){window.dshNative.setBackHandled(false);}
+          }catch(e){}
+        }
+        return handled;
+      }
+      try{ window.__dshBack=backOneLevel; }catch(e){}
       document.addEventListener('click',function(e){
         var t=e.target;
         if(!t||!t.closest){sync();return;}
@@ -569,22 +758,26 @@
     bar.querySelector('#dsh-mbtn').addEventListener('click',function(e){
       e.preventDefault();e.stopPropagation();
       var b=document.body;
-      if(b.classList.contains('dsh-drawer-open')){close();return;}
+      if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();return;}
       try{expandSidebarOnce();}catch(err){}
       b.classList.add('dsh-drawer-open');
+      // 抽屉也是覆盖层：同样要压一条历史，否则侧滑/返回键只能退出 App
+      // （U17：r64 只给设置面板压了历史，抽屉漏了）
+      syncBackMark();
       var n=0;
       var iv=setInterval(function(){
         try{expandSidebarOnce();}catch(err){}
         if(++n>8){clearInterval(iv);}
       },140);
     });
-    scrim.addEventListener('click',close);
+    scrim.addEventListener('click',function(){close();syncBackMark();});
     document.addEventListener('keydown',function(e){
       if(e.key!=='Escape')return;
       var bb=document.body;
       if(bb.classList.contains('dsh-s-l3'))return;
-      if(bb.classList.contains('dsh-s-l2')){bb.classList.remove('dsh-s-l2');return;}
+      if(bb.classList.contains('dsh-s-l2')){bb.classList.remove('dsh-s-l2');syncBackMark();return;}
       close();
+      syncBackMark();
     });
     var tries=0;
     var poll=setInterval(function(){

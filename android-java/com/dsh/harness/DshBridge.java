@@ -74,6 +74,25 @@ public final class DshBridge {
     }
 
     /**
+     * r65：注入脚本上报"当前这一级返回该由 JS 处理"（设置面板 / 抽屉这类
+     * <b>覆盖层</b>开着）。
+     *
+     * <p>为什么需要它：覆盖层是 SPA 内的 DOM，不改变 URL、也不产生 WebView
+     * 历史项，原生侧 {@code canGoBack()} 完全看不见它们。没有这个上报，
+     * {@code MainActivity.handleBack()} 只能靠 canGoBack() 猜 —— 猜错就是
+     * "面板开着时按返回直接退出 App"。
+     *
+     * <p>只在 JS 侧状态**变化**时被调用（JS 里做了去重），同步、无 IO。
+     */
+    @JavascriptInterface
+    public void setBackHandled(boolean handled) {
+        Activity a = actRef.get();   // 这里刻意不用 act()：只是写个标志位，不碰 UI
+        if (a instanceof MainActivity) {
+            ((MainActivity) a).setJsBackHandled(handled);
+        }
+    }
+
+    /**
      * A-02 纵深防御：确认 WebView **此刻**仍停在本地 dsh 上，才允许执行
      * 「下载远程 tarball 并由 node 执行」这类高危操作。
      *
