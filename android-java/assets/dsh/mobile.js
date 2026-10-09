@@ -83,15 +83,13 @@
       function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}
       // r58 · 按设计稿：插件市场入口是**纯标题列表项**（与模型/插件/Agent 预设同格式），
       // r39 那个大卡片（图标 + 副标题 + 两个按钮）到此为止。
+      // ⚠️ marketState() / announce() / installPnpmNow() / installMarketNow() / marketPageBar()
+      //   已上移到 **mount 主体**（见 IIFE 闭合之后）。原因见该处的说明：
+      //   它们同时服务于设置页与市场页，而这个 IIFE 在两种情况下都可能不执行
+      //   —— 市场页（inMarket=true）整个跳过，宽屏（mq.matches=false）也在开头 return。
+      // r58 就是把 marketPageBar() 定义在这里、却从 mount 主体调用，导致 ReferenceError
+      // 把 mount() 拦腰截断，汉堡抽屉、rescue 自愈、Escape 关闭等 6 项功能静默失效。
       // 检测安装状态：market=dshmarket 版本（空=未装），pnpm=是否就绪。
-      function marketState(){
-        var v='',p='';
-        if(window.dshNative){
-          try{ v=window.dshNative.marketInstalled(); }catch(e){}
-          try{ p=window.dshNative.pnpmReady(); }catch(e){}
-        }
-        return {market:v||'', pnpm:!!p};
-      }
       // 在**原生** navCell 右侧挂/移除状态徽标。
       // ⚠️ 为什么不直接把安装按钮删干净：市场页（浏览/搜索/已安装列表）本身
       //   要 dshmarket **已安装**才能打开。若设置页只剩纯列表项，未装用户会陷入
@@ -196,12 +194,7 @@
         lastFocus=null;
         if(back&&back.focus){try{back.focus();}catch(e){}}
       }
-      function announce(txt){
-        var box=document.getElementById('dsh-live');
-        if(!box){return;}
-        box.textContent='';
-        setTimeout(function(){box.textContent=txt;},30);
-      }
+      // announce() 已上移到 mount 主体 —— 市场页的安装动作也要播报无障碍文本
       // r58 移除：dedupeMarket / openMarket / guardCard
       // 这三个函数都是为 r39 那个注入大卡片服务的：
       //   dedupeMarket —— 把原生「插件市场」navCell 藏起来（display:none），
@@ -217,43 +210,9 @@
       // 并写 #dsh-mk-note 文案。现在状态统一由 marketState() 读取、
       // marketEntry() 把结果显示成列表项右侧的小徽标，不再需要 note 文案位。
       // ===== r58 · 安装动作（设置页列表项 与 市场页操作条 共用）=====
-      var pnpmBusy=false, installing=false;
-      function installPnpmNow(after){
-        if(pnpmBusy){return;}
-        pnpmBusy=true;
-        announce('正在下载并安装 pnpm');
-        window.__dshPnpmDone=function(id,res){
-          pnpmBusy=false;
-          if(res&&res.ok){
-            announce('pnpm 安装完成');
-            marketEntry();
-            if(after){after(res);}
-          }else{
-            alert('pnpm 安装失败：'+((res&&res.message)||'未知错误'));
-            announce('pnpm 安装失败');
-          }
-        };
-        try{ window.dshNative.installPnpm('pnpm'); }
-        catch(err){ pnpmBusy=false; alert('pnpm 安装失败：'+((err&&err.message)||err)); }
-      }
-      function installMarketNow(after){
-        if(installing){return;}
-        installing=true;
-        announce('正在下载并安装插件市场');
-        window.__dshMarketDone=function(id,res){
-          installing=false;
-          if(res&&res.ok){
-            announce('插件市场安装完成');
-            marketEntry();
-            if(after){after(res);}
-          }else{
-            alert('安装失败：'+((res&&res.message)||'未知错误'));
-            announce('插件安装失败');
-          }
-        };
-        try{ window.dshNative.installMarket('mkt'); }
-        catch(err){ installing=false; alert('安装失败：'+((err&&err.message)||err)); }
-      }
+      // installPnpmNow() / installMarketNow() 已上移到 mount 主体（设置页与市场页共用，
+      // 而本IIFE 在市场页/宽屏下不执行）。注意它们**不再直接调�� marketEntry()** ——
+      // marketEntry 属于设置页、留在这个 IIFE 里，改由调用方通过 after 回调触发刷新。
       // 列表项点击：缺什么就先装什么。已装齐则返回 false，交给 dsh 原生逻辑
       // （它自己会跳到市场页），我们不干预。
       // confirm 在某些 WebView 上不可用，此时退化为直接装 —— 宁可多装一次，
@@ -268,40 +227,13 @@
         var ok=true;
         try{ ok=window.confirm(msg); }catch(err){ ok=true; }
         if(!ok){return true;}
-        if(need==='market'){ installMarketNow(); }else{ installPnpmNow(); }
+        // 安装完成后刷新列表项徽标 —— marketEntry() 留在这个 IIFE 里（只服务设置页），
+        // 所以通过 after 回调把刷新动作传给出售给 install* 的外部函数。
+        if(need==='market'){ installMarketNow(function(){marketEntry();}); }
+        else{ installPnpmNow(function(){marketEntry();}); }
         return true;
       }
-      // 设计稿图 3：市场页标题区下方有一行操作（导出日志 / 更新插件市场）。
-      // 「导出日志」是 dshmarket 页面自带的；「更新插件市场」由我们注入
-      // ——设置页那个入口只在**未安装**时可用，装完之后"更新"这个动作
-      // 就只能在这里做了。
-      function marketPageBar(){
-        var root=document.querySelector('[data-dsh-market-root]');
-        if(!root){return;}
-        var bar=document.getElementById('dsh-mkt-bar');
-        if(!bar){
-          bar=document.createElement('div');
-          bar.id='dsh-mkt-bar';
-          bar.innerHTML='<button id="dsh-mkt-pnpm" type="button">安装 pnpm</button>'
-            +'<button id="dsh-mkt-upd" type="button">更新插件市场</button>';
-          root.insertBefore(bar, root.firstChild);
-          bar.querySelector('#dsh-mkt-upd').addEventListener('click',function(e){
-            e.preventDefault();e.stopPropagation();
-            var v=marketState().market||'未知';
-            if(window.confirm('将重新下载并安装插件市场（当前版本 '+v+'）。继续？')){
-              installMarketNow();
-            }
-          });
-          bar.querySelector('#dsh-mkt-pnpm').addEventListener('click',function(e){
-            e.preventDefault();e.stopPropagation();
-            installPnpmNow();
-          });
-        }
-        // pnpm 缺失时才显示「安装 pnpm」；就绪则隐藏（market.css 适配窄屏排版）
-        var need=!marketState().pnpm;
-        var pb=bar.querySelector('#dsh-mkt-pnpm');
-        if(need){ pb.removeAttribute('hidden'); }else{ pb.setAttribute('hidden','hidden'); }
-      }
+      // marketPageBar() 已上移到 mount 主体（只在市场页有意义，且必须能被 mount 直接调用）。
       // U13：把「深层级按返回 = 退出应用」这个**已知权衡**固化到界面上。
       // 背景：MainActivity.onResume 里的 clearHistory() 会清空 SPA 全部前进/后退历史
       //   —— 因为 WebView 历史里会留一条 404 文档，侧滑回去就是白屏（r49 的教训）。
@@ -326,8 +258,6 @@
           b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
           syncOvFlag();
           if(panelOpen){panelOpen=false;leaveFocus();}
-          var mc=document.getElementById('dsh-market-card');
-          if(mc&&mc.parentNode){mc.parentNode.removeChild(mc);}
           syncBack();
           return;
         }
@@ -406,11 +336,96 @@
       tagHosts();syncOvFlag();detectDark();
     },500);
     detectDark();
+    // ============================================================
+    // 跨页面共用：安装状态 / 无障碍播报 / 两个安装动作 / 市场页操作条
+    //
+    // ⚠️ 为什么这一簇必须待在 mount 主体、而不是设置面板那个 IIFE 里：
+    //   那个 IIFE 在两种情况下**都不执行** —— 市场页（inMarket=true）整个跳过，
+    //   宽屏（mq.matches=false）也在开头 return。r58 把 marketPageBar() 定义在
+    //   IIFE 内却从 mount 主体调用，于是 ReferenceError 把 mount() 拦腰截断：
+    //   汉堡抽屉、rescue 白屏自愈、Escape 关闭、scrim 关闭、侧栏展开轮询
+    //   共 6 项功能静默失效，而按钮"看得见、点了没反应"，极难定位。
+    //   function 声明会提升到 mount 作用域，所以设置面板 IIFE 内仍能访问这里的
+    //   marketState / announce / install*，不必再传参。
+    // ============================================================
+    function marketState(){
+      var v='',p='';
+      if(window.dshNative){
+        try{ v=window.dshNative.marketInstalled(); }catch(e){}
+        try{ p=window.dshNative.pnpmReady(); }catch(e){}
+      }
+      return {market:v||'', pnpm:!!p};
+    }
+    function announce(txt){
+      var box=document.getElementById('dsh-live');
+      if(!box){return;}
+      box.textContent='';
+      setTimeout(function(){box.textContent=txt;},30);
+    }
+    var pnpmBusy=false, installing=false;
+    function installPnpmNow(after){
+      if(pnpmBusy){return;}
+      pnpmBusy=true;
+      announce('正在下载并安装 pnpm');
+      window.__dshPnpmDone=function(id,res){
+        pnpmBusy=false;
+        if(res&&res.ok){ announce('pnpm 安装完成'); if(after){after(res);} }
+        else { alert('pnpm 安装失败：'+((res&&res.message)||'未知错误')); announce('pnpm 安装失败'); }
+      };
+      try{ window.dshNative.installPnpm('pnpm'); }
+      catch(err){ pnpmBusy=false; alert('pnpm 安装失败：'+((err&&err.message)||err)); }
+    }
+    function installMarketNow(after){
+      if(installing){return;}
+      installing=true;
+      announce('正在下载并安装插件市场');
+      window.__dshMarketDone=function(id,res){
+        installing=false;
+        if(res&&res.ok){ announce('插件市场安装完成'); if(after){after(res);} }
+        else { alert('安装失败：'+((res&&res.message)||'未知错误')); announce('插件安装失败'); }
+      };
+      try{ window.dshNative.installMarket('mkt'); }
+      catch(err){ installing=false; alert('安装失败：'+((err&&err.message)||err)); }
+    }
+    // 设计稿图 3：市场页标题区下方那行操作里的「更新插件市场」。
+    // 「导出日志」是 dshmarket 页面自带的，我们只注入更新 + pnpm 缺失时的安装。
+    function marketPageBar(){
+      var root=document.querySelector('[data-dsh-market-root]');
+      if(!root){return;}
+      var bar=document.getElementById('dsh-mkt-bar');
+      if(!bar){
+        bar=document.createElement('div');
+        bar.id='dsh-mkt-bar';
+        bar.innerHTML='<button id="dsh-mkt-pnpm" type="button">安装 pnpm</button>'
+          +'<button id="dsh-mkt-upd" type="button">更新插件市场</button>';
+        root.insertBefore(bar, root.firstChild);
+        bar.querySelector('#dsh-mkt-upd').addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          var v=marketState().market||'未知';
+          if(window.confirm('将重新下载并安装插件市场（当前版本 '+v+'）。继续？')){
+            installMarketNow();
+          }
+        });
+        bar.querySelector('#dsh-mkt-pnpm').addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          installPnpmNow();
+        });
+      }
+      var need=!marketState().pnpm;
+      var pb=bar.querySelector('#dsh-mkt-pnpm');
+      if(need){ pb.removeAttribute('hidden'); }else{ pb.setAttribute('hidden','hidden'); }
+    }
     // r58：若当前就是市场页，注入「安装 pnpm / 更新插件市场」操作条。
     // 放在 mount 的收尾处，任何一次整页加载都会执行；内部幂等，重复调用无副作用。
-    marketPageBar();
+    // ⚠️ try/catch 是刻意加的防线：这是**纯附加功能**，不该有能力把 mount 打断。
+    // r58 那次事故正是这里抛了 ReferenceError，顺手打掉了后面 6 项关键功能。
+    try{ marketPageBar(); }catch(e){ if(window.console)console.error('[dsh] marketPageBar', e); }
     function dshAlive(){
       if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')!=null){return true;}
+      // ⚠️ #dsh-market-shell **必须保留**。独立审查建议删它，理由是「无产出方」——
+      //   但那是**我们的代码**不产生它，不等于 dsh 不产生它：它很可能是 dsh 市场页
+      //   自己的根节点 id。删掉的话，市场页会被 rescue() 判成「坏掉的文档」而弹回
+      //   首页 —— 正是 U4 描述的导航劫持。**盲从这条会重新引入 U4**，故保留。
       return !!(document.querySelector('div[class*="frame"],div[class*="centerCol"],'
         + '[data-shell-overlay],#dsh-market-shell'));
     }
