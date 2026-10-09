@@ -213,6 +213,46 @@
       // installPnpmNow() / installMarketNow() 已上移到 mount 主体（设置页与市场页共用，
       // 而本IIFE 在市场页/宽屏下不执行）。注意它们**不再直接调�� marketEntry()** ——
       // marketEntry 属于设置页、留在这个 IIFE 里，改由调用方通过 after 回调触发刷新。
+      // ===== 「返回上一级」按钮（设计稿图 2）=====
+      // 设置面板整体挂在侧栏抽屉里（body 恒为 dsh-s-l2），所以「返回上一级」= 退出设置
+      // 回到聊天页。**自适应**：如果 dsh 自己已经在面板里画了关闭按钮（×，插件页/
+      // Agent 预设页就是这样），就不再重复加我们的返回条；只有像设置首页那样
+      // 没有关闭按钮的界面才补一个。
+      function closeSettings(){
+        var ov=settingsOverlay();
+        if(ov){
+          var c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+          if(c){ try{ c.click(); return; }catch(e){} }
+        }
+        // 找不到 dsh 的关闭按钮就退而求其次：把状态复位，让面板自然收起
+        b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+        b.classList.remove('dsh-ov-open');
+      }
+      function ensureBackBar(){
+        var ov=settingsOverlay();
+        var bar=document.getElementById('dsh-back');
+        if(!ov){
+          if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
+          return;
+        }
+        if(bar){return;}
+        // 面板自带关闭按钮就别再加一条返回条，避免与 × 并排出现两个同样意思的出口
+        if(ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]')){
+          return;
+        }
+        bar=document.createElement('div');
+        bar.id='dsh-back';
+        bar.innerHTML='<button id="dsh-back-btn" type="button" aria-label="返回">'
+          +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+          +' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+          +'<path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
+          +'<span class="dsh-back-t">设置</span></button>';
+        ov.insertBefore(bar, ov.firstChild);
+        bar.querySelector('#dsh-back-btn').addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          closeSettings();
+        });
+      }
       // 列表项点击：缺什么就先装什么。已装齐则返回 false，交给 dsh 原生逻辑
       // （它自己会跳到市场页），我们不干预。
       // confirm 在某些 WebView 上不可用，此时退化为直接装 —— 宁可多装一次，
@@ -264,6 +304,7 @@
         syncOvFlag();
         tagHosts();
         marketEntry();
+        ensureBackBar();
         backHint();
         detectDark();
         if(!panelOpen){panelOpen=true;
@@ -293,6 +334,13 @@
         var ov=settingsOverlay();
         var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));
         if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}
+        // dsh 的 tab 切换必须同时切到 l3。tab 元素是 role="tab"（取证：dsh-client-ui-*/
+        // lib/client.js 里 `role:"tab"` + `aria-selected` + `aria-controls`）。
+        // 原因：l2 状态下我们把 [class*="_content"] 隐藏了（见 mobile.css
+        //   body.dsh-s-l2 .dsh-s-ov [class*="_panel"] [class*="_content"]{display:none}），
+        // 而 tab 切换出来的内容正是在 _content 里 —— 于是「下划线切了、内容还是上一个
+        // tab 的」。用户看到的现象就是：插件页点「插件列表」，「插件配置」的内容不消失。
+        if(t.closest('[role="tab"]')){ setL3(); }
         // r58：插件市场列表项缺依赖时先补依赖（确认框 → 安装）；
         // 已装齐时 onEntryTap 返回 false，不拦截 —— 由 dsh 原生项自己跳市场页。
         var ent=t.closest('[data-dsh-mkt]');

@@ -42,6 +42,23 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   body[data-ds-dark-theme] .dsh-s-nav [class*="_active"] [class*="_navLabel"],  body[data-ds-dark-theme] .dsh-s-nav [class*="_active"] [class*="_navIcon"],  html.dsh-dark .dsh-s-nav [class*="_active"] [class*="_navLabel"],  html.dsh-dark .dsh-s-nav [class*="_active"] [class*="_navIcon"]{color:var(--ds-brand-500,#5aa9f5)!important;}
   .dsh-s-nav [class*="_active"]::after{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--ds-brand-500,#1466b8);}
   .dsh-s-nav [class*="_active"] [class*="_navLabel"],.dsh-s-nav [class*="_active"] [class*="_navIcon"]{color:var(--ds-brand-500,#1466b8)!important;}
+  /* ===== 「返回上一级」条（设计稿图 2）=====
+     只在 dsh 没自带关闭按钮时注入 —— 插件页/Agent 预设页自带 ×，那边就不重复加，
+     免得并排出现两个同样意思的出口。
+     r40 铁律三：往别人的 flex 容器塞节点 = 把宽高交给对方决定，
+     所以 flex/width/max-width 都显式写死，不指望 _panel 的布局。*/
+  #dsh-back{flex:0 0 auto !important;display:flex !important;align-items:center !important;
+    gap:10px !important;width:100% !important;max-width:100% !important;
+    padding:10px 12px !important;margin:0 0 4px !important;box-sizing:border-box !important;
+    border-bottom:1px solid var(--ds-ink-200,#d8e1ea) !important;}
+  #dsh-back-btn{display:flex !important;align-items:center !important;gap:10px !important;
+    flex:0 0 auto !important;border:0 !important;background:transparent !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;font-size:16px !important;
+    font-weight:600 !important;line-height:22px !important;padding:4px 6px !important;
+    margin:0 !important;min-height:44px !important;min-width:0 !important;
+    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-back-btn svg{flex:none !important;}
+  #dsh-back-btn .dsh-back-t{font-weight:600 !important;white-space:nowrap !important;}
   .dsh-s-ov [class*="_panel"] [class*="_content"]{width:100% !important;min-width:0 !important;flex:1 1 auto !important;}
   /* U13：把「深层级按返回 = 退出应用」这个已知权衡固化到界面上。
      MainActivity.onResume 的 clearHistory() 会清空 SPA 全部历史（否则侧滑回到
@@ -76,7 +93,10 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   .dsh-s-ov [class*="_panel"] [class*="_cards"]{grid-template-columns:minmax(0,1fr) !important;gap:10px !important;}
   .dsh-s-ov [class*="_panel"] [class*="_card"]{border-radius:var(--ds-r-md,16px) !important;}
   .dsh-s-ov [class*="_panel"] [class*="_cardTitle"]{font-size:15.5px !important;font-weight:600 !important;}
-  .dsh-s-ov [class*="_panel"] [class*="_group"]{border-top:1px solid var(--ds-ink-200,#d8e1ea) !important;padding-top:14px !important;margin-top:4px !important;}
+  /* padding/margin 保留（r40 为了分组留白调的），但**去掉 border-top**：
+     dsh 自己在 _group 前后已经画了一条分隔线，我们再加一条就成了图 3 里
+     「Agent 预设」那种上下紧挨着的双线，视觉上像渲染坏了。 */
+  .dsh-s-ov [class*="_panel"] [class*="_group"]{padding-top:14px !important;margin-top:4px !important;}
   .dsh-s-ov [class*="_panel"] [class*="_catalogHeading"]{font-size:13.5px !important;color:var(--ds-ink-500,#5a6d84) !important;}
   .dsh-s-ov [class*="_panel"] [class*="_details"]{grid-template-columns:76px minmax(0,1fr) !important;}
   .dsh-s-ov [class*="_panel"] [class*="_entryValue"],.dsh-s-ov [class*="_panel"] [class*="_options"] *{overflow-wrap:anywhere !important;}
