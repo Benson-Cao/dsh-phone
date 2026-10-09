@@ -548,16 +548,27 @@ public final class MobileTuning {
         "  /*顶部头部：图标+名称+版本+主按钮 在窄屏会被挤成竖排，改为可换行横排 */\n"
         + "  [data-dsh-market-root] [class*=\"_header\"]{flex-wrap:wrap !important;"
         + "align-items:center !important;gap:10px !important;}\n"
+        // ⚠️ r44：这条原来是 min-width:0 + overflow-wrap:anywhere ——anywhere 允许**按字断行**，
+        //   头部被挤窄后「插件市场」直接竖成「插/件/市/场」（真机 10:19 截图）。
+        //   市场页与设置面板是两套**互不相遇**的 CSS（按 pathname 分流），
+        //   所以 r42 在 .dsh-s-ov 里做的修复不会覆盖到这里，必须单独改。
         + "  [data-dsh-market-root] [class*=\"_headerTitle\"],"
-        + "[data-dsh-market-root] [class*=\"_title\"]{min-width:0 !important;"
-        + "white-space:normal !important;overflow-wrap:anywhere !important;"
-        + "word-break:normal !important;line-height:1.35 !important;}\n"
+        + "[data-dsh-market-root] [class*=\"_title\"]{white-space:nowrap !important;"
+        + "word-break:keep-all !important;overflow-wrap:normal !important;"
+        + "line-height:1.35 !important;}\n"
+        // 头部内所有文本都不许按字断行（中文竖排的通用防线）
+        + "  [data-dsh-market-root] [class*=\"_header\"] span,"
+        + "[data-dsh-market-root] [class*=\"_header\"] p,"
+        + "[data-dsh-market-root] [class*=\"_header\"] div{word-break:keep-all !important;}\n"
         // 图标类名在不同版本会变，用通用属性兜住：任何固定宽高的小方块不参与挤压
         + "  [data-dsh-market-root] [class*=\"_logo\"],"
         + "[data-dsh-market-root] [class*=\"_icon\"]{flex:none !important;}\n"
         // 主按钮（下拉/安装类）保持单行不撑破
-        + "  [data-dsh-market-root] button{white-space:normal !important;"
-        + "max-width:100% !important;}\n"
+        // ⚠️ r44：原来是 white-space:normal —— 头部按钮（「更新插件市场」「重启前都不再提醒」）
+        //   在窄屏会被挤成多行并被裁掉。改成单行 + 不收缩，放不下就整块换行到下一行。
+        + "  [data-dsh-market-root] button{white-space:nowrap !important;"
+        + "flex:none !important;max-width:100% !important;}\n"
+        + "  [data-dsh-market-root] input{white-space:normal !important;}\n"
         // 报错/日志这类长文本：允许在任意位置断行，避免整块撑宽导致横向滚动
         + "  [data-dsh-market-root] pre,[data-dsh-market-root] code,"
         + "[data-dsh-market-root] [class*=\"_log\"],"
@@ -567,6 +578,9 @@ public final class MobileTuning {
         + "white-space:pre-wrap !important;max-width:100% !important;}\n"
         // 页面整体：禁止横向溢出
         + "  [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}\n"
+        // 真机 10:19 截图底部有一条横向滚动条：窄屏下头部把内容顶出了视口宽度。
+        // 根因已在 1/2 里修掉，这里再加一道兜底，别让整页能横向拖。
+        + "  html,body{overflow-x:hidden !important;}\n"
         // 注入的汉堡是 position:fixed 悬浮在右上角，会压住市场页自己的头部/工具条
         // （真机截图里它就叠在内容卡片右上角）。给页面整体让出「安全区 + 52px」，
         // 52 = 按钮 42px + 上下各 5px 余量。
