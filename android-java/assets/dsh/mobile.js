@@ -46,14 +46,33 @@
     (document.head||document.documentElement).appendChild(st);
     window.addEventListener('popstate',applyDshScope);
     window.addEventListener('hashchange',applyDshScope);
+    // U18（r66）·「侧滑关闭设置后汉堡消失」的根因之一就在这里。
+    //   settingsOverlay() 原来只读 getComputedStyle(o) —— 而那只看**元素自身**的样式，
+    //   不反映祖先。dsh 关闭面板后浮层节点可能仍留在树上（被祖先藏起来，或尺寸被压成 0），
+    //   此时它自身 display 依旧不是 none ⇒ 被判成"面板还开着" ⇒ syncOvFlag() 把
+    //   body.dsh-ov-open **又加回来** ⇒ mobile.css 的
+    //   `body.dsh-ov-open #dsh-mtop{display:none !important}` 把汉堡藏死。
+    //   ⚠️ 同一类坑 r65 已经在 visibleClose()/reallyVisible() 上踩过一次
+    //   （见那两处的注释），这里是同一根因的第二个现场。
+    //   修法：几何判据 —— rect 为 0 / 整块在视口外，用户就是看不见，不算打开。
+    function ovVisible(o){
+      var cs=window.getComputedStyle(o);
+      if(!cs||cs.display==='none'||cs.visibility==='hidden'){return false;}
+      if(parseFloat(cs.opacity||'1')===0){return false;}
+      var r=null;
+      try{ r=o.getBoundingClientRect(); }catch(e){ r=null; }
+      if(!r||r.width<=1||r.height<=1){return false;}
+      var vw=window.innerWidth||0,vh=window.innerHeight||0;
+      if(vw&&vh&&(r.left>vw-2||r.top>vh-2||r.right<2||r.bottom<2)){return false;}
+      return true;
+    }
     function settingsOverlay(){
       var ovs=document.querySelectorAll('[class*="_overlay"]');
       for(var i=0;i<ovs.length;i++){
         var o=ovs[i];
         if(!o.querySelector('[class*="_panel"]')){continue;}
         if(!o.querySelector('[class*="_navList"]')){continue;}
-        var cs=window.getComputedStyle(o);
-        if(cs.display!=='none'&&cs.visibility!=='hidden'){return o;}
+        if(ovVisible(o)){return o;}
       }
       return null;
     }
@@ -106,26 +125,50 @@
       // React 尚未卸载）。此时**不能**再把它顶回 l2 —— 那会把 _content 重新
       // display:none 掉，连 dsh 自己的 × 都被藏起来，等于把用户锁死。
       var ovCloseRequested=false;
+      // U18（r66）· 重载兜底必须**整个页面只允许一次**。
+      //   r65 那版把"试过没有"记在 ovCloseTried 上，而它只在 `!ov` 时才复位 ——
+      //   但 closeSettingsPanel() 只会在**有浮层时**被调用，于是第一次成功关闭之后
+      //   ovCloseTried 永远停在 true ⇒ **第二次**关设置面板直接 location.reload()。
+      //   用户看到的就是「侧滑返回后回到首页，汉堡没了 / 界面被整页刷掉」。
+      var ovReloadedOnce=false;
+      // 关闭动作里我们自己那套布局状态的复位。
+      //   l2/l3 决定「导航列表 / 内容」谁显示，ov-open 决定汉堡与遮罩显不显示。
+      // 抽成函数是因为有三处退出路径都要复位（点 × / 点遮罩 / 侧滑与返回键）。
+      function clearOvState(){
+        var bd=document.body;
+        if(bd){bd.classList.remove('dsh-s-l2');bd.classList.remove('dsh-s-l3');bd.classList.remove('dsh-ov-open');}
+        // 顶栏若被 React 整体重渲染冲掉，这里立刻补回来（见 ensureTopBar 的注释）。
+        ensureTopBar();
+      }
       function closeSettingsPanel(){
         ovCloseRequested=true;
         var ov=settingsOverlay();
-        if(ov){
-          var c=visibleClose(ov);
-          if(!c){ c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]'); }
-          if(c){ try{ c.click(); }catch(e){} }
+        if(!ov){
+          ovCloseTried=false;
+          clearOvState();
+          return;
         }
+        var c=visibleClose(ov);
+        if(!c){ c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]'); }
+        if(c){ try{ c.click(); }catch(e){} }
         // 兜底：无论有没有点到 dsh 的出口，都把我们自己的布局状态复位，
         // 至少不能让用户卡在一个"既没有出口、返回键也没反应"的界面里。
-        var bd=document.body;
-        if(bd){bd.classList.remove('dsh-s-l2');bd.classList.remove('dsh-s-l3');bd.classList.remove('dsh-ov-open');}
-        if(!ov){ ovCloseTried=false; return; }
+        clearOvState();
+        // 点 × 之后同步就已经看不见浮层了 → 这就是正常路径，绝不重载页面。
+        if(!settingsOverlay()){ ovCloseTried=false; return; }
         if(ovCloseTried){
-          try{ location.reload(); }catch(e){}
+          // 重试过一次、浮层**仍然可见** ⇒ dsh 这个版本的出口不响应程序化点击。
+          // 宁可重载一次本地页面（代价约 1s），也不能给用户一个死界面；
+          // 但整页只允许一次，否则就变成"每次返回都重载"（那正是 r65 的事故）。
+          if(!ovReloadedOnce){ ovReloadedOnce=true; try{ location.reload(); }catch(e){} }
           return;
         }
         ovCloseTried=true;
         try{
-          setTimeout(function(){ if(settingsOverlay()){closeSettingsPanel();} },350);
+          setTimeout(function(){
+            if(settingsOverlay()){closeSettingsPanel();}
+            else{ovCloseTried=false;}   // 关成功了 → 复位，别把状态留给下一次
+          },350);
         }catch(e){}
       }
       // U16（r65）：把"现在原生返回该由 JS 处理"同步给原生侧（DshBridge.setBackHandled）。
@@ -190,6 +233,11 @@
       function syncOvFlag(){
         var b=document.body;
         if(!b){return;}
+        // U18（r66）：顺手保证顶栏在树上。dsh 的 React 树整体替换 body 子节点时，
+        //   我们的 #dsh-mtop/#dsh-scrim 会一起消失；而注入脚本每页只执行一次
+        //   （mount() 有 SID 幂等守卫），没人再补 → 汉堡永久消失。
+        //   这里幂等补回，配合 MutationObserver + 500ms 轮询构成自愈。
+        ensureTopBar();
         var on=!!settingsOverlay();
         if(on!==b.classList.contains('dsh-ov-open')){
           if(on){
@@ -618,18 +666,73 @@
       sync();
     })();
     }
-    var bar=document.createElement('div');bar.id='dsh-mtop';
-    bar.innerHTML='<button id="dsh-mbtn" type="button" aria-label="菜单">'
-      +'<svg width="22" height="22" viewBox="0 0 24 24" fill="none"'
+    // ===== 顶栏（汉堡 + 遮罩）· 幂等自愈（r66 · U18）=====
+    // 背景：r41 修过一轮「汉堡按钮消失」，r66 用户又报了同类现象 —— 从设置页侧滑返回后
+    //   回到首页，左上角没有汉堡。两个并存的原因：
+    //     ① dsh-ov-open 被错误地留在 body 上（→ 见 ovVisible/settingsOverlay 的注释）；
+    //     ② 顶栏是 document.body 的直接子节点，dsh 的 React 树一旦整体替换 body 的
+    //        子节点，它就被冲掉了，而注入脚本每页只跑一次、不会补。
+    //   所以：创建 + 事件绑定全部收进这个幂等函数，交给 MutationObserver 与 500ms
+    //   轮询兜底调用 —— 无论谁把顶栏弄丢，下一轮就会被原样补回，且不会重复绑定。
+    var MENU_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none"'
       +' stroke="currentColor" stroke-width="2" stroke-linecap="round">'
-      +'<path d="M3 6h18M3 12h18M3 18h18"/></svg></button>'
-      +'';
-    document.body.appendChild(bar);
-    var scrim=document.createElement('div');scrim.id='dsh-scrim';
-    document.body.appendChild(scrim);
+      +'<path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+    function onMenuClick(e){
+      e.preventDefault();e.stopPropagation();
+      var b=document.body;
+      if(!b){return;}
+      if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();return;}
+      try{expandSidebarOnce();}catch(err){}
+      b.classList.add('dsh-drawer-open');
+      // 抽屉也是覆盖层：同样要压一条历史，否则侧滑/返回键只能退出 App
+      // （U17：r64 只给设置面板压了历史，抽屉漏了）
+      syncBackMark();
+      var n=0;
+      var iv=setInterval(function(){
+        try{expandSidebarOnce();}catch(err){}
+        if(++n>8){clearInterval(iv);}
+      },140);
+    }
+    function onScrimClick(){close();syncBackMark();}
+    function ensureTopBar(){
+      var b=document.body;
+      if(!b){return null;}
+      var bar=document.getElementById('dsh-mtop');
+      if(!bar){
+        bar=document.createElement('div');
+        bar.id='dsh-mtop';
+        bar.innerHTML='<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+        b.appendChild(bar);
+      }else if(bar.parentNode!==b){
+        b.appendChild(bar);   // 被挪走/被冲掉后重新挂回 body
+      }
+      // __dshBound 是我们自己的幂等标记：节点是我们造的，只在创建时绑一次，
+      // 重复调用 ensureTopBar() 不会叠加监听器。
+      var btn=bar.querySelector('#dsh-mbtn')||document.getElementById('dsh-mbtn');
+      if(!btn){
+        // 顶栏在、但里面的按钮被 React 清掉了 —— 重建内容（同样只在需要时做）
+        bar.innerHTML='<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+        btn=bar.querySelector('#dsh-mbtn');
+      }
+      if(btn&&!btn.__dshBound){btn.__dshBound=true;btn.addEventListener('click',onMenuClick);}
+      var scrim=document.getElementById('dsh-scrim');
+      if(!scrim){
+        scrim=document.createElement('div');
+        scrim.id='dsh-scrim';
+        b.appendChild(scrim);
+      }else if(scrim.parentNode!==b){
+        b.appendChild(scrim);
+      }
+      if(scrim&&!scrim.__dshBound){scrim.__dshBound=true;scrim.addEventListener('click',onScrimClick);}
+      return bar;
+    }
+    ensureTopBar();
     setInterval(function(){
       if(document.hidden)return;
       tagHosts();syncOvFlag();detectDark();
+      // 市场页：dshmarket 是独立 bundle，可能在我们注入之后才渲染完 —— 反复尝试
+      // 整理它的头部（全部幂等），渲染晚也不会漏。
+      if(inMarket){try{marketPageBar();}catch(e){}}
     },500);
     detectDark();
     // ============================================================
@@ -683,18 +786,138 @@
       try{ window.dshNative.installMarket('mkt'); }
       catch(err){ installing=false; alert('安装失败：'+((err&&err.message)||err)); }
     }
-    // 设计稿图 3：市场页标题区下方那行操作里的「更新插件市场」。
-    // 「导出日志」是 dshmarket 页面自带的，我们只注入更新 + pnpm 缺失时的安装。
+    // ===== r66 · 市场页头部按设计稿图 3 整理 =====
+    // 设计稿要求：
+    //   ① 顶部一行 = ← 返回（左）+「打开配置文件」（右）；
+    //   ② 标题块 = 深色圆角方块图标 + 「插件市场」+ 版本号，**横排、绝不竖排**；
+    //   ③ 操作区 = 「导出日志」「更新插件市场」两个黑色胶囊按钮**同一排**；
+    //   ④ 去掉社区说明与「申请收录插件」链接。
+    // 三条硬约束（沿用 r38/r40/r58 的既定铁律）：
+    //   ① **不搬、不删 dsh 的节点**。把 React 拥有的节点移走/删掉，等它卸载那棵子树时
+    //      parentInstance.removeChild(child) 会找不到节点抛 NotFoundError，表现是
+    //      「切页时报错 / 页面卡住」。我们只做两件事：给节点打 data-dsh-mkt-* 属性、
+    //      以及注入**我们自己的**节点。显示/隐藏/重排全部交给 market.css。
+    //      ⚠️ display:none 只影响布局、不影响事件派发 —— 程序化 .click() 照样会冒泡到
+    //      React 的根监听器，所以「隐藏原生按钮 + 用自己的代理按钮去点它」是可用的
+    //      （同 closeSettingsPanel() 点 dsh 那个 × 的手法）。
+    //   ② 定位一律用**文本内容**（取最靠上、最内层的那一个），不猜 dshmarket 的哈希类名
+    //      —— 它是独立 bundle，类名随版本变，文案不会变。
+    //   ③ 幂等：每轮 sync 都可能重跑，重复调用无副作用。
+    var MKT_LOG_SVG='<svg width="14" height="14" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+      +' aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+      +'<path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
+    function mktInBar(el){
+      var n=el;
+      while(n){ if(n.id==='dsh-mkt-bar'){return true;} n=n.parentNode; }
+      return false;
+    }
+    // 在 root 里按文本找目标元素。
+    //   优先级：**最深**（最内层，避免命中包着一大片的容器）→ 最靠上（避免命中
+    //   插件卡片里的同名文字）→ 文本最短。
+    //   为什么"最深"排第一：标题常见写法是 `<div>插件市场<span>v1.66</span></div>`，
+    //   外层 div 也匹配 /^插件市场/；若按 top 优先就会选中外层，把版本号一起套上
+    //   20px 标题字号。按深度优先才能稳定挑到那块纯标题。
+    function mktFind(root,re){
+      if(!root){return null;}
+      var all=root.querySelectorAll('button,span,a,div,p,strong,b,h1,h2,h3,h4,i,label');
+      var best=null,bestDepth=-1,bestTop=0,bestLen=0,i;
+      for(i=0;i<all.length;i++){
+        var el=all[i];
+        if(mktInBar(el)){continue;}                       // 跳过我们自己的操作条
+        if(el.getAttribute('data-dsh-mine')){continue;}   // 跳过我们自己注入的入口
+        var t=(el.textContent||'').replace(/\s+/g,'');
+        if(!t||!re.test(t)){continue;}
+        var d=0,n=el;
+        while(n&&n!==root){d++;n=n.parentNode;}
+        var top=0;
+        try{ var r=el.getBoundingClientRect(); top=r.top||0; }catch(e){ top=0; }
+        if(d>bestDepth||(d===bestDepth&&(best===null||top<bestTop||(top===bestTop&&t.length<bestLen)))){
+          best=el;bestDepth=d;bestTop=top;bestLen=t.length;
+        }
+      }
+      return best;
+    }
+    function mktTextLen(el){
+      return el?String(el.textContent||'').replace(/\s+/g,'').length:0;
+    }
+    // 给市场页头部打标记（只加属性，不动节点）。
+    function marketDecorate(root){
+      if(!root){return;}
+      // ② 标题 + 版本号 + 标题行（标题行强制横排，见 market.css）
+      var title=mktFind(root,/^插件市场/);
+      if(title&&mktTextLen(title)>24){title=null;}   // 太长 = 命中了卡片正文，不要
+      if(title){
+        title.setAttribute('data-dsh-mkt-title','1');
+        var row=title.parentNode;
+        if(row&&row!==root&&row.setAttribute){row.setAttribute('data-dsh-mkt-row','1');}
+        // 标题左边的方块图标（一般是无文字的 svg/img/div），只打标不搬动
+        var logo=title.previousElementSibling||(row&&row.previousElementSibling);
+        if(logo&&!(String(logo.textContent||'').trim())&&!logo.getAttribute('data-dsh-mkt-title')){
+          logo.setAttribute('data-dsh-mkt-logo','1');
+        }
+      }
+      var ver=mktFind(root,/^dsh-market/i);
+      if(ver&&mktTextLen(ver)>40){ver=null;}
+      if(ver){ver.setAttribute('data-dsh-mkt-ver','1');}
+      // ④ 社区说明：它常与「导出日志」同容器（裸文本 + 两个按钮），所以只能
+      //    "隐藏文字"不能整块隐藏 —— CSS 侧用 font-size:0 藏裸文本、再把直接子元素
+      //    恢复字号。锚定"发现社区/社区为"开头并限制长度，避免命中卡片正文。
+      var desc=mktFind(root,/^发现社区|^社区为/);
+      if(desc&&(mktTextLen(desc)>120||String(desc.textContent||'').indexOf('插件市场')>=0)){desc=null;}
+      if(desc){desc.setAttribute('data-dsh-mkt-desc','1');}
+      var sug=mktFind(root,/申请收录/);
+      if(sug){sug.setAttribute('data-dsh-mkt-hide','1');}
+      // 设计稿操作区只有两个按钮 → dsh 的「重启前都不再提醒」不显示
+      // （它只是"别再提醒我更新"的开关，隐藏不影响任何数据/功能，随时可一行恢复）
+      var rem=mktFind(root,/不再提醒/);
+      if(rem){rem.setAttribute('data-dsh-mkt-hide','1');}
+      // ③ 原生「导出日志」隐藏，由我们注入的代理按钮顶替 —— 这样两个按钮必然同排、
+      //    同款（原生那个在 dshmarket 的说明行里，位置由它自己决定）。
+      var natLog=mktFind(root,/^导出日志$/);
+      if(!natLog){
+        var loose=mktFind(root,/导出日志/);
+        if(mktTextLen(loose)<=8){natLog=loose;}
+      }
+      if(natLog){natLog.setAttribute('data-dsh-mkt-native-log','1');}
+      // ① 原生关闭按钮（×）→ 视觉上换成 ←（只换字形，点击行为还是 dsh 自己的）
+      var close=root.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+      if(!close){
+        // 顶部那一行的 × 可能在 root 之外（dshmarket 自己的顶栏），按几何位置收敛：
+        // 只认位于页面最上方的候选，避免误伤浮窗里的关闭按钮。
+        var cands=document.querySelectorAll('button[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+        for(var k=0;k<cands.length;k++){
+          var rr=null;
+          try{ rr=cands[k].getBoundingClientRect(); }catch(e){ rr=null; }
+          if(rr&&rr.top<160){close=cands[k];break;}
+        }
+      }
+      if(close){close.setAttribute('data-dsh-mkt-close','1');}
+    }
+    // 操作条放在**标题行之后**（设计稿：标题块 → 操作区 → tabs）。
+    //   具体落在哪：从标题往上走到 root 的直接子节点，插在它后面；
+    //   找不到标题就退回"root 的第一个子节点之前"（r58 的旧行为）。
+    function placeMarketBar(root,bar,anchor){
+      var node=anchor;
+      while(node&&node.parentNode&&node.parentNode!==root){node=node.parentNode;}
+      if(node&&node.parentNode===root){
+        if(node.nextSibling){root.insertBefore(bar,node.nextSibling);}
+        else{root.appendChild(bar);}
+      }else if(root.firstChild){root.insertBefore(bar,root.firstChild);}
+      else{root.appendChild(bar);}
+    }
     function marketPageBar(){
       var root=document.querySelector('[data-dsh-market-root]');
       if(!root){return;}
+      marketDecorate(root);
       var bar=document.getElementById('dsh-mkt-bar');
       if(!bar){
         bar=document.createElement('div');
         bar.id='dsh-mkt-bar';
-        bar.innerHTML='<button id="dsh-mkt-pnpm" type="button">安装 pnpm</button>'
+        bar.innerHTML='<button id="dsh-mkt-log" type="button" aria-label="导出日志">'
+            +MKT_LOG_SVG+'<span class="dsh-mkt-log-t">导出日志</span></button>'
+          +'<button id="dsh-mkt-pnpm" type="button">安装 pnpm</button>'
           +'<button id="dsh-mkt-upd" type="button">更新插件市场</button>';
-        root.insertBefore(bar, root.firstChild);
         bar.querySelector('#dsh-mkt-upd').addEventListener('click',function(e){
           e.preventDefault();e.stopPropagation();
           var v=marketState().market||'未知';
@@ -706,13 +929,30 @@
           e.preventDefault();e.stopPropagation();
           installPnpmNow();
         });
+        // 代理按钮：点了就去点 dsh 原生那个「导出日志」。原生按钮被我们
+        // display:none 掉了，但程序化点击不受布局影响（见本段顶部注释）。
+        bar.querySelector('#dsh-mkt-log').addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          var n=mktFind(root,/导出日志/);
+          if(n){try{n.click();}catch(err){}}
+        });
       }
-      var need=!marketState().pnpm;
-      var pb=bar.querySelector('#dsh-mkt-pnpm');
-      if(need){ pb.removeAttribute('hidden'); }else{ pb.setAttribute('hidden','hidden'); }
+      if(!root.contains(bar)){ placeMarketBar(root,bar,mktFind(root,/插件市场/)); }
+      // 原生导出日志在 → 显示代理按钮；不在（版本变了）→ 藏起代理，别给死按钮
+      var logBtn=document.getElementById('dsh-mkt-log');
+      if(logBtn){
+        if(mktFind(root,/导出日志/)){logBtn.removeAttribute('hidden');}
+        else{logBtn.setAttribute('hidden','hidden');}
+      }
+      var pb=document.getElementById('dsh-mkt-pnpm');
+      if(pb){
+        if(!marketState().pnpm){pb.removeAttribute('hidden');}
+        else{pb.setAttribute('hidden','hidden');}
+      }
     }
-    // r58：若当前就是市场页，注入「安装 pnpm / 更新插件市场」操作条。
+    // r58：若当前就是市场页，注入操作条 + 整理头部。
     // 放在 mount 的收尾处，任何一次整页加载都会执行；内部幂等，重复调用无副作用。
+    // MutationObserver 与 500ms 轮询也会再调一次（dshmarket 渲染可能更晚）。
     // ⚠️ try/catch 是刻意加的防线：这是**纯附加功能**，不该有能力把 mount 打断。
     // r58 那次事故正是这里抛了 ReferenceError，顺手打掉了后面 6 项关键功能。
     try{ marketPageBar(); }catch(e){ if(window.console)console.error('[dsh] marketPageBar', e); }
@@ -750,27 +990,19 @@
       new MutationObserver(function(){
         if(moRaf)return;
         moRaf=true;
-        var run=function(){moRaf=false;tagHosts();syncOvFlag();};
+        // 每轮 DOM 变化都顺手做三件事（全部幂等）：
+        //   ① tagHosts  —— 维护我们自己的指纹 .dsh-s-ov/.dsh-s-nav；
+        //   ② syncOvFlag —— 同步 dsh-ov-open，并保证顶栏在树上（U18 自愈）；
+        //   ③ 市场页头部整理 —— 只在市场页跑。
+        var run=function(){
+          moRaf=false;tagHosts();syncOvFlag();
+          if(inMarket){try{marketPageBar();}catch(e){}}
+        };
         if(window.requestAnimationFrame){window.requestAnimationFrame(run);}
         else{setTimeout(run,0);}
       }).observe(document.body,{childList:true,subtree:true});
     }
-    bar.querySelector('#dsh-mbtn').addEventListener('click',function(e){
-      e.preventDefault();e.stopPropagation();
-      var b=document.body;
-      if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();return;}
-      try{expandSidebarOnce();}catch(err){}
-      b.classList.add('dsh-drawer-open');
-      // 抽屉也是覆盖层：同样要压一条历史，否则侧滑/返回键只能退出 App
-      // （U17：r64 只给设置面板压了历史，抽屉漏了）
-      syncBackMark();
-      var n=0;
-      var iv=setInterval(function(){
-        try{expandSidebarOnce();}catch(err){}
-        if(++n>8){clearInterval(iv);}
-      },140);
-    });
-    scrim.addEventListener('click',function(){close();syncBackMark();});
+    // 汉堡 / 遮罩的 click 监听已在 ensureTopBar() 里绑定（幂等，重复调用不会叠加）。
     document.addEventListener('keydown',function(e){
       if(e.key!=='Escape')return;
       var bb=document.body;

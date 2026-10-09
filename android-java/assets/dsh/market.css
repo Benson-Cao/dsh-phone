@@ -19,24 +19,91 @@
   @media (min-width:681px){
     [data-dsh-market-root]{max-width:1100px !important;margin:0 auto !important;}
   }
-  /* ===== r58 · 市场页操作条（设计稿图 3 标题区下方的「更新插件市场」）=====
-     设计稿把它放在标题行里、与「导出日志」同一行；「导出日志」是 dshmarket
-     页面自带的，我们只注入「更新插件市场」（+ pnpm 缺失时的「安装 pnpm」）。
+  /* ===== r66 · 市场页头部按设计稿图 3 重排 =====
+     设计稿 Screen 3：① 顶部一行 ← 返回（左）+「打开配置文件」（右）；
+       ② 标题块 = 深色圆角方块图标 + 「插件市场」+ 版本号，横排；
+       ③ 操作区 = 「导出日志」「更新插件市场」两个胶囊按钮同一排；
+       ④ 无社区说明、无「申请收录插件」链接、无「重启前都不再提醒」。
      ⚠️ 样式必须写在 **market.css** 里 —— applyDshScope 在市场页只注入
-     MARKET_CSS（mobile.css 不注入），放错文件会完全不生效。
+     MARKET_CSS（mobile.css 不注入），放错文件会完全不生效（r58 就踩过）。
+     定位全部走移动化脚本打的 data-dsh-mkt-* 属性（按文本匹配打的），
+     不猜 dshmarket 的哈希类名 —— 它是独立 bundle，类名随版本变、文案不会变。*/
+
+  /* --- ④ 去掉社区说明与「申请收录插件」链接 --- */
+  [data-dsh-mkt-hide]{display:none !important;}
+  /* 社区说明常与「导出日志」同容器（一句说明 + 两个按钮）。**不能整块隐藏** ——
+     那会把导出日志一起干掉。用 font-size:0 只让**裸文本**消失，
+     直接子元素再把字号还原，按钮照常可见可点。 */
+  [data-dsh-mkt-desc]{font-size:0 !important;line-height:0 !important;color:transparent !important;}
+  [data-dsh-mkt-desc] > *{font-size:13px !important;line-height:1.5 !important;color:inherit !important;}
+  /* 原生「导出日志」由我们注入的**代理按钮**顶替（点了去 .click() 它）。
+     只隐藏不搬走：搬走 React 的节点，等它卸载那棵子树时 removeChild 会失败。
+     display:none 只影响布局，不影响程序化点击的事件派发。 */
+  [data-dsh-mkt-native-log]{display:none !important;}
+
+  /* --- ② 标题块：横排、不换行、不被挤成"一字一行" ---
+     「标题竖排」的根因是 flex 收缩：CJK 文本的 min-content 宽度 = **一个字**，
+     标题行里项目一多（图标/标题/版本/两个按钮），标题就被压到 ~20px 宽 ⇒ 一字一行。
+     修法：标题 flex:0 0 auto + min-width:max-content（永不收缩），
+     标题行 flex-wrap:wrap（挤不下就整体换行，不互相压扁）。 */
+  [data-dsh-mkt-row]{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;
+    align-items:center !important;gap:10px !important;
+    width:100% !important;max-width:100% !important;min-width:0 !important;}
+  [data-dsh-mkt-row] > *{flex:0 0 auto !important;min-width:0 !important;max-width:100% !important;}
+  [data-dsh-mkt-title]{writing-mode:horizontal-tb !important;display:inline-block !important;
+    white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;
+    flex:0 0 auto !important;min-width:max-content !important;width:auto !important;max-width:none !important;
+    font-size:20px !important;font-weight:700 !important;line-height:1.2 !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;grid-column:auto !important;grid-row:auto !important;}
+  [data-dsh-mkt-ver]{white-space:nowrap !important;word-break:keep-all !important;flex:0 0 auto !important;
+    font-size:13px !important;line-height:18px !important;color:var(--ds-ink-500,#5a6d84) !important;}
+  /* 标题左侧的方块图标（设计稿：46px 深色圆角方块 + 白色图形） */
+  [data-dsh-mkt-logo]{flex:0 0 auto !important;width:46px !important;height:46px !important;min-width:46px !important;
+    border-radius:12px !important;background:#1a1a1a !important;color:#fff !important;
+    display:inline-flex !important;align-items:center !important;justify-content:center !important;
+    overflow:hidden !important;}
+  [data-dsh-mkt-logo] svg,[data-dsh-mkt-logo] img,[data-dsh-mkt-logo] i{
+    width:26px !important;height:26px !important;max-width:26px !important;max-height:26px !important;}
+
+  /* --- ① 返回按钮：原生 × → ← ---
+     只换字形、不换节点：点击行为还是 dsh 自己的（不存在"把用户关在页面里"的风险）。 */
+  [data-dsh-mkt-close]{width:34px !important;height:34px !important;min-width:34px !important;
+    border-radius:999px !important;background:var(--ds-ink-100,#f0f0f0) !important;color:transparent !important;
+    position:relative !important;display:inline-flex !important;align-items:center !important;
+    justify-content:center !important;border:0 !important;padding:0 !important;overflow:hidden !important;}
+  [data-dsh-mkt-close] > *{visibility:hidden !important;}
+  [data-dsh-mkt-close]::after{content:'' !important;position:absolute !important;left:50% !important;top:50% !important;
+    width:18px !important;height:18px !important;margin:-9px 0 0 -9px !important;visibility:visible !important;
+    background:no-repeat center/18px 18px url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23333333'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M19%2012H5M12%2019l-7-7%207-7'/%3E%3C/svg%3E") !important;}
+
+  /* --- ③ 操作条：导出日志 + 更新插件市场，同一排的两个胶囊按钮 ---
+     设计稿把「更新插件市场」从标题行挪到与「导出日志」同一排（本轮已落实：
+     标题行只留 图标 + 插件市场 + 版本号）。
      设置页那个入口只在**未安装**时可用，装完之后的「更新」动作只能在这里做。*/
-  [data-dsh-market-root] #dsh-mkt-bar{display:flex !important;flex-wrap:wrap !important;
-    align-items:center !important;gap:8px !important;margin:0 0 12px !important;}
-  [data-dsh-market-root] #dsh-mkt-bar button{flex:none !important;height:36px !important;
-    padding:0 14px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;
-    border-radius:8px !important;background:var(--ds-ink-50,#f7f9fc) !important;
-    color:var(--ds-ink-900,#0d1b2e) !important;font-size:13px !important;
-    line-height:18px !important;font-weight:500 !important;cursor:pointer !important;
+  [data-dsh-market-root] #dsh-mkt-bar{display:flex !important;flex-direction:row !important;
+    flex-wrap:wrap !important;align-items:center !important;gap:10px !important;
+    margin:14px 0 4px !important;width:auto !important;max-width:100% !important;min-width:0 !important;}
+  [data-dsh-market-root] #dsh-mkt-bar button{flex:0 0 auto !important;display:inline-flex !important;
+    align-items:center !important;justify-content:center !important;gap:6px !important;
+    height:34px !important;padding:0 14px !important;border:0 !important;border-radius:999px !important;
+    background:#1a1a1a !important;color:#fff !important;
+    font-size:13px !important;line-height:18px !important;font-weight:500 !important;
+    white-space:nowrap !important;cursor:pointer !important;
     -webkit-tap-highlight-color:transparent !important;}
   [data-dsh-market-root] #dsh-mkt-bar button[hidden]{display:none !important;}
-  /* 深色下按钮跟着换色（用 --ds-ink-* 变量，r52 的 U6 已保证 fallback 可读）*/
+  [data-dsh-market-root] #dsh-mkt-bar button svg{flex:none !important;width:14px !important;height:14px !important;}
+  [data-dsh-market-root] #dsh-mkt-bar button:active{opacity:.82 !important;}
+  /* 深色主题下"黑底白字"会糊成一片 —— 沿用 dsh 深色下的反色习惯：
+     浅底深字，语义仍是"高对比实心按钮"，与设计稿的观感一致。 */
   body[data-ds-dark-theme] [data-dsh-market-root] #dsh-mkt-bar button,
   html.dsh-dark [data-dsh-market-root] #dsh-mkt-bar button,
   html.dsh-dark body [data-dsh-market-root] #dsh-mkt-bar button{
-    background:var(--ds-ink-100,#26313f) !important;color:var(--ds-ink-700,#c8d4e2) !important;
+    background:#f0f0f0 !important;color:#111 !important;}
+  /* 「安装 pnpm」是"依赖缺失"这个异常态的入口，与设计稿的两个主按钮区分开 */
+  [data-dsh-market-root] #dsh-mkt-bar #dsh-mkt-pnpm{background:transparent !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;}
+  body[data-ds-dark-theme] [data-dsh-market-root] #dsh-mkt-bar #dsh-mkt-pnpm,
+  html.dsh-dark [data-dsh-market-root] #dsh-mkt-bar #dsh-mkt-pnpm,
+  html.dsh-dark body [data-dsh-market-root] #dsh-mkt-bar #dsh-mkt-pnpm{
+    background:transparent !important;color:var(--ds-ink-700,#c8d4e2) !important;
     border-color:var(--ds-ink-200,#3c4d61) !important;}
