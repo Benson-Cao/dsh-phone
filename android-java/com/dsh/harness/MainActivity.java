@@ -365,6 +365,11 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);
+        // C-03：显式收紧 WebView 安全开关（默认值在部分 ROM 上不可信）
+        s.setAllowContentAccess(false);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         // 让 dsh 下发的 dsh-auth cookie 能落盘，否则跳回 / 又是 401
         android.webkit.CookieManager.getInstance().setAcceptCookie(true);
         // 附件：WebView 默认不弹文件选择器，必须挂 WebChromeClient

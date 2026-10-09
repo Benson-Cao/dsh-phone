@@ -88,6 +88,13 @@ mkdir -p "$DST"
 cp -f "$SRC_DIR"/com/dsh/harness/*.java "$DST"/
 echo "  ✓ 拷贝 android-java/com/dsh/harness/*.java -> $DST"
 
+# ---- 5.5) 拷贝网络安全配置（C-05：明文只放开 127.0.0.1/localhost） ----
+# 必须和第 6 步注入的 android:networkSecurityConfig 成对出现，
+# 否则 manifest 引用了 @xml/network_security_config 而资源不存在 -> 编译失败。
+mkdir -p "$APP/src/main/res/xml"
+cp -f "$SRC_DIR"/res/xml/network_security_config.xml "$APP/src/main/res/xml/"
+echo "  ✓ 拷贝 network_security_config.xml -> $APP/src/main/res/xml/"
+
 # ---- 6) 注册 MainActivity 为启动入口 ----
 MANIFEST="$APP/src/main/AndroidManifest.xml"
 PY=""
@@ -138,11 +145,16 @@ block = ('    <activity android:name="com.dsh.harness.MainActivity" android:expo
 s = s.replace('</application>', block + '</application>')
 
 # 4) WebView 要加载 http://127.0.0.1:3080，而 targetSdk>=28 默认禁止明文流量
-#    （NetworkSecurityPolicy 对 localhost 同样拦截），必须显式放开，否则 WebView 报
+#    （NetworkSecurityPolicy 对 localhost 同样拦截），必须放开明文，否则 WebView 报
 #    net::ERR_CLEARTEXT_NOT_PERMITTED。
-if 'usesCleartextTraffic' not in s:
-    s = re.sub(r'(<application\b)', r'\1 android:usesCleartextTraffic="true"', s, count=1)
-    print("  ✓ 已加 android:usesCleartextTraffic=true（WebView 加载本地 http 必需）")
+#    C-05：不再用 usesCleartextTraffic=true 全局放行（那等于对任意域名都开明文），
+#    改为挂 networkSecurityConfig，把明文收窄到 127.0.0.1 / localhost 两个域名。
+#    xml 由下面 5.5 步拷入 res/xml/；显式 <base-config> 会覆盖 manifest 上的
+#    usesCleartextTraffic 标志，所以即使上游已有该标志也不会互相打架。
+if 'networkSecurityConfig' not in s:
+    s = re.sub(r'(<application\b)',
+               r'\1 android:networkSecurityConfig="@xml/network_security_config"', s, count=1)
+    print("  ✓ 已加 android:networkSecurityConfig（明文仅放开 127.0.0.1/localhost）")
 
 open(p, 'w', encoding='utf-8').write(s)
 

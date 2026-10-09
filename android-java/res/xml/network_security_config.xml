@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      C-05：把明文（cleartext HTTP）从「全局放开」收窄到「仅本机」。
+
+      dsh 前端跑在 http://127.0.0.1:3080 的本地 HTTP 服务上，WebView 必须能明文访问它。
+      早期用 android:usesCleartextTraffic="true" 全局放行，等于对**任意域名**都允许明文。
+      这里改为：明文只对 127.0.0.1 / localhost 生效，其余域名一律拒绝明文。
+
+      注意：显式 <base-config> 会覆盖 manifest 上的 usesCleartextTraffic 标志，
+      所以 manifest 里那条全局开关已移除，避免两处语义打架。
+
+      本文件由 scripts/01-modify-termux.sh 拷进 termux-app 的 app/src/main/res/xml/。
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- 其余全部域名：禁止明文，HTTPS 走系统默认信任链 -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

@@ -7,6 +7,8 @@ import android.webkit.JavascriptInterface;
 
 import org.json.JSONObject;
 
+import java.lang.ref.WeakReference;
+
 /**
  * 注入页面的 {@code window.dshNative} —— 原生能力桥。
  *
@@ -18,21 +20,41 @@ import org.json.JSONObject;
  * ⚠️ 安全：{@code @JavascriptInterface} 只在**已加载我们信任的页面**时可达
  * （WebView 只 load 127.0.0.1:3080 的 dsh 实例），所以这里不额外做 origin 校验。
  * 若将来要加载远程页面，必须补上域名白名单。
+ *
+ * ⚠️ 生命周期（C-04 / U12 修复）：
+ * 早期这里持有 Activity 的**强引用**，WebView 销毁 / Activity 重建时桥对象若被
+ * JS 侧长驻引用，会拖住整个 Activity 造成泄漏；同时后台线程在 Activity 已
+ * finish 后仍 {@code runOnUiThread} 回调，可能落到已死的 UI 上。
+ * 改为 {@link WeakReference}：Activity 可回收；所有回调先取活着的 Activity，
+ * 取不到或正在销毁就放弃本次调用，既不泄漏也不丢到死 UI。
  */
 public final class DshBridge {
 
     private static final String TAG = "DshBridge";
-    private final Activity act;
+    private final WeakReference<Activity> actRef;
 
     public DshBridge(Activity act) {
-        this.act = act;
+        this.actRef = new WeakReference<>(act);
+    }
+
+    /**
+     * 取出仍存活的 Activity；若已回收 / 正在销毁 / 已销毁，返回 {@code null}。
+     * 所有需要 Activity 上下文或 UI 线程的入口都先过这一关。
+     */
+    private Activity act() {
+        Activity a = actRef.get();
+        if (a == null) return null;
+        if (a.isFinishing() || a.isDestroyed()) return null;
+        return a;
     }
 
     /** 已安装则返回版本号，否则返回空串。同步、极快。 */
     @JavascriptInterface
     public String marketInstalled() {
+        Activity a = act();
+        if (a == null) return "";
         try {
-            String v = DshMarketInstaller.installedVersion(act);
+            String v = DshMarketInstaller.installedVersion(a);
             return v == null ? "" : v;
         } catch (Throwable e) {
             return "";
@@ -42,8 +64,10 @@ public final class DshBridge {
     /** pnpm 是否已就绪（市场装插件依赖它）。 */
     @JavascriptInterface
     public String pnpmReady() {
+        Activity a = act();
+        if (a == null) return "";
         try {
-            return DshMarketInstaller.pnpmReady(act) ? "1" : "";
+            return DshMarketInstaller.pnpmReady(a) ? "1" : "";
         } catch (Throwable e) {
             return "";
         }
@@ -57,9 +81,11 @@ public final class DshBridge {
     public void installPnpm(final String callbackId) {
         new Thread(new Runnable() {
             @Override public void run() {
+                final Activity a = act();
+                if (a == null) return;   // Activity 已死，放弃，避免泄漏/回调丢失
                 String err;
                 try {
-                    err = DshMarketInstaller.installPnpm(act);
+                    err = DshMarketInstaller.installPnpm(a);
                 } catch (Throwable e) {
                     Log.e(TAG, "安装 pnpm 异常", e);
                     err = "安装异常: " + e.getMessage();
@@ -68,7 +94,9 @@ public final class DshBridge {
                 final boolean ok = (result == null);
                 final String msg = ok ? "pnpm 安装完成" : result;
                 Log.i(TAG, "pnpm 安装" + (ok ? "成功" : "失败: " + result));
-                act.runOnUiThread(new Runnable() {
+                final Activity ui = act();
+                if (ui == null) return;  // 回 UI 前再校验一次
+                ui.runOnUiThread(new Runnable() {
                     @Override public void run() {
                         try {
                             JSONObject o = new JSONObject();
@@ -76,7 +104,7 @@ public final class DshBridge {
                             o.put("message", msg);
                             final String js = "window.__dshPnpmDone&&window.__dshPnpmDone("
                                 + JSONObject.quote(callbackId) + "," + o.toString() + ");";
-                            android.webkit.WebView w = ((MainActivity) act).webViewRef();
+                            android.webkit.WebView w = ((MainActivity) ui).webViewRef();
                             if (w != null) w.evaluateJavascript(js, null);
                         } catch (Exception e) {
                             Log.e(TAG, "回调 JS 失败", e);
@@ -95,9 +123,11 @@ public final class DshBridge {
     public void installMarket(final String callbackId) {
         new Thread(new Runnable() {
             @Override public void run() {
+                final Activity a = act();
+                if (a == null) return;   // Activity 已死，放弃
                 String err;
                 try {
-                    err = DshMarketInstaller.install(act);
+                    err = DshMarketInstaller.install(a);
                 } catch (Throwable e) {
                     Log.e(TAG, "安装 dshmarket 异常", e);
                     err = "安装异常: " + e.getMessage();
@@ -105,10 +135,12 @@ public final class DshBridge {
                 final String result = err;
                 final boolean ok = (result == null);
                 final String msg = ok ? "安装完成，重启应用后生效" : result;
-                final String ver = ok ? DshMarketInstaller.installedVersion(act) : "";
+                final String ver = ok ? DshMarketInstaller.installedVersion(a) : "";
                 if (ok) Log.i(TAG, "dshmarket 安装成功 " + ver);
                 else Log.e(TAG, "dshmarket 安装失败: " + err);
-                act.runOnUiThread(new Runnable() {
+                final Activity ui = act();
+                if (ui == null) return;  // 回 UI 前再校验一次
+                ui.runOnUiThread(new Runnable() {
                     @Override public void run() {
                         try {
                             JSONObject o = new JSONObject();
@@ -117,7 +149,7 @@ public final class DshBridge {
                             o.put("version", ver == null ? "" : ver);
                             final String js = "window.__dshMarketDone&&window.__dshMarketDone("
                                 + JSONObject.quote(callbackId) + "," + o.toString() + ");";
-                            android.webkit.WebView w = ((MainActivity) act).webViewRef();
+                            android.webkit.WebView w = ((MainActivity) ui).webViewRef();
                             if (w != null) w.evaluateJavascript(js, null);
                         } catch (Exception e) {
                             Log.e(TAG, "回调 JS 失败", e);

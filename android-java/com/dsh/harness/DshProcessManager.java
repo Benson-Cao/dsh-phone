@@ -16,7 +16,8 @@ import java.util.List;
 public final class DshProcessManager {
 
     private static final String TAG = "DshProcessManager";
-    public static final int DSH_PORT = 3080;
+    // 单一常量源：端口只定义在 DshBootstrap.DSH_PORT，这里转发避免两处漂移
+    public static final int DSH_PORT = DshBootstrap.DSH_PORT;
     private static final String LOG_NAME = "dsh-web.log";
 
     private DshProcessManager() {}

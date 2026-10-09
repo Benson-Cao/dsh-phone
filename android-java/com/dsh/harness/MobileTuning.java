@@ -756,15 +756,25 @@ public final class MobileTuning {
         // ===== 作用域分流：市场页只注入 MARKET_CSS，其余注入 CSS =====
         // dsh-market 的类名与设置面板同源，两套规则会互相污染
         // （标题竖排/ 网格被压单列）。这里用 pathname 先分流，永不相遇。
-        + "    var inMarket=/[\\/]dsh-market(\\/|$|[?#])/.test(location.pathname);\n"
-        + "    st.textContent=inMarket?" + jsString(MARKET_CSS) + ":" + jsString(CSS) + ";\n"
-        + "    (document.head||document.documentElement).appendChild(st);\n"
-        // 市场页：另建一个 style 补安全区/汉堡遮罩（设置页那套不含这些）
-        + "    if(inMarket){\n"
-        + "      var ms=document.createElement('style');ms.id=SID+'-mkt';\n"
-        + "      ms.textContent=" + jsString(MARKET_CHROME_CSS) + ";\n"
-        + "      (document.head||document.documentElement).appendChild(ms);\n"
+        + "    var DSH_MKT_RE=/[\\/]dsh-market(\\/|$|[?#])/;\n"
+        + "    var msId=SID+'-mkt';\n"
+        // 作用域分流：市场页只注入 MARKET_CSS，其余注入 CSS。
+        // dsh 是 SPA，路由切换（pushState/hash）不重载文档，
+        // 所以初判一次后还要在 popstate/hashchange 上重算，避免 r38 式污染回归。
+        + "    var inMarket=DSH_MKT_RE.test(location.pathname);\n"
+        + "    function applyDshScope(){\n"
+        + "      inMarket=DSH_MKT_RE.test(location.pathname);\n"
+        + "      st.textContent=inMarket?" + jsString(MARKET_CSS) + ":" + jsString(CSS) + ";\n"
+        + "      var ms=document.getElementById(msId);\n"
+        + "      if(inMarket){\n"
+        + "        if(!ms){ms=document.createElement('style');ms.id=msId;ms.textContent=" + jsString(MARKET_CHROME_CSS) + ";"
+        + "          (document.head||document.documentElement).appendChild(ms);}\n"
+        + "      }else if(ms&&ms.parentNode){ms.parentNode.removeChild(ms);}\n"
         + "    }\n"
+        + "    applyDshScope();\n"
+        + "    (document.head||document.documentElement).appendChild(st);\n"
+        + "    window.addEventListener('popstate',applyDshScope);\n"
+        + "    window.addEventListener('hashchange',applyDshScope);\n"
         // 市场页需要汉堡（返回/开抽屉），所以**不return**，
         // 只把设置页专属的那段二级/三级逻辑用 inMarket 跳过。
         // ===== 真·设置浮层指纹判定（r41 核心修复）=====
