@@ -67,14 +67,51 @@
       }
       return ov;
     }
-    function syncOvFlag(){
-      var b=document.body;
-      if(!b){return;}
-      var on=!!settingsOverlay();
-      if(on!==b.classList.contains('dsh-ov-open')){
-        if(on){b.classList.add('dsh-ov-open');}else{b.classList.remove('dsh-ov-open');}
+    // ===== 侧滑返回支持（r64）=====
+      // 根因：设置面板是**覆盖层**，打开它**不改变 URL**，因此根本不产生 WebView 历史项。
+      // 侧滑手势没有东西可退 → 直接落到 Activity 默认行为 → 退出 App
+      //（用户反馈「侧滑返回还是不能用」；r63 只把 clearHistory 改成只清一次，
+      //  但那只解决了「历史被清空」，解决不了「压根没历史」）。
+      // 解法：打开面板时手动压一条历史，侧滑（popstate）时关闭面板；
+      // 我们主动关闭面板时走 history.back() 消费掉它，避免多退一次。
+      var PANEL_MARK='dshPanel';
+      function pushPanelHistory(){
+        try{
+          if(history.state&&history.state[PANEL_MARK])return;   // 已压过，别重复压
+          history.pushState({dshPanel:1},'');
+        }catch(e){}
       }
-    }
+      function popPanelHistory(){
+        try{
+          if(history.state&&history.state[PANEL_MARK]){history.back();}
+        }catch(e){}
+      }
+      window.addEventListener('popstate',function(){
+        // 只处理「状态里没有我们的标记」的情况 = 用户侧滑退回来了
+        var st=null;
+        try{ st=history.state; }catch(e){}
+        if(st&&st[PANEL_MARK])return;
+        if(b.classList.contains('dsh-ov-open')){
+          b.classList.remove('dsh-ov-open');
+          b.classList.remove('dsh-s-l2');
+          b.classList.remove('dsh-s-l3');
+          b.classList.remove('dsh-ov-open');
+        }
+      });
+      function syncOvFlag(){
+        var b=document.body;
+        if(!b){return;}
+        var on=!!settingsOverlay();
+        if(on!==b.classList.contains('dsh-ov-open')){
+          if(on){
+            b.classList.add('dsh-ov-open');
+            pushPanelHistory();
+          }else{
+            b.classList.remove('dsh-ov-open');
+            popPanelHistory();
+          }
+        }
+      }
     if(!inMarket){
     (function(){
       if(!mq.matches){return;}
@@ -246,29 +283,24 @@
         b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
         b.classList.remove('dsh-ov-open');
       }
-      // 「返回上一级」条。**无条件注入** —— 这是 r63 的简化：
-      //   r60~r62 连续三次败在同一个地方 —— 「要不要注入」这个判断本身。
-      //   判存在性错、判computedStyle 也错（看不见祖先隐藏）、判几何虽对但真机仍未出现。
-      //   教训：与其把判断做得更聪明，不如**去掉判断**。
-      // 现在固定注入，并优先插到 _header 最前 —— 那里正是 dsh 自带 × 按钮的位置，
-      // 于是它落在 × 左边、视觉上取代 ×，任何层级下左上角都只有一个出口，
-      // 行为也统一（都是「退出设置回到聊天页」）。
+      // 「返回上一级」条 —— **只出现在设置第一页**（用户明确要求）。
+      //   第一页 = 导航列表页（通用设置/模型/插件/Agent 预设），此时 body 是 dsh-s-l2；
+      //   详情页（插件、Agent 预设…）是 dsh-s-l3，**dsh 自己已经画了关闭按钮**，
+      //   再塞一个就是重复出口。
+      // 判据用的是**我们自己的状态 class**，不是去猜 DOM 里有没有 _close ——
+      //   r60~r62 连续三次败在那个猜测上（存在性 / computedStyle / 几何都试过）。
       function ensureBackBar(){
         var ov=settingsOverlay();
         var bar=document.getElementById('dsh-back');
-        if(!ov){
+        var onFirstPage=!b.classList.contains('dsh-s-l3');
+        if(!ov||!onFirstPage){
           if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
           return;
         }
-        if(bar){
-          // 面板换层级时（header 出现/消失）把已有的条挪到正确位置
-          var host=ov.querySelector('[class*="_header"]')||ov;
-          if(bar.parentNode!==host){host.insertBefore(bar,host.firstChild);}
-          return;
-        }
+        if(bar)return;
         bar=document.createElement('div');
         bar.id='dsh-back';
-        bar.innerHTML='<button id="dsh-back-btn" type="button" aria-label="返回">'
+        bar.innerHTML='<button id="dsh-back-btn" type="button" aria-label="返回设置">'
           +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
           +' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
           +'<path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
@@ -332,7 +364,6 @@
         tagHosts();
         marketEntry();
         ensureBackBar();
-        diagTabs();   // 【临时诊断 · r62】拿到截图后删掉这两处调用
         backHint();
         detectDark();
         if(!panelOpen){panelOpen=true;
@@ -495,36 +526,7 @@
     // 放在 mount 的收尾处，任何一次整页加载都会执行；内部幂等，重复调用无副作用。
     // ⚠️ try/catch 是刻意加的防线：这是**纯附加功能**，不该有能力把 mount 打断。
     // r58 那次事故正是这里抛了 ReferenceError，顺手打掉了后面 6 项关键功能。
-    // ===== 【临时诊断 · r62 · 拿到截图后立刻删掉本段】=====
-    // 为什么需要：「点插件列表、配置内容不消失」这个问题我已经猜错两次 ——
-    //   第一次猜是 l2 的 display:none 藏了 [class*="_content"]；
-    //   第二次查 dsh 源码又发现 .pbvGtq_panel{min-width:0;padding-top:2px}
-    //   压根没设 display，hidden 属性本该生效，推翻了前一个假设。
-    // 不能继续猜。把 tabpanel 的真实状态直接显示出来，一截图就够。
-    function diagTabs(){
-      var panels=document.querySelectorAll('[role="tabpanel"]');
-      if(!panels.length){return;}
-      var old=document.getElementById('dsh-diag');
-      if(old&&old.parentNode){old.parentNode.removeChild(old);}
-      var d=document.createElement('div');
-      d.id='dsh-diag';
-      d.style.cssText='position:fixed;top:56px;left:6px;right:6px;z-index:2147483647;'
-        +'background:#000;color:#4f4;font:10px/1.35 monospace;padding:6px 8px;'
-        +'border-radius:6px;white-space:pre-wrap;opacity:.93';
-      var L=['[diag] tabpanel x'+panels.length];
-      for(var i=0;i<panels.length&&i<6;i++){
-        var p=panels[i],r=p.getBoundingClientRect();
-        L.push('#'+i+' hidden='+p.hasAttribute('hidden')
-              +' shown='+(r.width>0&&r.height>0)
-              +' h='+Math.round(r.height)
-              +' cls='+String(p.className||'?').slice(0,26));
-      }
-      d.textContent=L.join('\n');
-      document.body.appendChild(d);
-    }
     try{ marketPageBar(); }catch(e){ if(window.console)console.error('[dsh] marketPageBar', e); }
-    // tab 面板是 React 后渲染的，所以诊断跑两次：mount 时 + 1.2s 后
-    setTimeout(diagTabs,1200);
     function dshAlive(){
       if(document.documentElement&&document.documentElement.getAttribute('data-dsh-error')!=null){return true;}
       // ⚠️ #dsh-market-shell **必须保留**。独立审查建议删它，理由是「无产出方」——
