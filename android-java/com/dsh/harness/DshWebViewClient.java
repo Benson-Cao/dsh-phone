@@ -1,6 +1,7 @@
 package com.dsh.harness;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -21,6 +22,55 @@ public class DshWebViewClient extends WebViewClient {
         + "<button onclick='location.reload()' style='margin-top:12px;padding:8px 16px;"
         + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
         + "</body></html>";
+
+    /**
+     * A-02 修复用：当前 WebView 正在加载的页面 URL。
+     *
+     * <p>⚠️ 为什么不直接用 {@code webView.getUrl()}：
+     * {@code @JavascriptInterface} 的方法跑在 WebView 的 <b>JavaBridge 线程</b>上，
+     * 而 {@code getUrl()} 是 UI 线程侧 API —— 跨线程调用<b>实测返回 null</b>。
+     * <p>r56 真机验证暴露了这个 bug：在设置面板点「一键安装」/「安装 pnpm」
+     * 一律弹「拒绝：当前页面不是本地 dsh」，而截图里页面明明是 127.0.0.1。
+     * 原因就是桥侧拿到 null，被 fail-safe 判成「非本地」→ 误杀正常功能。
+     *
+     * <p>所以改成：由页面加载回调（<b>在 UI 线程</b>）把 URL 记到这里，
+     * 桥那边只做一次 volatile 读 —— 纯内存操作，跨线程安全。
+     *
+     * <p>注意 SPA 的 pushState <b>不触发</b> onPageStarted/Finished，
+     * 所以这里记的是「最后一次整页导航的 URL」。但这恰好够用：
+     * 本地页面之间互相跳转时它仍是本地 URL，判定照常通过。
+     */
+    private static volatile String sCurrentUrl = "";
+
+    /** 当前页面 URL；空串表示尚未加载任何页面。 */
+    public static String currentUrl() {
+        return sCurrentUrl;
+    }
+
+    private static void noteUrl(String url) {
+        sCurrentUrl = (url == null) ? "" : url;
+    }
+
+    /**
+     * 整页导航开始 —— 这里是**唯一**能拿到「整页导航 URL」的地方。
+     *
+     * ⚠️ 签名里那个 {@code Bitmap favicon} 不是笔误：{@code WebViewClient}
+     * **没有** {@code onPageStarted(WebView,String,WebResourceRequest)} 这个重载。
+     * 我曾以为有，写上去直接编译失败：
+     *   「方法不会覆盖父类方法」+「WebResourceRequest 无法转换为 Bitmap」
+     * 实测 compileSdk=36 的 android.jar 里 onPageStarted 只有 Bitmap 版。
+     * 它虽已 @Deprecated，但**仍会被 WebView 在所有 API 级别调用**，且没有替代品
+     * （onPageFinished 只有 (WebView,String) 一个版本）。
+     *
+     * 对比：{@code shouldOverrideUrlLoading} 才有 request 版与 String 版**两个**重载，
+     * 那两个都必须实现（见上）。
+     */
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onPageStarted(WebView view, String url, Bitmap favicon) {
+        noteUrl(url);
+        // 不调 super：父类该实现为空，且已废弃
+    }
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {

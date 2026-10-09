@@ -77,9 +77,19 @@ public final class DshBridge {
      * A-02 纵深防御：确认 WebView **此刻**仍停在本地 dsh 上，才允许执行
      * 「下载远程 tarball 并由 node 执行」这类高危操作。
      *
-     * fail-safe：拿不到 Activity / WebView / URL 一律拒绝。
-     * 每种拒绝都写日志 —— 万一真机上误拦，日志能立刻指出是哪一环拿不到，
-     * 而不是让人对着「点了没反应」猜（评审特别提到「加校验若配错会打断桥」）。
+     * <p>⚠️ 这里刻意取**两个**来源，任一能确认本地即放行：
+     * <ol>
+     *   <li>{@link DshWebViewClient#currentUrl()} —— 由页面加载回调在 UI 线程写入，
+     *       桥这边只是 volatile 读，跨线程安全；</li>
+     *   <li>{@code webView.getUrl()} —— 覆盖 SPA 内的即时状态，但它属于 UI 线程侧
+     *       API，从 JavaBridge 线程调用<b>实测会返回 null</b>（r56 真机 bug 的根因）。</li>
+     * </ol>
+     * 两者都拿不到才拒绝。
+     *
+     * <p>放宽到「任一为本地」<b>不降低安全性</b>：远程导航已被
+     * {@code shouldOverrideUrlLoading} 拦截并丢给系统浏览器，页面永远留在本地，
+     * 攻击者无法把 WebView 变成远程页面（真正的残余风险是 dsh 自身 XSS 在
+     * 本地页面里调桥，那本来就挡不住，这里只是纵深防御）。
      */
     private boolean localOriginAllowed(String api) {
         Activity a = act();
@@ -87,26 +97,27 @@ public final class DshBridge {
             Log.w(TAG, api + " 拒绝：Activity 已失效");
             return false;
         }
-        android.webkit.WebView w;
+        android.webkit.WebView w = null;
         try {
             w = ((MainActivity) a).webViewRef();
         } catch (Throwable t) {
-            w = null;
+            // ignore：拿不到就只靠 trackedUrl
         }
-        if (w == null) {
-            Log.w(TAG, api + " 拒绝：WebView 为空");
-            return false;
+        String tracked = DshWebViewClient.currentUrl();
+        String direct = null;
+        if (w != null) {
+            try {
+                direct = w.getUrl();
+            } catch (Throwable t) {
+                // 跨线程可能抛，忽略即可
+            }
         }
-        String url = null;
-        try {
-            // getUrl() 只是读字段，实践上可跨线程调用；这里仍兜一层 catch。
-            url = w.getUrl();
-        } catch (Throwable t) {
-            // ignore
+        if (DshOrigin.isLocalUrl(tracked) || DshOrigin.isLocalUrl(direct)) {
+            return true;
         }
-        boolean ok = DshOrigin.isLocalUrl(url);
-        if (!ok) Log.w(TAG, api + " 拒绝：当前页面非本地来源 url=" + url);
-        return ok;
+        Log.w(TAG, api + " 拒绝：tracked=" + tracked + " direct=" + direct
+                + " webView=" + (w == null ? "null" : "ok"));
+        return false;
     }
 
     /** 统一的「拒绝执行」回执：把原因送回 JS，避免卡片永久卡在「安装中…」。 */
