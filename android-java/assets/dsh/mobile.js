@@ -310,6 +310,8 @@ var ovCloseTried=false;
       //   靠 canGoBack() 猜，猜错就是「返回键直接退出 App」。
       //   只在值变化时过桥，避免每次 sync 都跨线程调用。
       var _backHandled=null;
+      // r73：backOneLevel 的去重时间戳（见该函数内的去重闸注释）。
+      var _backLastAt=0;
       function syncBackHandled(){
         var bd=document.body;
         var v=!!(bd&&(bd.classList.contains('dsh-ov-open')||bd.classList.contains('dsh-drawer-open')));
@@ -327,6 +329,15 @@ var ovCloseTried=false;
       // 解法：打开面板时手动压一条历史，侧滑（popstate）时关闭面板；
       // 我们主动关闭面板时走 history.back() 消费掉它，避免多退一次。
       var PANEL_MARK='dshPanel';
+      // r73 · 自家清理 back 的在途标记（浏览器 E2E 实测的竞态，真机同样可能发生）：
+      //   syncBackMark() 关面板后调 history.back() 消费压入的历史，该 popstate **异步**
+      //   到达；若这几十~几百 ms 里面板被重新打开（pushState 新条目），迟到的 popstate
+      //   读 history.state 已是 null，会被误判成"用户返回"→ 把刚打开的新面板关掉。
+      //   现在自家清理 back 前打时间戳，popstate 认领后就地消化（1 秒时效兜底：
+      //   同文档 popstate 正常几 ms 内到达，超时的按用户返回处理）。用户真正的
+      //   返回（系统手势/返回键）不设这个标记，行为不变；即便历史条目被错位消费，
+      //   syncBackMark 的 push-on-need 也会在下一轮把缺的条目补回来。
+      var popInFlightAt=0;
       function pushPanelHistory(){
         try{
           if(history.state&&history.state[PANEL_MARK])return;   // 已压过，别重复压
@@ -335,7 +346,10 @@ var ovCloseTried=false;
       }
       function popPanelHistory(){
         try{
-          if(history.state&&history.state[PANEL_MARK]){history.back();}
+          if(history.state&&history.state[PANEL_MARK]){
+            popInFlightAt=(new Date()).getTime();
+            history.back();
+          }
         }catch(e){}
       }
       // U17（r65）· P0 修复：这里原来写的是 `b.classList...`，而 `b` 只在
@@ -346,10 +360,15 @@ var ovCloseTried=false;
       //   再滑一次就退出 App。**这才是「侧滑返回不能用」的真正根因**，
       //   跟 MainActivity 有没有 onBackPressed 无关。
       //   修法：处理器内部自取 body，并整体包 try/catch（监听器绝不能抛）。
-      window.addEventListener('popstate',function(){
+      window.addEventListener('popstate',function(ev){
         try{
           var bd=document.body;
           if(!bd){return;}
+          // r73：自家清理 back 的 popstate 先到先认领 —— 跳过关闭逻辑，
+          //   否则会把"关闭后立刻重开"的新面板误杀（见 popInFlightAt 处注释）。
+          var _pn=0;
+          try{ _pn=(new Date()).getTime(); }catch(eP){ _pn=0; }
+          if(popInFlightAt&&_pn&&_pn-popInFlightAt<1000){ popInFlightAt=0; return; }
           // 只处理「状态里没有我们的标记」的情况 = 用户侧滑/返回键退回来了
           var st=null;
           try{ st=history.state; }catch(e){}
@@ -820,7 +839,14 @@ var ovCloseTried=false;
       //     L2（列表页）  → 退出设置（= 回聊天页）
       function backOneLevel(){
         var handled=false;
+        var _now=0;
         try{
+          // r73：去重闸 —— 侧滑手势触发后，系统返回手势/返回键（极小概率）紧跟着
+          //   也到达时只消化一次，防止一次滑动退两级。人手不可能在 220ms 内合法地
+          //   连退两级（一次完整滑动手程就要 200ms+），真实连滑/连按不受影响。
+          //   ⚠️ 桩里 Date 是可控虚拟时钟（win.advance），所以本闸在冒烟测试里可断言。
+          try{ _now=(new Date()).getTime(); }catch(e0){ _now=0; }
+          if(_now&&_backLastAt&&_now-_backLastAt<220){return true;}
           if(b){
             if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();handled=true;}
             else if(settingsOverlay()){
@@ -830,6 +856,15 @@ var ovCloseTried=false;
             }
           }
         }catch(e){}
+        if(handled){
+          try{ _backLastAt=_now; }catch(e2){}
+          // r73：消化完立刻把最新的覆盖层状态回写给原生。为什么必须：
+          //   closeSettingsPanel() 只清 body class，不触发 syncBackHandled() ——
+          //   原来要等 MutationObserver→sync()（~60ms 后）才纠正上报，这个窗口里
+          //   原生还以为"该由 JS 处理"，紧接着的第二次返回会白进来一趟。
+          //   syncBackHandled() 内部有去重，状态没变时不过桥。
+          try{ syncBackHandled(); }catch(e3){}
+        }
         if(!handled){
           // 自愈：走到这里说明原生侧的上报已经过期（例如浮层被 dsh 自己关掉、
           // 而我们还没跑下一轮 sync）。若不立刻纠正，原生会继续以为"该由 JS 处理"，
@@ -912,6 +947,172 @@ var ovCloseTried=false;
       sync();
     })();
     }
+    // ===== r73 · 安卓侧滑返回上一级（WebView 页面内手势）=====
+    // 背景：r64~r71 已把「系统返回手势/返回键 → MainActivity.handleBack() →
+    //   __dshBack()」这条链修通，但它依赖系统把边缘手势翻译成 KEYCODE_BACK：
+    //   · 三键导航的手机**根本没有**边缘手势 —— 用户在屏幕上侧滑，WebView 里
+    //     什么都不会发生（这正是"侧滑返回没反应"在部分真机上的成因）；
+    //   · 手势导航机型系统只认左右边缘 ~24px 的起手区，起手稍微靠里就没人管。
+    //   这里把「侧滑返回」做成 WebView 自己的手势：从屏幕左/右边缘横向滑动并松手
+    //   ⇒ 走与返回键**完全相同**的 backOneLevel() 状态机
+    //   （抽屉开着→关抽屉 / L3→L2 / L2→退出设置），行为与返回键严格一致。
+    // 设计原则（延续 r38/r65/r69 的铁律）：
+    //   ① 不碰 dsh 的节点：指示器 #dsh-swipe-ind 是我们自己的节点，监听挂 document；
+    //   ② 只在「有上一级可退」时接管：抽屉或设置面板开着（body 两个状态 class）。
+    //      聊天页上绝不抢触摸 —— 那里没有上一级，退出 App 是系统返回的职责；
+    //   ③ 绝不影响滚动与点击：手势只在横向位移明显占优时才接管（tap 完全不受影响，
+    //      竖滑到 16px+ 就立刻归还）；起手点在横向滚动容器里（市场 tab 条 / 代码块）
+    //      或输入框里一律放行 —— 那些地方横滑有自己的语义；
+    //   ④ 与系统返回手势共存：手势导航机型上系统认领的触摸会给我们发 touchcancel，
+    //      收到即放弃，返回交给系统走 handleBack()（同一条状态机），不会双重返回；
+    //      backOneLevel() 里另有 220ms 去重闸兜底（见该函数注释）。
+    var SWIPE_EDGE=42;        // 起手判定区：左右边缘各 42px（三键导航全靠它；比系统 ~24px 稍宽）
+    var SWIPE_CLAIM=14;       // 横向位移 ≥14px 且大于纵向 → 接管手势
+    var SWIPE_ARM=96;         // 松手时累计拖动 ≥96px（约屏宽 1/4）→ 触发返回
+    var SWIPE_IND_MAX=72;     // 指示器最大跟随距离（px）
+    var swT=null;             // 进行中的手势 {side:'l'|'r', x0, y0, claimed, armed}
+    function swipeTargetAvailable(){
+      var bd=document.body;
+      if(!bd){return false;}
+      return bd.classList.contains('dsh-drawer-open')||bd.classList.contains('dsh-ov-open');
+    }
+    // 起手点是否落在「横滑另有语义」的地方：横向滚动容器 / 文本输入。
+    // ⚠️ 只读，绝不修改任何节点；祖先链限 12 层，与 ovVisible() 同一防爆炸手法。
+    function swipeInReserved(t){
+      var n=t,hop=0;
+      while(n&&n.nodeType===1&&hop<12){
+        hop++;
+        var tg=String(n.tagName||'').toUpperCase();
+        if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT'){return true;}
+        if(n.isContentEditable){return true;}
+        var ox=null;
+        try{ ox=window.getComputedStyle(n).overflowX; }catch(e){ ox=null; }
+        if((ox==='auto'||ox==='scroll')&&n.scrollWidth>n.clientWidth+1){return true;}
+        n=n.parentNode;
+      }
+      return false;
+    }
+    // 指示器：懒创建 + 幂等补挂（React 冲掉 body 子节点后，下一次滑动自动重建 ——
+    // 与 ensureTopBar() 的自愈是同一套手法）。
+    function swipeIndicator(){
+      var ind=null;
+      try{ ind=document.getElementById('dsh-swipe-ind'); }catch(e){ ind=null; }
+      if(!ind){
+        try{
+          ind=document.createElement('div');
+          ind.id='dsh-swipe-ind';
+          ind.setAttribute('aria-hidden','true');
+          ind.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none"'
+            +' stroke="currentColor" stroke-width="2.4" stroke-linecap="round"'
+            +' stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>';
+          document.body.appendChild(ind);
+        }catch(e2){ return null; }
+      }else if(ind.parentNode!==document.body){
+        try{ document.body.appendChild(ind); }catch(e3){}
+      }
+      return ind;
+    }
+    function swipeIndicatorShow(x,y){
+      var ind=swipeIndicator();
+      if(!ind){return;}
+      try{
+        ind.style.transform='translate('+x+'px,'+y+'px) translate(-50%,-50%)';
+        ind.style.display='flex';
+      }catch(e){}
+    }
+    function swipeIndicatorArm(on){
+      var ind=null;
+      try{ ind=document.getElementById('dsh-swipe-ind'); }catch(e){ ind=null; }
+      if(ind){ try{ ind.classList[on?'add':'remove']('dsh-swipe-armed'); }catch(e2){} }
+    }
+    function swipeIndicatorHide(){
+      var ind=null;
+      try{ ind=document.getElementById('dsh-swipe-ind'); }catch(e){ ind=null; }
+      if(ind){ try{ ind.style.display='none'; ind.classList.remove('dsh-swipe-armed'); }catch(e){} }
+    }
+    function swipeFire(){
+      swipeIndicatorHide();
+      // 到达触发阈值的轻震动反馈（manifest 已有 VIBRATE 权限；不支持则静默跳过）
+      try{ if(navigator.vibrate){navigator.vibrate(10);} }catch(e){}
+      try{
+        if(typeof window.__dshBack==='function'){ window.__dshBack(); }
+      }catch(e2){}
+    }
+    function swipeReset(){ swT=null; swipeIndicatorHide(); }
+    try{
+      document.addEventListener('touchstart',function(e){
+        try{
+          swT=null;
+          if(!mq.matches){return;}                       // 宽屏（桌面）不参与
+          if(!e||!e.touches||e.touches.length!==1){return;}   // 多指不参与
+          if(!swipeTargetAvailable()){return;}           // 聊天页没有上一级 → 不抢触摸
+          // 键盘开着（焦点在输入框）时，系统返回的第一下是收键盘 —— 语义保持一致
+          var ae=null;
+          try{ ae=document.activeElement; }catch(eA){ ae=null; }
+          if(ae&&(String(ae.tagName||'').toUpperCase()==='INPUT'
+            ||String(ae.tagName||'').toUpperCase()==='TEXTAREA'
+            ||String(ae.tagName||'').toUpperCase()==='SELECT'
+            ||ae.isContentEditable)){return;}
+          var t=e.touches[0];
+          if(!t){return;}
+          var vw=window.innerWidth||0;
+          if(t.clientX>=SWIPE_EDGE&&t.clientX<vw-SWIPE_EDGE){return;}   // 不在边缘区
+          if(swipeInReserved(e.target)){return;}         // 横滑另有语义的地方 → 放行
+          swT={side:(t.clientX<vw/2)?'l':'r',x0:t.clientX,y0:t.clientY,
+               claimed:false,armed:false};
+        }catch(e2){ swT=null; }
+      },{passive:true});
+      document.addEventListener('touchmove',function(e){
+        try{
+          if(!swT){return;}
+          if(!e||!e.touches||e.touches.length!==1){swipeReset();return;}
+          var t=e.touches[0];
+          if(!t){swipeReset();return;}
+          var dx=t.clientX-swT.x0,dy=t.clientY-swT.y0;
+          var adx=dx<0?-dx:dx,ady=dy<0?-dy:dy;
+          // 反向（往回推向屏幕边缘）＝取消本次手势方向上的进度
+          if(swT.side==='l'&&dx<0){adx=0;}
+          if(swT.side==='r'&&dx>0){adx=0;}
+          if(!swT.claimed){
+            if(adx>=SWIPE_CLAIM&&adx>ady){
+              swT.claimed=true;
+              swipeIndicatorShow(swT.x0,swT.y0);
+            }else if(ady>adx+16&&ady>24){
+              swipeReset();                              // 明显在竖向滚动 → 归还触摸
+              return;
+            }else{
+              return;                                    // 还看不出方向，继续观察
+            }
+          }
+          // 已接管：挡住页面随之滚动/横移，指示器跟随手指
+          if(e.cancelable){e.preventDefault();}
+          var fx=(swT.side==='l')
+            ?swT.x0+Math.min(adx,SWIPE_IND_MAX)
+            :swT.x0-Math.min(adx,SWIPE_IND_MAX);
+          swipeIndicatorShow(fx,t.clientY);
+          var armed=adx>=SWIPE_ARM;
+          if(armed!==swT.armed){
+            swT.armed=armed;
+            swipeIndicatorArm(armed);
+            if(armed){ try{ if(navigator.vibrate){navigator.vibrate(6);} }catch(eA){} }
+          }
+        }catch(e2){ swipeReset(); }
+      },{passive:false});
+      document.addEventListener('touchend',function(e){
+        try{
+          if(!swT){return;}
+          var wasArmed=swT.armed;
+          swT=null;
+          swipeIndicatorHide();
+          if(wasArmed){ swipeFire(); }
+        }catch(e2){ swipeReset(); }
+      },{passive:true});
+      document.addEventListener('touchcancel',function(){
+        // 系统返回手势认领了这次触摸（手势导航机型）→ 立即放弃；
+        // 返回由系统走 handleBack()（同一条 backOneLevel 状态机），不会双重返回。
+        swipeReset();
+      },{passive:true});
+    }catch(eSwipe){}
     // ===== 顶栏（汉堡 + 遮罩）· 幂等自愈（r66 · U18）=====
     // 背景：r41 修过一轮「汉堡按钮消失」，r66 用户又报了同类现象 —— 从设置页侧滑返回后
     //   回到首页，左上角没有汉堡。两个并存的原因：

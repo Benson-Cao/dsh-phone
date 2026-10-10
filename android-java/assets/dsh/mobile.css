@@ -228,6 +228,20 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   /* 设计稿图 4 desc「去掉滚动条指示」：只藏指示条，保留滚动能力。 */
   .dsh-s-ov [class*="_panel"] [class*="_content"]::-webkit-scrollbar,.dsh-s-ov [class*="_panel"] [class*="_options"]::-webkit-scrollbar,.dsh-s-ov [class*="_panel"] *::-webkit-scrollbar{width:0 !important;height:0 !important;display:none !important;background:transparent !important;}
   .dsh-s-ov [class*="_panel"],.dsh-s-ov [class*="_panel"] [class*="_content"],.dsh-s-ov [class*="_panel"] [class*="_options"]{scrollbar-width:none !important;-ms-overflow-style:none !important;}
+
+  /* ===== r73 · 侧滑返回指示器 =====
+     从屏幕左右边缘横滑时跟随手指的小圆钮（节点由 mobile.js 的 swipeIndicator()
+     懒创建，id 前缀 dsh- 是我们自己的 —— r38 铁律）。四条要点：
+       · pointer-events:none —— 纯视觉，绝不吞触摸；
+       · z-index 顶格 —— 必须盖过 dsh 自己的设置浮层（它的 z 未知，取整型近顶）；
+       · 中性深底 + 白箭头，深浅主题都可读；armed（拖动达到触发阈值）换品牌蓝；
+       · transform 由 JS 逐帧写（跟随手指），这里不写 transition，免得拖动发黏。 */
+  #dsh-swipe-ind{position:fixed;left:0;top:0;z-index:2147483000;width:56px;height:56px;
+    display:none;align-items:center;justify-content:center;border-radius:50%;
+    background:rgba(30,52,80,.82);color:#fff;pointer-events:none;
+    box-shadow:0 2px 10px rgba(13,27,46,.35);will-change:transform;}
+  #dsh-swipe-ind.dsh-swipe-armed{background:var(--ds-brand-500,#1466b8);}
+  #dsh-swipe-ind svg{display:block;pointer-events:none;}
 }
 @media (min-width:681px) and (max-width:1023px){
   .dsh-s-nav{max-width:760px!important;margin-left:auto!important;margin-right:auto!important;}
