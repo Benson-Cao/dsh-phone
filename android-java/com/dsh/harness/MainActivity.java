@@ -42,18 +42,11 @@ public class MainActivity extends Activity {
     // 之前 App 用的是深色 #0F1116，与设计稿的浅色体系冲突（也导致状态栏配色别扭）。
     private static final int BRAND_500 = 0xFF2B8AE8;  // 鲨鱼蓝，主色
     private static final int INK_900   = 0xFF0D1B2E;  // 描边深藏青，正文
-    private static final int INK_500   = 0xFF5A6D84;  // 次级文字
     private static final int INK_400   = 0xFF8296AB;  // 弱化文字
     private static final int INK_50    = 0xFFF7F9FC;  // 页面底色
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
-    }
-
-    private LinearLayout.LayoutParams subLp() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        return lp;
     }
 
     /** 水平线性渐变（用于品牌渐变细线）。 */
@@ -144,14 +137,9 @@ public class MainActivity extends Activity {
         tLp.bottomMargin = dp(10);
         loadingBox.addView(title, tLp);
 
-        // 副标题：ink-500
-        TextView sub = new TextView(this);
-        sub.setText("正在初始化 Agent 运行时…");
-        sub.setTextColor(INK_500);
-        sub.setTextSize(13);
-        sub.setGravity(Gravity.CENTER);
-        loadingBox.addView(sub, subLp());
-
+        // 设计稿「启动页 / 服务初始化」：**只保留**鲸鱼标 → 标题 → 启动服务文案 → 进度条。
+        // 标注原文：「已按标注去掉『正在初始化 Agent 运行时…』文案」，
+        // 所以这里**不再**添加任何中间副标题行。
         statusText = new TextView(this);
         statusText.setText("正在准备运行环境…");
         statusText.setTextColor(INK_400);
@@ -193,8 +181,6 @@ public class MainActivity extends Activity {
         // 品牌渐显：标题从 0.3alpha 淡入到 1（设计稿「品牌渐显」）
         title.setAlpha(0.3f);
         title.animate().alpha(1f).setDuration(700).setStartDelay(120).start();
-        sub.setAlpha(0f);
-        sub.animate().alpha(1f).setDuration(700).setStartDelay(320).start();
 
         // --- 耗时工作全部丢后台线程 ---
         new Thread(new Runnable() {

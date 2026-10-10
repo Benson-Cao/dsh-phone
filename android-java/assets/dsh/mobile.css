@@ -179,6 +179,41 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   input,textarea,select{font-size:16px !important;}
   html,body{overscroll-behavior:none;}
     body{touch-action:manipulation;}
+
+  /* ===== 设计稿图 1「首页 / 新会话」：输入区上移 + 缩短与控制选择器的间距 =====
+     标注原文：「已按标注把输入区上移，缩短与控制选择器之间的间距。」
+     真机态（pages43/shot-r45-home.png，420x780）：控制选择器（选择工作区 / 标准模式）
+     在 y≈325、虚线输入卡顶边在 y≈420，中间那颗「+ 选择工作区」胶囊把两块撑开 ≈95px；
+     设计稿图 1 里输入卡紧贴在控制选择器下方（≈36px）。这里只动 hero 态的竖向节奏：
+     ① 收紧 stack 内部的 gap 与 heroWorkspaceRow 的 margin-top；
+     ② 给 composerHero 加底部留白 —— composerHero 是纵向 stack，底部留白增加会把
+        整块内容（含输入卡）整体往上顶：无论它的座位是 bottom 锚定还是居中，
+        方向都一致，这是「输入区上移」最稳的实现。
+     ⚠️ hero 的 DOM 由 dsh 前端渲染，本机无可用复现环境（见交付说明），
+        所以选择器全部走哈希无关子串，且只做「收紧 + 上移」两件事。 */
+  div[class*="composerHero"]{gap:4px !important;padding-bottom:80px !important;}
+  div[class*="composerHero"] > div[class*="root"]{padding-bottom:0 !important;margin-top:0 !important;}
+  div[class*="heroWorkspaceRow"]{margin-top:0 !important;padding:0 12px 0 16px !important;min-height:0 !important;}
+  div[class*="heroWorkspaceRow"] > *{margin:0 !important;min-height:0 !important;}
+
+  /* ===== 设计稿图 4「外观设置」：外观选项卡片缩小成整宽竖排行 =====
+     原生（dsh-client-ui-theme）是 ._cubeRow{flex-wrap:wrap} + ._themeCube{flex-direction:column;
+     flex:180px;padding:20px 32px;border-radius:20px;border:.5px} 的三张竖排大卡片，
+     占掉整屏约 1/3。设计稿要的是一行一张：20px 图标 + 14px 文案，r12、padding 12、
+     2px 边框；选中态 = 品牌蓝描边 + #f5f9ff 底。选择器一律用哈希无关子串。 */
+  .dsh-s-ov [class*="_cubeRow"]{flex-direction:column !important;flex-wrap:nowrap !important;align-items:stretch !important;gap:8px !important;}
+  .dsh-s-ov [class*="_cubeRow"] [class*="_themeCube"]{flex:0 0 auto !important;width:100% !important;flex-direction:row !important;align-items:center !important;justify-content:flex-start !important;gap:10px !important;padding:12px !important;border-radius:var(--ds-r-sm,12px) !important;border:2px solid transparent !important;background:var(--ds-surface,#fff) !important;font-size:14px !important;line-height:22px !important;min-height:0 !important;}
+  .dsh-s-ov [class*="_cubeRow"] [class*="_themeCube"] svg,.dsh-s-ov [class*="_cubeRow"] [class*="_themeCube"] img{width:20px !important;height:20px !important;flex:none !important;}
+  .dsh-s-ov [class*="_cubeRow"] [class*="_themeCube"] span{font-size:14px !important;font-weight:500 !important;}
+  /* 选中态：原生是极浅灰底 + 灰蓝细边，浅色/深色下都几乎看不出「选中」。
+     深色下 --ds-brand-500 会被覆写成浅蓝 #5aa9f5（r50 的 U2 教训），
+     所以描边走变量，底色只在浅色体系里用设计稿的 #f5f9ff。 */
+  .dsh-s-ov [class*="_cubeRow"] [class*="_selected"]{border-color:var(--ds-brand-500,#1466b8) !important;background:#f5f9ff !important;}
+  html.dsh-dark .dsh-s-ov [class*="_cubeRow"] [class*="_selected"],body[data-ds-dark-theme] .dsh-s-ov [class*="_cubeRow"] [class*="_selected"]{background:var(--ds-brand-50,#143253) !important;}
+
+  /* 设计稿图 4 desc「去掉滚动条指示」：只藏指示条，保留滚动能力。 */
+  .dsh-s-ov [class*="_panel"] [class*="_content"]::-webkit-scrollbar,.dsh-s-ov [class*="_panel"] [class*="_options"]::-webkit-scrollbar,.dsh-s-ov [class*="_panel"] *::-webkit-scrollbar{width:0 !important;height:0 !important;display:none !important;background:transparent !important;}
+  .dsh-s-ov [class*="_panel"],.dsh-s-ov [class*="_panel"] [class*="_content"],.dsh-s-ov [class*="_panel"] [class*="_options"]{scrollbar-width:none !important;-ms-overflow-style:none !important;}
 }
 @media (min-width:681px) and (max-width:1023px){
   .dsh-s-nav{max-width:760px!important;margin-left:auto!important;margin-right:auto!important;}
