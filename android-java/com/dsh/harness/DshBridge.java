@@ -51,27 +51,52 @@ public final class DshBridge {
     /** 已安装则返回版本号，否则返回空串。同步、极快。 */
     @JavascriptInterface
     public String marketInstalled() {
+        // r72（P3-7）：JS 侧每 500ms 轮询市场状态，每次都跨线程读文件+正则解析。
+        //   2s TTL 缓存把 IO 降到 1/4，轮询成本可忽略；安装完成后的徽标刷新
+        //   最晚自愈延迟 2s（500ms 轮询本身就有幂等补回，无感）。
+        long now = System.currentTimeMillis();
+        String c = sMktCache;
+        if (c != null && now - sMktCacheAt < STATE_TTL_MS) return c;
+        String v = "";
         Activity a = act();
-        if (a == null) return "";
-        try {
-            String v = DshMarketInstaller.installedVersion(a);
-            return v == null ? "" : v;
-        } catch (Throwable e) {
-            return "";
+        if (a != null) {
+            try {
+                String r = DshMarketInstaller.installedVersion(a);
+                v = (r == null) ? "" : r;
+            } catch (Throwable e) {
+                v = "";
+            }
         }
+        sMktCache = v;
+        sMktCacheAt = now;
+        return v;
     }
 
     /** pnpm 是否已就绪（市场装插件依赖它）。 */
     @JavascriptInterface
     public String pnpmReady() {
+        long now = System.currentTimeMillis();
+        String c = sPnpmCache;
+        if (c != null && now - sPnpmCacheAt < STATE_TTL_MS) return c;
+        String v = "";
         Activity a = act();
-        if (a == null) return "";
-        try {
-            return DshMarketInstaller.pnpmReady(a) ? "1" : "";
-        } catch (Throwable e) {
-            return "";
+        if (a != null) {
+            try {
+                v = DshMarketInstaller.pnpmReady(a) ? "1" : "";
+            } catch (Throwable e) {
+                v = "";
+            }
         }
+        sPnpmCache = v;
+        sPnpmCacheAt = now;
+        return v;
     }
+
+    private static final long STATE_TTL_MS = 2000L;
+    private static volatile String sMktCache = null;
+    private static volatile long sMktCacheAt = 0L;
+    private static volatile String sPnpmCache = null;
+    private static volatile long sPnpmCacheAt = 0L;
 
     /**
      * r65：注入脚本上报"当前这一级返回该由 JS 处理"（设置面板 / 抽屉这类
@@ -161,6 +186,32 @@ public final class DshBridge {
     }
 
     /**
+     * r72（P2-1）：Activity 已死时的**尽力回执** —— 原来直接 return，JS 侧的
+     * busy 标志（pnpmBusy/installing）永久为 true，之后所有安装点击静默无响应。
+     * WebView 可能仍在销毁中，试一把；不行还有 JS 侧的 120s 超时兑底。
+     */
+    private void notifyRejectedBestEffort(final String jsFn, final String callbackId, final String msg) {
+        try {
+            Activity a = actRef.get();   // 不做 isFinishing 闸 —— 尽力而为
+            if (a == null) return;
+            a.runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        JSONObject o = new JSONObject();
+                        o.put("ok", false);
+                        o.put("message", msg);
+                        final String js = "window." + jsFn + "&&window." + jsFn + "("
+                            + JSONObject.quote(callbackId) + "," + o.toString() + ");";
+                        android.webkit.WebView w = (a instanceof MainActivity)
+                            ? ((MainActivity) a).webViewRef() : null;
+                        if (w != null) w.evaluateJavascript(js, null);
+                    } catch (Throwable ignored) { }
+                }
+            });
+        } catch (Throwable ignored) { }
+    }
+
+    /**
      * 安装 pnpm（后台线程，完成后回调 JS）。
      * 真机上市场会报"找不到 npm/corepack…请单独装一个 pnpm"，就是这个。
      */
@@ -169,7 +220,11 @@ public final class DshBridge {
         new Thread(new Runnable() {
             @Override public void run() {
                 final Activity a = act();
-                if (a == null) return;   // Activity 已死，放弃，避免泄漏/回调丢失
+                if (a == null) {
+                    // r72（P2-1）：Activity 已死也要尽力回执，别把 JS 的 busy 标志卡死
+                    notifyRejectedBestEffort("__dshPnpmDone", callbackId, "拒绝：应用正在退出，请重试");
+                    return;
+                }
                 if (!localOriginAllowed("installPnpm")) {
                     notifyRejected("__dshPnpmDone", callbackId, "拒绝：当前页面不是本地 dsh");
                     return;
@@ -215,7 +270,11 @@ public final class DshBridge {
         new Thread(new Runnable() {
             @Override public void run() {
                 final Activity a = act();
-                if (a == null) return;   // Activity 已死，放弃
+                if (a == null) {
+                    // r72（P2-1）：同 installPnpm —— 尽力回执，防 JS busy 卡死
+                    notifyRejectedBestEffort("__dshMarketDone", callbackId, "拒绝：应用正在退出，请重试");
+                    return;
+                }
                 // A-02 纵深防御：远程 tarball + node 执行，只允许在本地 dsh 上发起
                 if (!localOriginAllowed("installMarket")) {
                     notifyRejected("__dshMarketDone", callbackId, "拒绝：当前页面不是本地 dsh");

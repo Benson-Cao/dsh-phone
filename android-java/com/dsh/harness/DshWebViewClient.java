@@ -15,13 +15,35 @@ import android.webkit.WebViewClient;
  */
 public class DshWebViewClient extends WebViewClient {
 
-    private static final String ERROR_HTML =
-        "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;color:#333'>"
-        + "<h2>服务还没就绪</h2>"
-        + "<p>dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。</p>"
-        + "<button onclick='location.reload()' style='margin-top:12px;padding:8px 16px;"
-        + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
-        + "</body></html>";
+    /** dsh 服务根地址（r72/P2-7：错误页「重试」需要直达它，而不是 reload 错误文档）。 */
+    private static String dshBaseUrl() {
+        return "http://127.0.0.1:" + DshProcessManager.DSH_PORT + "/";
+    }
+
+    /**
+     * r72（P2-7）：错误页改为由方法生成 —— 原来「重试」是 location.reload()，
+     * 但页面是 loadDataWithBaseURL(null,…) 的 about:blank 文档，重载的是错误
+     * 文档本身，永远不会真正重试 dsh 服务。现在重试直接 location.href 回 dsh 根。
+     */
+    private static String errorHtml(String title, String body) {
+        return "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;color:#333'>"
+            + "<h2>" + title + "</h2>"
+            + "<p>" + body + "</p>"
+            + "<button onclick='location.href=\"" + dshBaseUrl() + "\"' style='margin-top:12px;padding:8px 16px;"
+            + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
+            + "</body></html>";
+    }
+
+    private static String serverNotReadyHtml() {
+        return errorHtml("服务还没就绪",
+            "dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。");
+    }
+
+    private static String authExpiredHtml() {
+        // r72（P3-4）：401（鉴权过期）与“服务未就绪”分开提示，避免误导排障方向
+        return errorHtml("需要重新登录",
+            "dsh 的登录状态已过期（401）。请完全退出应用后重新打开，应用会重新获取登录凭证。");
+    }
 
     /**
      * A-02 修复用：当前 WebView 正在加载的页面 URL。
@@ -113,14 +135,37 @@ public class DshWebViewClient extends WebViewClient {
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         if (request != null && request.isForMainFrame() && view != null) {
-            view.loadDataWithBaseURL(null, ERROR_HTML, "text/html", "utf-8", null);
+            view.loadDataWithBaseURL(null, serverNotReadyHtml(), "text/html", "utf-8", null);
         }
+    }
+
+    /**
+     * r72（P3-3）：API&lt;23 走这个旧重载（minSdk=21）—— 原来没实现，
+     * Android 5.x/6.x 上主帧错误没有任何友好页。用“失败 URL == 当前 URL”
+     * 近似判定主帧（旧回调对子资源也会触发，不能不加这道闸）。
+     */
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+        if (view == null || failingUrl == null) return;
+        try {
+            String cur = view.getUrl();
+            if (failingUrl.equals(cur)) {
+                view.loadDataWithBaseURL(null, serverNotReadyHtml(), "text/html", "utf-8", null);
+            }
+        } catch (Throwable ignored) { }
     }
 
     @Override
     public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
         if (request != null && request.isForMainFrame() && view != null) {
-            view.loadDataWithBaseURL(null, ERROR_HTML, "text/html", "utf-8", null);
+            int code = 0;
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 23) code = errorResponse.getStatusCode();
+            } catch (Throwable ignored) { }
+            // r72（P3-4）：401 单独给“重新登录”文案
+            view.loadDataWithBaseURL(null, code == 401 ? authExpiredHtml() : serverNotReadyHtml(),
+                "text/html", "utf-8", null);
         }
     }
 

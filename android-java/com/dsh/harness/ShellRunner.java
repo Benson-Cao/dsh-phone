@@ -1,6 +1,7 @@
 package com.dsh.harness;
 
 import android.content.Context;
+import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -14,6 +15,8 @@ import java.io.InputStreamReader;
  *   $HOME   = /data/data/com.dsh.harness/files/home
  */
 public final class ShellRunner {
+
+    private static final String TAG = "ShellRunner";
 
     private ShellRunner() {}
 
@@ -60,11 +63,18 @@ public final class ShellRunner {
             Thread err = drain(p.getErrorStream());
             out.start(); err.start();
             int code = p.waitFor();
-            out.join(); err.join();
+            // r72（S1）：子进程的后代会继承管道 fd —— bash 退出后 EOF 未必到来，
+            //   无超时 join 会永久挂起。超时后放弃等待（drain 线程泄漏到进程结束，
+            //   可接受），并销毁直接子进程兑底。
+            out.join(10000); err.join(10000);
+            if (out.isAlive() || err.isAlive()) {
+                Log.w(TAG, "exec 收尾超时（存在存活的孙进程），已放弃等待: " + cmd);
+                try { p.destroyForcibly(); } catch (Throwable ignored) { }
+            }
             return code;
         } catch (Exception e) {
             if (p != null) p.destroy();
-            e.printStackTrace();
+            Log.e(TAG, "exec 失败: " + cmd, e);
             return -1;
         }
     }
@@ -74,13 +84,29 @@ public final class ShellRunner {
         Process p = null;
         try {
             p = start(ctx, cmd);
+            final Process pw = p;
+            // r72（S1）：读行循环依赖 EOF —— 孙进程持有 stdout 时永不返回。
+            //   挂一个 30s 看门狗，超时销毁进程让流关闭（当前无调用方，纯防御）。
+            Thread watchdog = new Thread(new Runnable() {
+                @Override public void run() {
+                    try { Thread.sleep(30000); pw.destroy(); } catch (Throwable ignored) { }
+                }
+            });
+            watchdog.setDaemon(true);
+            watchdog.start();
             Thread err = drain(p.getErrorStream()); err.start();
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             StringBuilder sb = new StringBuilder(); String line;
             while ((line = r.readLine()) != null) sb.append(line).append('\n');
-            p.waitFor(); err.join();
+            int code = p.waitFor();
+            err.join(10000);
+            if (code != 0) {
+                // r72（S2）：失败与空输出不可区分会掩盖问题 —— 至少留一条日志。
+                Log.e(TAG, "execForOutput 退出码 " + code + ": " + cmd);
+            }
             return sb.toString();
         } catch (Exception e) {
+            Log.e(TAG, "execForOutput 异常: " + cmd, e);
             return "";
         } finally {
             if (p != null) p.destroy();

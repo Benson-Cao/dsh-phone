@@ -128,14 +128,24 @@ public final class DshBootstrap {
             if (f.exists() && now - f.lastModified() < 86400000L) {
                 return false;                 // 24h 内查过，跳过
             }
-            // 只用它的时间戳当"上次检查时间"，内容无所谓
-            java.io.FileWriter fw = new java.io.FileWriter(f);
-            fw.close();
-            f.setLastModified(now);
+            // r72（P2-6）：落戳挪到检查完成之后（markDeepChecked）——
+            //   原来在检查**前**就摸戳：启动时抽查若触发重解包，紧接着
+            //   extractBundle 的解包后校验再查就命中 24h 节流，深检被跳过；
+            //   深检中途进程被杀同样留 24h 空窗。现在纯读判定 + 检查后才落戳。
             return true;
         } catch (Throwable e) {
             return true;                      // 出错就查，别省
         }
+    }
+
+    /** r72（P2-6）：深检完成后才落 24h 节流戳。 */
+    private static void markDeepChecked(Context ctx) {
+        try {
+            File f = new File(ctx.getFilesDir(), DEEPCHK);
+            java.io.FileWriter fw = new java.io.FileWriter(f);
+            fw.close();
+            f.setLastModified(System.currentTimeMillis());
+        } catch (Throwable ignored) { }
     }
 
     /**
@@ -143,6 +153,16 @@ public final class DshBootstrap {
      * @return null 表示完好；否则返回缺失项的可读描述。
      */
     private static String checkIntegrity(Context ctx) {
+        return checkIntegrity(ctx, false);
+    }
+
+    /**
+     * 抽查解包完整性。
+     * @param forceDeep true 表示无条件跑递归深检（r72/P2-6：解包后的校验用它，
+     *                  避免启动路径刚摸过的 24h 节流戳把校验削弱成 12 个 exists()）
+     * @return null 表示完好；否则返回缺失项的可读描述。
+     */
+    private static String checkIntegrity(Context ctx, boolean forceDeep) {
         try {
             File files = ctx.getFilesDir();
             StringBuilder miss = new StringBuilder();
@@ -161,8 +181,9 @@ public final class DshBootstrap {
             //   所以：关键文件每次启动都查（便宜且能挡住"文件被删"这种真残档），
             //   递归计数**按天节流**（它防的是"解包写到一半"，那次紧接着就会写 stamp，
             //   不需要每次启动都重数一遍）。省下的正是启动路径上的 IO。
-            if (deepCheckDue(ctx)) {
+            if (forceDeep || deepCheckDue(ctx)) {
                 int n = countFiles(assets);
+                if (!forceDeep) markDeepChecked(ctx);   // r72（P2-6）：检查完成才落戳
                 if (n < CRITICAL_DIST_ASSET_MIN) {
                     if (count++ < 5) {
                         miss.append(miss.length() == 0 ? "" : ", ")
@@ -225,8 +246,24 @@ public final class DshBootstrap {
     }
 
     public static void setupIfNeeded(Context ctx) {
+        // r72（P1-6）：Activity 启动线程与 DshService 保活线程都会调到这里 ——
+        //   首启时端口未开，两边同时 needExtract → 700MB bundle 双线程并发解包
+        //   （交错写同一批文件 + skippedCount 竞态，至今未炸属时序侥幸）。
+        //   串行化：后到者等前者完成，再进来时 stamp 已写好，走轻量路径。
+        synchronized (DshBootstrap.class) {
+            setupLocked(ctx);
+        }
+    }
+
+    private static void setupLocked(Context ctx) {
         File stamp = new File(ctx.getFilesDir(), STAMP);
         boolean needExtract = !stamp.exists() || !BUNDLE_REV.equals(readStamp(stamp));
+
+        // r72（P1-5）：每次尝试先清上一轮的状态 —— static lastError/repairNote
+        //   一旦置位永不清空，而诊断页的「重试」是同进程 finish()+startActivity()，
+        //   重试成功后 getLastError() 仍返回旧错误 → 永远显示失败页的死循环。
+        lastError = null;
+        repairNote = null;
 
         // stamp 命中 ≠ 文件齐全：解包中途写失败（多为空间不足）会留下"永久残档"。
         // 这里抽查关键文件，缺任何一个就自动修复重解包。
@@ -243,6 +280,7 @@ public final class DshBootstrap {
             if (needExtract) {
                 // 先确认空间够再动旧解包：否则清理完才发现空间不足，用户两头空。
                 long free = usableBytes(ctx);
+                if (free < 0) Log.w(TAG, "usableBytes 失败，空间检查跳过（r72/D10）");
                 Log.i(TAG, "需要解包，当前可用空间: " + (free / 1048576) + " MB");
                 if (free >= 0 && free < MIN_FREE_BYTES) {
                     throw new Exception("存储空间不足：解包需要约 " + (MIN_FREE_BYTES / 1048576)
@@ -257,10 +295,16 @@ public final class DshBootstrap {
                 fixBinPermissions(ctx);
                 relinkLibs(ctx);
                 ensureIcuLinks(ctx);
+                // r72（P2-5）：patch.sh 一直在 APK assets 里，但从来没人把它拷到
+                //   filesDir —— 恒不存在，flock 内核兼容等三个补丁从未执行过。
+                //   现在：解包时从 assets 无条件落地（以 assets 为准）→ 执行。
+                //   失败只告警不阻断：补丁是加固项，不能因为它卡死启动。
+                copyAssetToFile(ctx, PATCH_ASSET, new File(ctx.getFilesDir(), PATCH_ASSET));
                 File patch = new File(ctx.getFilesDir(), PATCH_ASSET);
                 if (patch.exists()) {
                     patch.setExecutable(true);
-                    ShellRunner.exec(ctx, "bash " + patch.getAbsolutePath());
+                    int prc = ShellRunner.exec(ctx, "bash \"" + patch.getAbsolutePath() + "\"");
+                    if (prc != 0) Log.w(TAG, "patch.sh 执行失败 exit=" + prc + "（继续启动）");
                 }
                 writeStamp(stamp, BUNDLE_REV);
                 Log.i(TAG, "解包完成 rev=" + BUNDLE_REV);
@@ -294,9 +338,12 @@ public final class DshBootstrap {
             } catch (Exception ignored) { }
         }
         if (found == null) {
-            lastError = "assets 里找不到 dsh-bundle。\n包内实际资源：" + listAssets(ctx);
+            String msg = "assets 里找不到 dsh-bundle。\n包内实际资源：\n" + listAssets(ctx);
             Log.e(TAG, "assets 里找不到 dsh-bundle");
-            return;
+            // r72（P1-3）：必须 throw —— 原来 return 会让 setupIfNeeded 继续
+            //   走到 writeStamp +「解包完成」日志，写出一个假 stamp；之后每次
+            //   启动都"清空旧解包 → 空解包 → 再写 stamp"循环，还谎报已修复。
+            throw new Exception(msg);
         }
         Log.i(TAG, "解包 " + found);
         InputStream in = ctx.getAssets().open(found);
@@ -332,7 +379,7 @@ public final class DshBootstrap {
                 throw new Exception("解包时有 " + TarGz.skippedCount
                     + " 个文件写入失败（通常是存储空间不足）。已中止安装标记，下次启动会重试。");
             }
-            String missing = checkIntegrity(ctx);
+            String missing = checkIntegrity(ctx, true);
             if (missing != null) {
                 throw new Exception("解包后完整性抽查未通过：" + missing
                     + "。已中止安装标记，下次启动会重试。");
@@ -354,10 +401,10 @@ public final class DshBootstrap {
             File tlsDir = new File(prefix(ctx), "etc/tls");
             tlsDir.mkdirs();
             File conf = new File(tlsDir, "openssl.cnf");
-            if (!conf.exists() || conf.length() != OPENSSL_CNF.length()) {
-                java.io.FileWriter fw = new java.io.FileWriter(conf);
-                try { fw.write(OPENSSL_CNF); } finally { fw.close(); }
-            }
+            // r72（P3-9）：不再用「长度相等」当跳过重写的判据 —— 等长改动永不生效。
+            //   这是几百字节的文本，每次启动无条件重写的代价可忽略。
+            java.io.FileWriter fw = new java.io.FileWriter(conf);
+            try { fw.write(OPENSSL_CNF); } finally { fw.close(); }
             new File(prefix(ctx), "tmp").mkdirs();
             new File(prefix(ctx), "var/tmp").mkdirs();
         } catch (Exception e) {
@@ -376,13 +423,39 @@ public final class DshBootstrap {
     private static void writeStamp(File f, String v) {
         try {
             IoUtil.writeAllBytes(f, v.getBytes("UTF-8"));
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            // r72（I2）：stamp 写失败原来连一条日志都没有 —— 半截/缺失 stamp 会导致
+            //   下次启动全量重解包 700MB，这种昂贵自愈至少要留痕。
+            Log.w(TAG, "stamp 写入失败（下次启动将全量重解包）: " + e);
+        }
+    }
+
+    /** r72（P2-5）：把 assets 文件拷到 filesDir（无条件覆盖，源以 assets 为准）。 */
+    private static void copyAssetToFile(Context ctx, String assetName, File dst) {
+        java.io.InputStream in = null;
+        try {
+            in = ctx.getAssets().open(assetName);
+            java.io.OutputStream out = new java.io.FileOutputStream(dst);
+            try {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally {
+                try { out.close(); } catch (Exception ignored) { }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "拷贝 asset 失败: " + assetName + " (" + e.getMessage() + ")");
+        } finally {
+            try { if (in != null) in.close(); } catch (Exception ignored) { }
+        }
     }
 
     /** 清理上一次解包产物（含扁平布局残留），确保重新解包是干净的。 */
     private static void cleanupExtracted(Context ctx) {
         File dir = ctx.getFilesDir();
-        for (String n : new String[] { "usr", "home", "bin", "lib", "node_modules" }) {
+        // r72：连带 patch.sh —— 旧补丁不应被拿来对新 bundle 误执行
+        //（重解包后马上会从 assets 重新落地一份，见 copyAssetToFile）。
+        for (String n : new String[] { "usr", "home", "bin", "lib", "node_modules", PATCH_ASSET }) {
             deleteRecursively(new File(dir, n));
         }
     }
@@ -426,16 +499,20 @@ public final class DshBootstrap {
             String base = name.substring(0, dot + 3);
             File[] sib = libDir.listFiles();
             if (sib == null) continue;
-            for (File s : sib) {
-                if (s.isFile() && s.length() > 0 && s.getName().startsWith(base)
-                        && !s.getName().equals(name)) {
-                    try {
-                        Os.symlink(new File(libDir, s.getName()).getAbsolutePath(), f.getAbsolutePath());
-                        Log.i(TAG, "重建符号链接 " + name + " -> " + s.getName());
-                    } catch (Exception ignored) { }
-                    break;
+                for (File s : sib) {
+                    if (s.isFile() && s.length() > 0 && s.getName().startsWith(base)
+                            && !s.getName().equals(name)) {
+                        try {
+                            // r72（P1-4）：symlink 的 newpath 已存在（就是这个 0 字节占位
+                            //   文件）必然 EEXIST，原来被 ignored 吞掉 —— 兜底从未生效。
+                            //   先删再建；若建失败，文件缺失会被 checkIntegrity 兆住（自动重解包）。
+                            if (f.exists()) f.delete();
+                            Os.symlink(new File(libDir, s.getName()).getAbsolutePath(), f.getAbsolutePath());
+                            Log.i(TAG, "重建符号链接 " + name + " -> " + s.getName());
+                        } catch (Exception ignored) { }
+                        break;
+                    }
                 }
-            }
         }
     }
 
@@ -586,10 +663,10 @@ public final class DshBootstrap {
         File libexec = new File(p, "libexec");
         libexec.mkdirs();
         File shim = new File(libexec, "dsh-node-shim.js");
-        if (!shim.exists() || shim.length() != NODE_SHIM.length()) {
-            java.io.FileWriter fw = new java.io.FileWriter(shim);
-            try { fw.write(NODE_SHIM); } finally { fw.close(); }
-        }
+        // r72（P3-9）：同 openssl.cnf —— 文本 shim 无条件重写，等长改动必须能生效
+        //（koffi.node 是 MB 级二进制，保留长度比对 + 下面两处存在性检查不动）。
+        java.io.FileWriter shimFw = new java.io.FileWriter(shim);
+        try { shimFw.write(NODE_SHIM); } finally { shimFw.close(); }
 
         File launcher = new File(p, "bin/dsh-web.sh");
         launcher.getParentFile().mkdirs();
@@ -647,8 +724,16 @@ public final class DshBootstrap {
             long totalBytes = 0;
 
             while (true) {
-                if (!readFully(buf, header)) break;
+                if (!readFully(buf, header)) break;   // 正常结束：ustar 以全零块收尾，先于 EOF 被下一行拦截
                 if (header[0] == 0) break;
+
+                // r72（P2-8）：头部 checksum 校验 —— 截断/损坏的 bundle 此刻就被拒绝，
+                //   而不是把垃圾当合法条目“成功”写出。对真实 bundle（37,883 个条目）
+                //   预先验证过全部通过后才启用。
+                if (!checksumOk(header)) {
+                    throw new Exception("bundle 损坏：tar 头校验不符（已解 " + fileCount
+                        + " 个条目，当前位置 ' " + readName(header) + "'）。已中止解包，下次启动重试。");
+                }
 
                 char typeflag = (char) (header[156] & 0xFF);
                 long size = readSize(header, 124, 12);
@@ -666,7 +751,9 @@ public final class DshBootstrap {
                 } else if (typeflag == '2') {
                     // 符号链接：Termux 的 .so 短名全靠它（libz.so.1 -> libz.so.1.3.2）
                     String target = linkTarget != null ? linkTarget : cstr(header, 157, 100);
-                    File link = new File(dest, name);
+                    // r72（P3-10）：tar 版 Zip Slip 防护 —— 目标禁绝对路径/..
+                    safeLinkTarget(target);
+                    File link = safeDest(dest, name);
                     if (link.getParentFile() != null) link.getParentFile().mkdirs();
                     try {
                         if (link.exists()) link.delete();
@@ -685,10 +772,10 @@ public final class DshBootstrap {
                     }
                     skipBlocks(buf, size);
                 } else if (typeflag == '5') {
-                    new File(dest, name).mkdirs();
+                    safeDest(dest, name).mkdirs();
                     skipBlocks(buf, size);
                 } else if (typeflag == '0' || typeflag == '\0') {
-                    File file = new File(dest, name);
+                    File file = safeDest(dest, name);
                     if (file.getParentFile() != null) file.getParentFile().mkdirs();
                     if (file.isDirectory()) {
                         skipBlocks(buf, size);
@@ -727,6 +814,47 @@ public final class DshBootstrap {
             return new String(b, off, end - off);
         }
 
+        /** r72（P2-8）：ustar 头 checksum 校验（148..156 存八进制，计算时该字段按 8 个空格计）。 */
+        private static boolean checksumOk(byte[] h) {
+            int stored = 0;
+            boolean started = false;
+            for (int i = 148; i < 156; i++) {
+                byte c = h[i];
+                if (c == 0 || c == ' ') { if (started || c == 0) break; else continue; }
+                started = true;
+                if (c < '0' || c > '7') return false;
+                stored = stored * 8 + (c - '0');
+            }
+            if (!started) return false;
+            int sum = 0;
+            for (int i = 0; i < 512; i++) {
+                sum += (i >= 148 && i < 156) ? 0x20 : (h[i] & 0xFF);
+            }
+            return sum == stored;
+        }
+
+        /**
+         * r72（P3-10）：解包路径防穿越（tar 版 Zip Slip）—— 规范化后必须仍落在 dest 内。
+         * 已对真实 bundle（37,883 条目）预先验证全部满足后才启用。
+         */
+        private static File safeDest(File dest, String name) throws Exception {
+            File f = new File(dest, name);
+            String dp = dest.getCanonicalPath() + File.separator;
+            String fp = f.getCanonicalPath();
+            if (!fp.startsWith(dp) && !fp.equals(dest.getCanonicalPath())) {
+                throw new Exception("bundle 条目路径越界: " + name);
+            }
+            return f;
+        }
+
+        /** r72（P3-10）：符号链接目标禁止绝对路径与 ..（防止写盘穿透出解包根）。 */
+        private static void safeLinkTarget(String target) throws Exception {
+            if (target.startsWith("/") || target.startsWith("\\\\")
+                || java.util.regex.Pattern.compile("(^|[/\\\\])\\.\\.(/|$)").matcher(target).find()) {
+                throw new Exception("bundle 符号链接目标非法: " + target);
+            }
+        }
+
         private static long readSize(byte[] b, int off, int len) {
             if ((b[off] & 0x80) != 0) {
                 long v = 0;
@@ -757,7 +885,8 @@ public final class DshBootstrap {
             long remaining = size;
             byte[] data = new byte[512];
             while (remaining > 0) {
-                readFully(s, data);
+                // r72（P2-8）：readFully=false = 流已 EOF —— 不能拿上一块残数据充数
+                if (!readFully(s, data)) throw new Exception("bundle 截断：长名/链接名数据不足");
                 int take = (int) Math.min(512, remaining);
                 out.write(data, 0, take);
                 remaining -= 512;
@@ -774,7 +903,9 @@ public final class DshBootstrap {
                 byte[] data = new byte[512];
                 while (remaining > 0) {
                     int take = (int) Math.min(512, remaining);
-                    readFully(s, data);
+                    // r72（P2-8）：readFully=false = 流已截断 —— 原来会把上一条目的残数据
+                    //   照样写出（“成功”写入脏文件，还可能照写 stamp 留永久残档）。
+                    if (!readFully(s, data)) throw new Exception("bundle 截断：条目 " + file.getName());
                     out.write(data, 0, take);
                     remaining -= 512;
                 }
@@ -786,7 +917,11 @@ public final class DshBootstrap {
         private static void skipBlocks(BufferedInputStream s, long size) throws Exception {
             long blocks = (size + 511) / 512;
             byte[] data = new byte[512];
-            for (long i = 0; i < blocks; i++) readFully(s, data);
+            for (long i = 0; i < blocks; i++) {
+                // r72（P2-8）：EOF 后继续按垃圾 size 空转是原本的挂死点（八进制 11 位
+                //   可达数十亿次空读）。现在直接报截断。
+                if (!readFully(s, data)) throw new Exception("bundle 截断：跳过填充块时流已结束");
+            }
         }
     }
 }

@@ -765,7 +765,6 @@ var ovCloseTried=false;
           if(!wasClosing&&document.querySelector('[class*="_overlay"] [class*="_navList"]')){setL2();}
           syncOvFlag();
           if(panelOpen){panelOpen=false;leaveFocus();}
-          syncBack();
           return;
         }
         syncOvFlag();
@@ -807,10 +806,10 @@ var ovCloseTried=false;
             }
           }
         }
-        syncBack();
       }
-      function syncBack(){
-      }
+      // r72（P3-1）：原这里的空 syncBack 函数与它的 7 处调用已全部删除 ——
+      //   它是历史上的占位（真正干活的是 mount 作用域的 syncBackMark，
+      //   经 syncOvFlag 调用），留着只会误导读者以为有副作用。
       // U16（r65）：原生返回（返回键 / 侧滑手势）的**唯一入口**。
       //   MainActivity.handleBack() 会先问 `dshNative.setBackHandled()` 上报的状态，
       //   需要 JS 处理时就 evaluateJavascript 调这里，而不是盲目 history.back()。
@@ -825,7 +824,7 @@ var ovCloseTried=false;
           if(b){
             if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();handled=true;}
             else if(settingsOverlay()){
-              if(b.classList.contains('dsh-s-l3')){setL2();syncBack();}
+              if(b.classList.contains('dsh-s-l3')){setL2();}
               else{closeSettings();}
               handled=true;
             }
@@ -854,16 +853,29 @@ var ovCloseTried=false;
         if(!t||!t.closest){sync();return;}
         var closer=t.closest('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
         if(closer){
-          if(b.classList.contains('dsh-s-l3')){
-            e.preventDefault();e.stopPropagation();setL2();syncBack();
-          }else{
-            b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+          // r72（P1-1）：只拦「设置面板壳层自己的」关闭键 —— 旧逻辑对全文档任何
+          //   _close 生效，L3 下市场崩溃浮层/插件详情等**嵌套弹窗**自己的 × 也被吞掉
+          //   （捕获层 stopPropagation 后点击根本到不了弹窗自己的监听器，
+          //   浏览器实测 subDialogCloseFired=0、弹窗永远关不掉）。
+          //   判据：关闭键的最近 dialog 祖先必须是设置浮层本身；
+          //   嵌在 [role=dialog]/_overlay/_dialog/_modal/market-crashed 里的关闭键
+          //   一律放行，交给弹窗自己关闭。
+          var ovC=settingsOverlay();
+          var shell=!!(ovC&&ovC.contains(closer)
+            &&ovC===closer.closest('[role="dialog"],[class*="_overlay"],[class*="_dialog"],[class*="_modal"],[data-dsh-market-crashed]'));
+          if(shell){
+            if(b.classList.contains('dsh-s-l3')){
+              e.preventDefault();e.stopPropagation();setL2();
+            }else{
+              b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+            }
+            return;
           }
-          return;
+          // 非 shell 关闭键：不拦，继续走下面的通用逻辑（弹窗自己处理点击）
         }
         var ov=settingsOverlay();
         var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));
-        if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');syncBack();return;}
+        if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');return;}
         // r60 曾在这里加过 `if(t.closest('[role="tab"]')){ setL3(); }`，**r61 已移除**。
         //   当时的判断是「tab 的内容在 [class*="_content"] 里，被 l2 的 display:none 藏住了」。
         //   真因查清了：dsh 的 tab 面板 class 是 CSS-module 哈希名（不含 _content），
@@ -880,12 +892,12 @@ var ovCloseTried=false;
           return;
         }
         var cell=t.closest('[class*="_navCell"]');
-        if(cell&&b.classList.contains('dsh-s-l2')){setL3();syncBack();}
+        if(cell&&b.classList.contains('dsh-s-l2')){setL3();}
         else{sync();}
       },true);
       document.addEventListener('keydown',function(e){
         if(e.key==='Escape'&&b.classList.contains('dsh-s-l3')){
-          e.preventDefault();e.stopPropagation();setL2();syncBack();
+          e.preventDefault();e.stopPropagation();setL2();
         }
         trapFocus(e);
       },true);
@@ -1006,6 +1018,10 @@ var ovCloseTried=false;
       setTimeout(function(){box.textContent=txt;},30);
     }
     var pnpmBusy=false, installing=false;
+    // r72（P2-1）：安装 busy 兼容超时 —— 原生侧若永远不回调（Activity 已死等极端
+    //   情况），busy 标志会永久卡死，之后所有安装点击都静默无响应。120s 自复位
+    //   （正常安装 1~3MB 下载远小于此值）；回调先到时本定时器晚触发也无害。
+    var INSTALL_BUSY_MS=120000;
     function installPnpmNow(after){
       if(pnpmBusy){return;}
       pnpmBusy=true;
@@ -1015,6 +1031,7 @@ var ovCloseTried=false;
         if(res&&res.ok){ announce('pnpm 安装完成'); if(after){after(res);} }
         else { alert('pnpm 安装失败：'+((res&&res.message)||'未知错误')); announce('pnpm 安装失败'); }
       };
+      setTimeout(function(){ if(pnpmBusy){pnpmBusy=false;announce('pnpm 安装超时，可重试');} },INSTALL_BUSY_MS);
       try{ window.dshNative.installPnpm('pnpm'); }
       catch(err){ pnpmBusy=false; alert('pnpm 安装失败：'+((err&&err.message)||err)); }
     }
@@ -1027,6 +1044,7 @@ var ovCloseTried=false;
         if(res&&res.ok){ announce('插件市场安装完成'); if(after){after(res);} }
         else { alert('安装失败：'+((res&&res.message)||'未知错误')); announce('插件安装失败'); }
       };
+      setTimeout(function(){ if(installing){installing=false;announce('插件市场安装超时，可重试');} },INSTALL_BUSY_MS);
       try{ window.dshNative.installMarket('mkt'); }
       catch(err){ installing=false; alert('安装失败：'+((err&&err.message)||err)); }
     }
@@ -1250,6 +1268,12 @@ var ovCloseTried=false;
         var b=nodes[i];
         if(b.querySelector('[data-dsh-arrow-icon]')){b.setAttribute('data-dsh-arrow','1');continue;}
         b.setAttribute('data-dsh-arrow','1');
+        // r72（P3-2）：清空字形前先把原文本存进 aria-label —— 否则没有 aria-label
+        //   的纯文本关闭按钮会失去可访问名称（无障碍树里变成无名按钮）。
+        if(!b.getAttribute('aria-label')){
+          var lbl=String(b.textContent||'').replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
+          if(lbl){try{b.setAttribute('aria-label',lbl);}catch(e){}}
+        }
         var kids=b.children||[],j;
         for(j=0;j<kids.length;j++){try{kids[j].style.setProperty('visibility','hidden','important');}catch(e){}}
         var cns=b.childNodes||[];

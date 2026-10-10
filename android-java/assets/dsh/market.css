@@ -1,4 +1,8 @@
-  /*顶部头部：图标+名称+版本+主按钮 在窄屏会被挤成竖排，改为可换行横排 */
+  /* --- 顶部头部 ---
+     r72 备注：真机 dshmarket 1.66.x 头部类名是 _head（无 _header 子串），
+     本节 [class*="_header"] 规则对市场**列表页**头部不命中 —— 标题行的真实
+     布局由下方 [data-dsh-mkt-row]（grid）接管。这组规则**保留**不删：
+     市场内其他子页（插件详情等）可能仍用 _header 类，删掉有回归风险。 */
   [data-dsh-market-root] [class*="_header"]{flex-wrap:wrap !important;align-items:center !important;gap:10px !important;}
   [data-dsh-market-root] [class*="_headerTitle"],[data-dsh-market-root] [class*="_title"]{white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;line-height:1.35 !important;}
   [data-dsh-market-root] [class*="_header"] span,[data-dsh-market-root] [class*="_header"] p,[data-dsh-market-root] [class*="_header"] div{word-break:keep-all !important;}
@@ -7,7 +11,9 @@
   [data-dsh-market-root] input{white-space:normal !important;}
   [data-dsh-market-root] pre,[data-dsh-market-root] code,[data-dsh-market-root] [class*="_log"],[data-dsh-market-root] [class*="_diag"],[data-dsh-market-root] [class*="_error"]{overflow-wrap:anywhere !important;word-break:break-word !important;white-space:pre-wrap !important;max-width:100% !important;}
   [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}
-  html,body{overflow-x:hidden !important;}
+  /* r72（P2-3）：删掉无作用域的 html/body overflow-x:hidden（原写法市场不渲染时也全局生效，
+     全 App 禁横向滚动，且违反 r38 铁律（规则必须带作用域）。
+     横向滚动若再出现，去修具体的溢出源，不要全局压制。 */
   /* r71 · 原来这里是 calc(52px + safe-area)：按"市场页自己占满整屏、顶部要留出 dsh
      顶栏"的假设写的。但真机上市场是设置浮层里的一个 section，顶栏（.dsh-s-nav）本来就是
      **它上面的兄弟节点**，再留 52px 就是双份 —— 真机图1（当时 market.css 还没注入）
@@ -94,14 +100,17 @@
   [data-dsh-mkt-row] > [data-dsh-mkt-head],
   [data-dsh-mkt-row] > [data-dsh-mkt-title],
   [data-dsh-mkt-row] > [data-dsh-mkt-ver]{min-width:max-content !important;max-width:none !important;}
-  [data-dsh-mkt-desc] [data-dsh-mkt-title]{font-size:20px !important;line-height:1.2 !important;}
-  [data-dsh-mkt-desc] [data-dsh-mkt-ver]{font-size:13px !important;line-height:18px !important;}
-  [data-dsh-mkt-desc] [data-dsh-mkt-head]{font-size:13px !important;}
+  /* r72（P2-4）：删掉三条死规则 —— [data-dsh-mkt-desc] 与 [data-dsh-mkt-title/ver/head]
+     是**兄弟**（分属 _sub 与 titleRow），后代选择器永不命中；字号已由下方
+     [data-dsh-mkt-title]/[data-dsh-mkt-ver] 本体规则直接指定。 */
   [data-dsh-mkt-title]{writing-mode:horizontal-tb !important;display:inline-block !important;
     white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;
     flex:0 0 auto !important;min-width:max-content !important;width:auto !important;max-width:none !important;
     font-size:20px !important;font-weight:700 !important;line-height:1.2 !important;
-    color:var(--ds-ink-900,#0d1b2e) !important;grid-column:auto !important;grid-row:auto !important;}
+    color:var(--ds-ink-900,#0d1b2e) !important;}
+  /* r72（P2-4）：删掉上一版写在这里的 grid-column:auto/grid-row:auto —— 它与上方
+     L77 的显式摆放同特异性同 !important，靠书写顺序静默压死了设计稿要求的
+     「标题跨 2-3 列」，现在标题的 grid 摆放只有一处定义。 */
   [data-dsh-mkt-ver]{white-space:nowrap !important;word-break:keep-all !important;flex:0 0 auto !important;
     font-size:13px !important;line-height:18px !important;color:var(--ds-ink-500,#5a6d84) !important;}
   /* 标题左侧的方块图标（设计稿：46px 深色圆角方块 + 白色图形） */
@@ -112,24 +121,33 @@
   [data-dsh-mkt-logo] svg,[data-dsh-mkt-logo] img,[data-dsh-mkt-logo] i{
     width:26px !important;height:26px !important;max-width:26px !important;max-height:26px !important;}
 
-  /* --- ① 返回按钮：原生 × → ← ---
-     只换字形、不换节点：点击行为还是 dsh 自己的（不存在"把用户关在页面里"的风险）。 */
+  /* --- ① 返回按钮：原生 × → ←（r72 · 单一机制）---
+     r71 同时有两套画箭头的机制在打架：market.css 的 ::after 背景图 +
+     mobile.js arrowizeClose() 注入的 SVG（stroke=currentColor）。而本规则
+     color:transparent 把 SVG 弄成完全透明（实测 rgba(0,0,0,0)），真正可见的
+     只有 ::after —— 但它写死 stroke #333，深色模式下画在 --ds-ink-100(#26313f)
+     的圆底上对比度接近 1:1。更糟的是 position:relative!important 会改写宿主
+     对 × 的定位方案（fixed/absolute 的 × 被挤进文档流末尾，实测掉出视口）。
+     r72 收敛为**只留 SVG 一套**：
+       · 删 position:relative / ::after（箭头由注入的 SVG 承担，flex 居中，
+         不需要任何定位上下文）；
+       · color 从 transparent 改回 --ds-ink-900 —— SVG 走 currentColor，
+         深浅主题自动跟随；
+       · 原生字形用 :not([data-dsh-arrow-icon]) 精确隐藏，保留注入的箭头可见。 */
   [data-dsh-mkt-close]{width:34px !important;height:34px !important;min-width:34px !important;
-    border-radius:999px !important;background:var(--ds-ink-100,#f0f0f0) !important;color:transparent !important;
-    position:relative !important;display:inline-flex !important;align-items:center !important;
-    justify-content:center !important;border:0 !important;padding:0 !important;overflow:hidden !important;}
-  [data-dsh-mkt-close] > *{visibility:hidden !important;}
-  [data-dsh-mkt-close]::after{content:'' !important;position:absolute !important;left:50% !important;top:50% !important;
-    width:18px !important;height:18px !important;margin:-9px 0 0 -9px !important;visibility:visible !important;
-    background:no-repeat center/18px 18px url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23333333'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M19%2012H5M12%2019l-7-7%207-7'/%3E%3C/svg%3E") !important;}
+    border-radius:999px !important;background:var(--ds-ink-100,#f0f0f0) !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;
+    display:inline-flex !important;align-items:center !important;
+    justify-content:center !important;border:0 !important;padding:0 !important;}
+  [data-dsh-mkt-close] > *:not([data-dsh-arrow-icon]){visibility:hidden !important;}
 
   /* --- ③ 操作条：导出日志 + 更新插件市场，同一排的两个胶囊按钮 ---
      设计稿把「更新插件市场」从标题行挪到与「导出日志」同一排（本轮已落实：
      标题行只留 图标 + 插件市场 + 版本号）。
      设置页那个入口只在**未安装**时可用，装完之后的「更新」动作只能在这里做。*/
   [data-dsh-market-root] #dsh-mkt-bar{display:flex !important;flex-direction:row !important;
-    /* r69：按钮组也允许换行 —— 窄屏 + 大字号时三个胶囊挤一行会把页面顶出横向滚动条 */
-    flex-wrap:wrap !important;
+    /* r69：按钮组也允许换行 —— 窄屏 + 大字号时三个胶囊挤一行会把页面顶出横向滚动条
+       r72（P2-4）：删掉下一行重复声明的 flex-wrap（连写两遍，上一行已生效） */
     flex-wrap:wrap !important;align-items:center !important;gap:10px !important;
     margin:14px 0 4px !important;width:auto !important;max-width:100% !important;min-width:0 !important;}
   [data-dsh-market-root] #dsh-mkt-bar button{flex:0 0 auto !important;display:inline-flex !important;

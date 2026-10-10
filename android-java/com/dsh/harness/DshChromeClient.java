@@ -1,23 +1,35 @@
 package com.dsh.harness;
 
 import android.app.Activity;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
+import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
+import android.widget.EditText;
 import android.widget.Toast;
 
 import java.util.ArrayList;
 
 /**
- * 补上 WebView 缺失的"选择文件"能力。
+ * 补上 WebView 缺失的"选择文件"能力 + JS 弹窗能力。
  *
  * Android WebView 默认**不实现** {@link WebChromeClient#onShowFileChooser}：
  * 页面里的 `<input type="file">` 被点击时既不弹选择器、也不回调，
  * 表现就是"附件按钮点了没反应"。
  * 这里把它接到系统文件选择器（ACTION_GET_CONTENT）上，并把结果回灌给页面。
+ *
+ * <h2>r72（P0-1）：补上 onJsAlert / onJsConfirm / onJsPrompt</h2>
+ * WebChromeClient 基类这三个方法返回 false 即"客户端不处理"，WebView 会直接
+ * 取消对话框：{@code window.confirm()} 恒返回 false、{@code window.alert()}
+ * 静默不显示。注入脚本里「安装 dshmarket/pnpm」的确认框、「更新插件市场」
+ * 按钮、安装失败提示全部依赖它们 —— 不覆写就是真机上的死按钮（且 alert 的
+ * 失败反馈用户根本看不到）。发布仓库全量 git 历史（git log -S）确认这三个
+ * 方法从未实现过。
  */
 public class DshChromeClient extends WebChromeClient {
 
@@ -29,6 +41,72 @@ public class DshChromeClient extends WebChromeClient {
 
     public DshChromeClient(Activity act) {
         this.act = act;
+    }
+
+    // ===== r72（P0-1）：JS 弹窗三件套 =====
+
+    @Override
+    public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+        // alert 没有"取消"语义 —— 只有确定；取消对话框等价于确认并继续执行。
+        return jsDialog(view, "提示", message, result, null, false);
+    }
+
+    @Override
+    public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+        return jsDialog(view, "确认", message, result, null, true);
+    }
+
+    @Override
+    public boolean onJsPrompt(WebView view, String url, String message,
+                              String defaultValue, JsPromptResult result) {
+        EditText input = new EditText(view.getContext());
+        if (defaultValue != null) input.setText(defaultValue);
+        return jsDialog(view, "输入", message, result, input, true);
+    }
+
+    /**
+     * 统一的 JS 弹窗实现。
+     *
+     * @param input 非空表示 prompt（确认时把输入框内容 {@link JsPromptResult#confirm(String)} 回给页面）
+     */
+    private boolean jsDialog(WebView view, String title, String message,
+                             final JsResult result, final EditText input, boolean withCancel) {
+        try {
+            android.app.AlertDialog.Builder b =
+                new android.app.AlertDialog.Builder(view.getContext());
+            b.setTitle(title).setMessage(message);
+            if (input != null) b.setView(input);
+            b.setCancelable(true);
+            b.setPositiveButton("确定", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    try {
+                        if (input != null && result instanceof JsPromptResult) {
+                            ((JsPromptResult) result).confirm(input.getText().toString());
+                        } else {
+                            result.confirm();
+                        }
+                    } catch (Throwable ignored) { }
+                }
+            });
+            if (withCancel) {
+                b.setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) {
+                        try { result.cancel(); } catch (Throwable ignored) { }
+                    }
+                });
+            }
+            b.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                @Override public void onCancel(DialogInterface d) {
+                    try { result.cancel(); } catch (Throwable ignored) { }
+                }
+            });
+            b.show();
+            return true;   // 本客户端负责这个对话框，WebView 不要再走默认取消路径
+        } catch (Throwable t) {
+            Log.e(TAG, "JS 弹窗创建失败", t);
+            try { result.cancel(); } catch (Throwable ignored) { }   // 绝不能把 JS 挂死在等回执
+            return false;
+        }
     }
 
     @Override
