@@ -77,13 +77,21 @@
     //   ⚠️ 同一类坑 r65 已经在 visibleClose()/reallyVisible() 上踩过一次
     //   （见那两处的注释），这里是同一根因的第二个现场。
     //   修法：几何判据 —— rect 为 0 / 整块在视口外，用户就是看不见，不算打开。
+    //   ⚠️ r69：**量不出来的时候按"看得见"处理**。过渡动画中 getBoundingClientRect()
+    //   可能抛异常或返回全 0；此时若一律判"不可见"，会连带把设置 L2 的返回条删掉
+    //   （真机图1：顶部没有「← 设置」），而页面一旦静止 sync() 不再跑 ⇒ 永久缺失。
+    //   判"不可见"必须要有**确定的证据**（样式明确 none/hidden，或几何明确为 0），
+    //   拿不到证据就保守地当成"看得见"。
     function ovVisible(o){
-      var cs=window.getComputedStyle(o);
-      if(!cs||cs.display==='none'||cs.visibility==='hidden'){return false;}
+      var cs=null;
+      try{ cs=window.getComputedStyle(o); }catch(e){ cs=null; }
+      if(!cs){return true;}                                    // 量不出样式 → 保守当可见
+      if(cs.display==='none'||cs.visibility==='hidden'){return false;}
       if(parseFloat(cs.opacity||'1')===0){return false;}
       var r=null;
       try{ r=o.getBoundingClientRect(); }catch(e){ r=null; }
-      if(!r||r.width<=1||r.height<=1){return false;}
+      if(!r){return true;}                                    // 量不出几何 → 保守当可见
+      if(r.width<=1||r.height<=1){return false;}
       var vw=window.innerWidth||0,vh=window.innerHeight||0;
       if(vw&&vh&&(r.left>vw-2||r.top>vh-2||r.right<2||r.bottom<2)){return false;}
       return true;
@@ -142,11 +150,32 @@
       //   ⚠️ 最后那道"重试 → 兜底重载"是**护栏**：万一 dsh 某个版本的 × 不再响应
       //   程序化点击，用户就会**彻底关不掉设置面板**（连返回键也会被我们自己的
       //   状态机吃掉）。宁可重载一次本地页面（代价约 1s），也不能给用户一个死界面。
-      var ovCloseTried=false;
-      // 用户已经明确要求关闭浮层（点了返回条 / 侧滑返回），但 dsh 的浮层还在（
-      // React 尚未卸载）。此时**不能**再把它顶回 l2 —— 那会把 _content 重新
-      // display:none 掉，连 dsh 自己的 × 都被藏起来，等于把用户锁死。
-      var ovCloseRequested=false;
+var ovCloseTried=false;
+    // 用户已经明确要求关闭浮层（点了返回条 / 侧滑返回），但 dsh 的浮层还在（
+    // React 尚未卸载）。此时**不能**再把它顶回 l2 —— 那会把 _content 重新
+    // display:none 掉，连 dsh 自己的 × 都被藏起来，等于把用户锁死。
+    var ovCloseRequested=false;
+    // ===== r69 · 图3「三级页面跑到二级页面显示」=====
+    //   真机现象：导航列表（通用设置/模型/插件/Agent 预设/插件市场）与下层内容
+    //   （打开配置文件/权限/语言/外观）**同时显示**。
+    //   根因（可在合成环境复现）：mobile.css 的层级显示完全靠 body 上两个互斥 class
+    //   —— `dsh-s-l2` 隐藏 _content、`dsh-s-l3` 隐藏 _navList，两个都没有 = 两边都显示。
+    //   而 closeSettingsPanel() 会先置 ovCloseRequested=true 再清掉这两个 class；
+    //   sync() 恢复 L2 的那行又带 `&&!ovCloseRequested` 排除条件，ovCloseRequested
+    //   只在"浮层真的没了"时复位。于是只要发生过一次「请求关闭但 dsh 没卸载浮层」，
+    //   ovCloseRequested 永久为 true ⇒ **L2 永远不再恢复** ⇒ 图3，且再也回不去。
+    //   修法：给"请求关闭"加**宽限期**。超过宽限期浮层还在 ⇒ 判定这次关闭失败，
+    //   撤销请求并把 L2 恢复回去（不变量：浮层可见 ⇒ body 必为 l2 或 l3 之一）；
+    //   连续失败两次才走一次整页重载（已有 ovReloadedOnce 兜底，不会反复重载）。
+    var ovCloseAt=0;
+    var OV_CLOSE_GRACE=800;
+    var ovCloseFails=0;
+    // r69：关闭请求"过期并放弃"的标记。浏览器实测（repro/debug4.js 时间线）：
+    //   点返回 → 0~1080ms body 只有 dsh-ov-open（**图3 的混合态**）→ 1189ms 自愈回 L2
+    //   → 1299ms 重试链又调 clearOvState() 把 L2 抹掉 ⇒ 界面来回闪，最后还兜底重载。
+    //   根因：自愈与"反复强制关闭"在互相打架。放弃之后就**不再重复尝试**，
+    //   改为：自愈保持 L2（界面连贯）+ 400ms 后干净地重载一次（把用户带出去）。
+    var ovAbandoned=false;
       // U18（r66）· 重载兜底必须**整个页面只允许一次**。
       //   r65 那版把"试过没有"记在 ovCloseTried 上，而它只在 `!ov` 时才复位 ——
       //   但 closeSettingsPanel() 只会在**有浮层时**被调用，于是第一次成功关闭之后
@@ -163,6 +192,13 @@
         ensureTopBar();
       }
       function closeSettingsPanel(){
+        if(ovAbandoned){return;}   // r69：已放弃就别再反复强制关闭（会把刚恢复的 L2 抹掉）
+        // ⚠️ r69 计时起点只在**新的**关闭请求上打（浏览器取证：repro/debug4.js 时间线）。
+        //   原来每次调用都刷新 ovCloseAt，而重试链每 350~510ms 就调一次 ⇒
+        //   `now-ovCloseAt` 永远是零头 ⇒ 宽限期永远不过 ⇒ 永远不放弃、永远重试，
+        //   ovCloseRequested 也永远为真 ⇒ L2 永远恢复不了（就是图3）。
+        //   判据用 ovCloseTried：它为真说明本次是**重试**，不重新起表。
+        if(!ovCloseTried){ ovCloseAt=(new Date()).getTime(); }
         ovCloseRequested=true;
         var ov=settingsOverlay();
         if(!ov){
@@ -178,11 +214,39 @@
         clearOvState();
         // 点 × 之后同步就已经看不见浮层了 → 这就是正常路径，绝不重载页面。
         if(!settingsOverlay()){ ovCloseTried=false; return; }
+        ovCloseFails++;   // r69：这次"请求关闭"没成功（dsh 的 × 没响应），记一笔
         if(ovCloseTried){
           // 重试过一次、浮层**仍然可见** ⇒ dsh 这个版本的出口不响应程序化点击。
           // 宁可重载一次本地页面（代价约 1s），也不能给用户一个死界面；
           // 但整页只允许一次，否则就变成"每次返回都重载"（那正是 r65 的事故）。
-          if(!ovReloadedOnce){ ovReloadedOnce=true; try{ location.reload(); }catch(e){} }
+          // ⚠️ r69：重载必须**排在自愈之后**。原来这里是"第二次失败就立刻 reload"，
+          //   时间线只有 350+350=700ms，比新加的 800ms 宽限期还短 ⇒ sync() 的
+          //   "撤销关闭请求 + 恢复 L2"根本没机会跑，用户看到的是"点返回 → 闪一下回到
+          //   主页"。现在没到宽限期就再排一次重试，把机会让给自愈；
+          //   宽限期一过仍然关不掉，才重载（且只重载一次）。
+          var waited=(new Date()).getTime()-ovCloseAt;
+          if(waited>OV_CLOSE_GRACE){   // r69：宽限期已过
+            // 宽限期已过 ⇒ 认定 dsh 这次关不掉：放弃反复尝试，交给一次性兜底重载。
+            //   先留 400ms 让 sync() 把 L2 恢复好（万一重载被系统拦掉，界面也是连贯的）。
+            ovAbandoned=true;
+            ovCloseRequested=false;
+            try{
+              setTimeout(function(){
+                if(!ovReloadedOnce){ ovReloadedOnce=true; try{ location.reload(); }catch(e){} }
+              },400);
+            }catch(e){}
+            return;
+          }
+          // ⚠️ 这里**不能**把 ovCloseTried 清回 false：那会让下一次调用看起来像
+          //   "第一次尝试"，于是走不到上面那个 waited>GRACE 的放弃分支，
+          //   重试链变成永不停的自旋（浏览器实测：fails 一路涨到 4、计时器反复刷新）。
+          //   保持 true，让下一次调用重新进来算 waited。
+          try{
+            setTimeout(function(){
+              if(settingsOverlay()){closeSettingsPanel();}
+              else{ovCloseTried=false;}
+            },Math.max(150,OV_CLOSE_GRACE-waited+60));
+          }catch(e){}
           return;
         }
         ovCloseTried=true;
@@ -545,8 +609,23 @@
         var ov=settingsOverlay();
         var bar=document.getElementById('dsh-back');
         var onFirstPage=!b.classList.contains('dsh-s-l3');
-        if(!ov||!onFirstPage){
+        if(!onFirstPage){
+          // L3：dsh 自己有 ×，刻意不给返回条（不是"判不准"，是设计决定）。
           if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
+          return;
+        }
+        if(!ov){
+          // ===== r69 · 图1「设置 L2 顶部没有 ← 设置」=====
+          //   真机现象：L2 第一页四个列表项和底部提示条都在，唯独返回条没了，
+          //   而且**再也不会自己回来**（页面静止后 sync() 只在 DOM 变化/resize 时跑）。
+          //   触发条件（取证结论）：settingsOverlay() 依赖 ovVisible() 的几何判据；
+          //   面板做过渡动画时 rect 会短暂为 0 / 或祖先层级切换瞬间取不到 rect，
+          //   这一轮就被判成"浮层不可见" ⇒ 这里把 bar 删掉 ⇒ 之后无人补回。
+          //   修法：**只在 DOM 里真的已经没有浮层时**才删（结构性缺失是确定的证据），
+          //   几何判据不确定时一律保留 —— 宁可多留一根返回条，也不能把用户唯一的
+          //   出口弄丢。补回由 500ms 轮询调 sync() 兜底（见 mount 主体）。
+          var gone=!document.querySelector('[class*="_overlay"] [class*="_navList"]');
+          if(gone&&bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
           return;
         }
         if(bar)return;
@@ -624,8 +703,19 @@
       function sync(){
         var ov=settingsOverlay();
         if(!ov){
+          // r69：先记下"这一轮是不是**关闭流程**走出来的"。两种"看不见"要分开：
+          //   ① 没人要求关闭，只是几何判据在过渡动画里看不准 → 保持层级（否则图3）；
+          //   ② 关闭流程已经走完、dsh 留了个不可见的残影 → 按 r66 的结论处理，
+          //      **不复活面板**（否则用户在聊天页被莫名其妙弹回设置界面）。
+          var wasClosing=ovCloseRequested;
           ovCloseRequested=false;   // 浮层真没了 → 清掉"用户要求关闭"的标记
+          ovCloseFails=0;           // r69：关闭成功过，失败计数归零
+          ovAbandoned=false;        // r69：真关掉了 ⇒ 下次关闭请求重新从零开始
           b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+          // 不变量（半边）：DOM 里浮层还在 ⇒ l2/l3 不能都缺，否则内容区与导航列表
+          // 同时显示 = 图3。保留 l2 没有副作用：dsh-s-l2 的规则全挂在 `.dsh-s-ov`
+          // 下面，浮层真不可见时不影响任何可见元素。
+          if(!wasClosing&&document.querySelector('[class*="_overlay"] [class*="_navList"]')){setL2();}
           syncOvFlag();
           if(panelOpen){panelOpen=false;leaveFocus();}
           syncBack();
@@ -650,7 +740,26 @@
           // 可能命中 dsh 别的面板，焦点会进错容器。
           enterFocus(document.querySelector('.dsh-s-ov'));
         }
-        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')&&!ovCloseRequested){setL2();}
+        // r69 · 不变量：浮层可见 ⇒ body 必为 l2 或 l3 之一（否则内容区与导航列表同时显示 = 图3）。
+        //   原来只有 `&&!ovCloseRequested` 一个排除条件 —— 只要 dsh 有一次没响应关闭，
+        //   ovCloseRequested 永久为 true，L2 再也回不来。现在给"请求关闭"加宽限期：
+        //   超过 800ms 浮层还在 ⇒ 认定关闭失败 ⇒ 撤销请求 + 恢复 L2（把界面救回来）；
+        //   连续失败两次才走一次整页重载（ovReloadedOnce 保证不会反复重载）。
+        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){
+          var overdue=ovCloseRequested&&((new Date()).getTime()-ovCloseAt)>OV_CLOSE_GRACE;
+          if(!ovCloseRequested||overdue){
+            if(overdue){
+              ovCloseRequested=false;
+              setL2();
+              // ⚠️ 这里**不再**额外 reload：dsh 的出口不响应时，closeSettingsPanel()
+              //   自己的重试链（350ms 一次、两次不成）已经会重载一次，且有
+              //   ovReloadedOnce 兜底。两处都重载 = 用户点一次返回可能连刷两下，
+              //   正是 r65「每次返回都重载」那类事故。这里只把界面救回来。
+            }else{
+              setL2();
+            }
+          }
+        }
         syncBack();
       }
       function syncBack(){
@@ -687,6 +796,12 @@
         return handled;
       }
       try{ window.__dshBack=backOneLevel; }catch(e){}
+      // r69：把设置页的 sync() 也挂出来，供 mount 主体的 500ms 轮询调用。
+      //   为什么需要：sync() 原来只挂在 MutationObserver 与事件上 —— 页面一旦静止
+      //   （动画结束、用户不动）就没人再跑，而"返回条被误删"这类损伤只在静止后
+      //   才暴露，于是永远补不回来（真机图1）。轮询里已有 document.hidden 保护，
+      //   且 sync() 全程幂等，代价可以忽略。
+      try{ window.__dshSettingsSync=sync; }catch(e){}
       document.addEventListener('click',function(e){
         var t=e.target;
         if(!t||!t.closest){sync();return;}
@@ -809,6 +924,8 @@
     setInterval(function(){
       if(document.hidden)return;
       tagHosts();syncOvFlag();detectDark();
+      // r69：设置页的层级/返回条自愈 —— 页面静止时也要有人复查（见 __dshSettingsSync 处注释）
+      if(window.__dshSettingsSync){try{window.__dshSettingsSync();}catch(e){}}
       // 市场页：dshmarket 是独立 bundle，可能在我们注入之后才渲染完 —— 反复尝试
       // 整理它的头部（全部幂等），渲染晚也不会漏。
       if(inMarket){try{marketPageBar();}catch(e){}}
@@ -920,16 +1037,72 @@
     function mktTextLen(el){
       return el?String(el.textContent||'').replace(/\s+/g,'').length:0;
     }
+    // ===== r69 · 按**文本节点**定位（不猜标签名）=====
+    //   为什么 r66/r67 那套在真机上没生效：mktFind() 只扫
+    //   `button,span,a,div,p,strong,b,h1..h4,i,label` 这批标签，而且标题有
+    //   "长度 > 24 就放弃" 的防误伤阈值。真机上的市场页头是
+    //   「图标 + 插件市场 + dsh-market vX + 发现社区为… + 申请收录插件 ↗ + 不再提醒」
+    //   **挤在同一行**：最深的「插件市场」元素要么不存在（文字是裸文本节点），
+    //   要么匹配到的外层把整行文字都算进去、长度超阈值被丢掉 ——
+    //   于是 `data-dsh-mkt-title` / `-desc` / `-hide` 一个都没打上，
+    //   表现就是：标题竖排、文案还在、按钮顶出屏幕、底部出横向滚动条。
+    //   改成直接遍历**文本节点**：不管它在什么标签里、甚至没有标签（裸文本），
+    //   都能定位到它真正的宿主元素。这是对 r67 手法的补齐，不是换方向。
+    function mktTextNode(scope,re,maxLen){
+      if(!scope){return null;}
+      // ⚠️ createTreeWalker 挂在 **Document / DocumentFragment** 上，**不在 Element 上**
+      //   （Element 只有 matches/closest 那些）。写成 scope.createTreeWalker 会得到
+      //   undefined —— 这正是第一版 r69 在真机页面上定位不到裸文本标题的原因，
+      //   由 repro/debug5.js 在浏览器里实测确认（rootTW=undefined、docTW=function）。
+      var w=null;
+      try{ w=document.createTreeWalker(scope,4,null,false); }catch(e){ w=null; }
+      if(!w){ try{ w=document.createTreeWalker(scope,4); }catch(e){ w=null; } }
+      if(!w){ return null; }
+      var node,best=null,bestLen=1e9;
+      while((node=w.nextNode())){
+        var t=String(node.nodeValue||'').replace(/\s+/g,'');
+        if(!t||!re.test(t)){continue;}
+        if(t.length>maxLen){continue;}
+        if(t.length<bestLen){best=node;bestLen=t.length;}   // 取最短 = 最贴切那段文字
+      }
+      return best;
+    }
+    // 在整个文档里找（真机上「申请收录插件」「不再提醒」可能在 market root **之外**，
+    //   例如挂在 dshmarket 自己的顶栏里 —— 只搜 root 会一个都找不到）。
+    //   两条护栏：① 文本长度上限；② 必须位于页面上方（避免命中插件卡片正文）。
+    function mktFindWide(re,maxLen,topLimit){
+      var el=mktFind(document,re);
+      if(el&&mktTextLen(el)<=maxLen){return el;}
+      var node=mktTextNode(document,re,maxLen);
+      var host=node?node.parentElement:null;
+      if(!host){return null;}
+      if(mktInBar(host)||host.getAttribute('data-dsh-mine')){return null;}
+      try{ var r=host.getBoundingClientRect(); if(topLimit&&r.top>topLimit){return null;} }catch(e){}
+      return host;
+    }
     // 给市场页头部打标记（只加属性，不动节点）。
     function marketDecorate(root){
       if(!root){return;}
       // ② 标题 + 版本号 + 标题行（标题行强制横排，见 market.css）
+      //    r69：标题多一路"按文本节点"的兜底 —— 真机上标题常常没有专属标签，
+      //    或者外层把整行文字算进去导致长度超限被丢掉（详见 mktTextNode 的注释）。
       var title=mktFind(root,/^插件市场/);
-      if(title&&mktTextLen(title)>24){title=null;}   // 太长 = 命中了卡片正文，不要
-      if(title){
-        title.setAttribute('data-dsh-mkt-title','1');
+      if(title&&mktTextLen(title)>24){title=null;}
+      if(!title){
+        var tn=mktTextNode(root,/^插件市场/,8);
+        title=tn?tn.parentElement:null;
+      }
+      if(title&&title!==root&&title.setAttribute){
+        // head = **直接包着「插件市场」那段文字**的元素。
+        //   它可能是标题本身，也可能是标题行（真机上标题常常是没有专属标签的裸文本）。
+        //   这两种情况的修法不同，所以分成两个标记，别混用：
+        //     data-dsh-mkt-head → 「不许被压扁」（nowrap + 不收缩）
+        //     data-dsh-mkt-title→ 真正的标题（20px 粗体），只有文字够短时才加
+        title.setAttribute('data-dsh-mkt-head','1');
+        if(mktTextLen(title)<=24){title.setAttribute('data-dsh-mkt-title','1');}
         var row=title.parentNode;
         if(row&&row!==root&&row.setAttribute){row.setAttribute('data-dsh-mkt-row','1');}
+        else{ title.setAttribute('data-dsh-mkt-row','1'); }  // 标题是 root 的直接子元素
         // 标题左边的方块图标（一般是无文字的 svg/img/div），只打标不搬动
         var logo=title.previousElementSibling||(row&&row.previousElementSibling);
         if(logo&&!(String(logo.textContent||'').trim())&&!logo.getAttribute('data-dsh-mkt-title')){
@@ -938,18 +1111,30 @@
       }
       var ver=mktFind(root,/^dsh-market/i);
       if(ver&&mktTextLen(ver)>40){ver=null;}
-      if(ver){ver.setAttribute('data-dsh-mkt-ver','1');}
+      if(!ver){
+        var tv=mktTextNode(root,/^dsh-market/i,24);
+        ver=tv?tv.parentElement:null;
+      }
+      if(ver&&ver!==title){ver.setAttribute('data-dsh-mkt-ver','1');}
       // ④ 社区说明：它常与「导出日志」同容器（裸文本 + 两个按钮），所以只能
       //    "隐藏文字"不能整块隐藏 —— CSS 侧用 font-size:0 藏裸文本、再把直接子元素
       //    恢复字号。锚定"发现社区/社区为"开头并限制长度，避免命中卡片正文。
-      var desc=mktFind(root,/^发现社区|^社区为/);
-      if(desc&&(mktTextLen(desc)>120||String(desc.textContent||'').indexOf('插件市场')>=0)){desc=null;}
+      //    r69：① 去掉"含『插件市场』就放弃"这条（真机上它就在标题那一行里，
+      //    正是这条护栏把说明文字漏了下来）；② 加按文本节点的兜底；
+      //    ③ 整页范围再搜一次（它可能在 market root 之外）。CSS 侧会把标题、
+      //    版本号、按钮的字号显式还原，所以"整行 font-size:0"不会伤到别的元素。
+      var desc=mktFind(root,/发现社区|社区为/);
+      if(desc&&mktTextLen(desc)>160){desc=null;}
+      if(!desc){
+        var dn=mktTextNode(root,/发现社区|社区为/,60);
+        desc=dn?dn.parentElement:null;
+      }
       if(desc){desc.setAttribute('data-dsh-mkt-desc','1');}
-      var sug=mktFind(root,/申请收录/);
+      var sug=mktFindWide(/申请收录/,40,600);
       if(sug){sug.setAttribute('data-dsh-mkt-hide','1');}
       // 设计稿操作区只有两个按钮 → dsh 的「重启前都不再提醒」不显示
       // （它只是"别再提醒我更新"的开关，隐藏不影响任何数据/功能，随时可一行恢复）
-      var rem=mktFind(root,/不再提醒/);
+      var rem=mktFindWide(/不再提醒/,40,600);
       if(rem){rem.setAttribute('data-dsh-mkt-hide','1');}
       // ③ 原生「导出日志」隐藏，由我们注入的代理按钮顶替 —— 这样两个按钮必然同排、
       //    同款（原生那个在 dshmarket 的说明行里，位置由它自己决定）。

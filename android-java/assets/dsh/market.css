@@ -48,8 +48,25 @@
      标题行 flex-wrap:wrap（挤不下就整体换行，不互相压扁）。 */
   [data-dsh-mkt-row]{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;
     align-items:center !important;gap:10px !important;
-    width:100% !important;max-width:100% !important;min-width:0 !important;}
+    width:100% !important;max-width:100% !important;min-width:0 !important;overflow-x:hidden !important;}
   [data-dsh-mkt-row] > *{flex:0 0 auto !important;min-width:0 !important;max-width:100% !important;}
+  /* r69 · 「被压扁的其实不是标题本身，而是包住图标/标题/版本的那一行」。
+     真机证据：标题竖排（插/件/市/场 一行一个字）+ 文案与按钮顶出屏幕 + 底部横向滚动条，
+     三者同一个根因 = 行级 flex 收缩。所以规则落在**行**和**行的子项**上：
+       · 行不换行策略由 flex-wrap:wrap 承担（挤不下就整项换行，不互相压扁）；
+       · 标题/版本/head 一律 min-width:max-content，永不收缩；
+       · head 只加"不许压扁"，不加字号 —— 真机上标题可能压根没有专属元素
+         （裸文本），那时 head 就是行本身，套 20px 粗体会把整行都放大。*/
+  [data-dsh-mkt-head]{white-space:nowrap !important;word-break:keep-all !important;
+    overflow-wrap:normal !important;line-height:1.35 !important;}
+  [data-dsh-mkt-head]:not([data-dsh-mkt-row]){flex:0 0 auto !important;
+    min-width:max-content !important;max-width:none !important;}
+  [data-dsh-mkt-row] > [data-dsh-mkt-head],
+  [data-dsh-mkt-row] > [data-dsh-mkt-title],
+  [data-dsh-mkt-row] > [data-dsh-mkt-ver]{min-width:max-content !important;max-width:none !important;}
+  [data-dsh-mkt-desc] [data-dsh-mkt-title]{font-size:20px !important;line-height:1.2 !important;}
+  [data-dsh-mkt-desc] [data-dsh-mkt-ver]{font-size:13px !important;line-height:18px !important;}
+  [data-dsh-mkt-desc] [data-dsh-mkt-head]{font-size:13px !important;}
   [data-dsh-mkt-title]{writing-mode:horizontal-tb !important;display:inline-block !important;
     white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;
     flex:0 0 auto !important;min-width:max-content !important;width:auto !important;max-width:none !important;
@@ -81,6 +98,8 @@
      标题行只留 图标 + 插件市场 + 版本号）。
      设置页那个入口只在**未安装**时可用，装完之后的「更新」动作只能在这里做。*/
   [data-dsh-market-root] #dsh-mkt-bar{display:flex !important;flex-direction:row !important;
+    /* r69：按钮组也允许换行 —— 窄屏 + 大字号时三个胶囊挤一行会把页面顶出横向滚动条 */
+    flex-wrap:wrap !important;
     flex-wrap:wrap !important;align-items:center !important;gap:10px !important;
     margin:14px 0 4px !important;width:auto !important;max-width:100% !important;min-width:0 !important;}
   [data-dsh-market-root] #dsh-mkt-bar button{flex:0 0 auto !important;display:inline-flex !important;
