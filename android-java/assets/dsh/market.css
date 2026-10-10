@@ -8,7 +8,12 @@
   [data-dsh-market-root] pre,[data-dsh-market-root] code,[data-dsh-market-root] [class*="_log"],[data-dsh-market-root] [class*="_diag"],[data-dsh-market-root] [class*="_error"]{overflow-wrap:anywhere !important;word-break:break-word !important;white-space:pre-wrap !important;max-width:100% !important;}
   [data-dsh-market-root]{overflow-x:hidden !important;max-width:100% !important;}
   html,body{overflow-x:hidden !important;}
-  [data-dsh-market-root]{padding-top:calc(52px + env(safe-area-inset-top,0px)) !important;padding-bottom:env(safe-area-inset-bottom,0px) !important;}
+  /* r71 · 原来这里是 calc(52px + safe-area)：按"市场页自己占满整屏、顶部要留出 dsh
+     顶栏"的假设写的。但真机上市场是设置浮层里的一个 section，顶栏（.dsh-s-nav）本来就是
+     **它上面的兄弟节点**，再留 52px 就是双份 —— 真机图1（当时 market.css 还没注入）
+     量到的"顶栏底 → 标题行顶"只有 ~22px，正合设计稿 .s3-title-block 的 padding:4px。
+     safe-area 项保留：万一将来 WebView 变成 edge-to-edge，它保证内容不压到状态栏。 */
+  [data-dsh-market-root]{padding-top:calc(4px + env(safe-area-inset-top,0px)) !important;padding-bottom:env(safe-area-inset-bottom,0px) !important;}
   [data-dsh-market-root] input,[data-dsh-market-root] select,[data-dsh-market-root] [role="tab"],[data-dsh-market-root] [role="button"]{min-height:44px !important;box-sizing:border-box !important;}
   [data-dsh-market-root]{padding-left:max(0px,env(safe-area-inset-left)) !important;padding-right:max(0px,env(safe-area-inset-right)) !important;}
   @media (max-width:680px){
@@ -24,13 +29,26 @@
        ② 标题块 = 深色圆角方块图标 + 「插件市场」+ 版本号，横排；
        ③ 操作区 = 「导出日志」「更新插件市场」两个胶囊按钮同一排；
        ④ 无社区说明、无「申请收录插件」链接、无「重启前都不再提醒」。
-     ⚠️ 样式必须写在 **market.css** 里 —— applyDshScope 在市场页只注入
-     MARKET_CSS（mobile.css 不注入），放错文件会完全不生效（r58 就踩过）。
+     ⚠️ r71 更正：market.css 现在**常驻注入** —— mobile.js 的 applyDshScope 把
+     MARKET_CHROME_CSS + MARKET_CSS 放进一个常驻 <style>，作用域是
+     [data-dsh-market-root]，不渲染市场时天然不命中。旧注释（"applyDshScope 在市场页
+     只注入 MARKET_CSS、放错文件不生效"）已作废 —— 而那正是真机图1 的总根因：
+     dshmarket 1.66.x 把市场注册成 settings.section、渲染在设置浮层 [role="dialog"] 里，
+     pathname 永远不匹配 /dsh-market ⇒ 本文件从未注入过。
      定位全部走移动化脚本打的 data-dsh-mkt-* 属性（按文本匹配打的），
-     不猜 dshmarket 的哈希类名 —— 它是独立 bundle，类名随版本变、文案不会变。*/
+     不猜 dshmarket 的哈希类名 —— 它是独立 bundle，类名随版本变、文案不会变。
+     （r71 已核准：1.66.14 的类名前缀是 nUhMVa_，标题行 = div.nUhMVa_titleRow，
+       标题 = h2.nUhMVa_title，另有 a.repoLink / span.version / 两个宿主按钮同排。）*/
 
   /* --- ④ 去掉社区说明与「申请收录插件」链接 --- */
   [data-dsh-mkt-hide]{display:none !important;}
+  /* r71 · 原生「更新插件市场」也让位：注入操作条里有同名按钮（文案一致），
+     留着它会跟设计稿要求的"标题块下面一排两个黑胶囊"打架。 */
+  [data-dsh-mkt-native-upd]{display:none !important;}
+  /* r71 · 真机上"社区说明"那一整块是 div.nUhMVa_sub：说明文字 +「申请收录插件」+
+     原生「导出日志」都在同一个 div 里，设计稿三者都不要（导出日志由注入条顶替，
+     文案一致）⇒ 整块收掉，比 r66 的"只把裸文本字号归零"更干净。 */
+  [data-dsh-mkt-sub]{display:none !important;}
   /* 社区说明常与「导出日志」同容器（一句说明 + 两个按钮）。**不能整块隐藏** ——
      那会把导出日志一起干掉。用 font-size:0 只让**裸文本**消失，
      直接子元素再把字号还原，按钮照常可见可点。 */
@@ -46,10 +64,22 @@
      标题行里项目一多（图标/标题/版本/两个按钮），标题就被压到 ~20px 宽 ⇒ 一字一行。
      修法：标题 flex:0 0 auto + min-width:max-content（永不收缩），
      标题行 flex-wrap:wrap（挤不下就整体换行，不互相压扁）。 */
-  [data-dsh-mkt-row]{display:flex !important;flex-direction:row !important;flex-wrap:wrap !important;
-    align-items:center !important;gap:10px !important;
+  [data-dsh-mkt-row]{display:grid !important;
+    grid-template-columns:max-content max-content 1fr !important;
+    align-items:center !important;column-gap:0 !important;row-gap:2px !important;
     width:100% !important;max-width:100% !important;min-width:0 !important;overflow-x:hidden !important;}
   [data-dsh-mkt-row] > *{flex:0 0 auto !important;min-width:0 !important;max-width:100% !important;}
+  /* r71 · 真机标题行就是 div.nUhMVa_titleRow，改成 grid 布局：
+       第 1 列 = 图标（跨两行，右边留 12px）；第 2 行 = 「dsh-market」+「vX.Y.Z」（相邻 4px）。
+     标题 / repo / 版本各有自己的格子，不再互相收缩（竖排、重叠的根因）。
+     ⚠️ 第 2 列由 repo 的 max-content 决定、标题跨 2-3 列，这样版本号才能紧贴 repo。 */
+  [data-dsh-mkt-logo]{grid-column:1 !important;grid-row:1 / span 2 !important;margin-right:12px !important;}
+  [data-dsh-mkt-title]{grid-column:2 / span 2 !important;grid-row:1 !important;align-self:end !important;}
+  [data-dsh-mkt-repo]{grid-column:2 !important;grid-row:2 !important;align-self:start !important;
+    margin-right:4px !important;white-space:nowrap !important;font-size:13px !important;
+    line-height:18px !important;color:var(--ds-ink-500,#5a6d84) !important;text-decoration:none !important;}
+  [data-dsh-mkt-ver]{grid-column:3 !important;grid-row:2 !important;align-self:start !important;
+    justify-self:start !important;}
   /* r69 · 「被压扁的其实不是标题本身，而是包住图标/标题/版本的那一行」。
      真机证据：标题竖排（插/件/市/场 一行一个字）+ 文案与按钮顶出屏幕 + 底部横向滚动条，
      三者同一个根因 = 行级 flex 收缩。所以规则落在**行**和**行的子项**上：

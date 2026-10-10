@@ -55,14 +55,42 @@
     var st=document.createElement('style');st.id=SID+'-css';
     var DSH_MKT_RE=/[\/]dsh-market(\/|$|[?#])/;
     var msId=SID+'-mkt';
+    // ===== r71 · 市场页样式改成**常驻注入**（真机图1 的总根因）=====
+    //   旧逻辑（r50~r70）：按 location.pathname 匹配 /dsh-market 决定 st 里装
+    //   mobile.css 还是 market.css，market.css 不匹配时**整份不注入**。
+    //   但 dshmarket 1.66.x 把市场面板注册成 **settings.section**
+    //   （src/client/index.ts:157-172 `ctx.slots.register({name:'settings.section',id:'market',order:40})`），
+    //   渲染在设置浮层 `[role="dialog"]` 内（src/client/Market.module.css:322-325 的
+    //   `[role="dialog"]:has([data-dsh-market-root])` 就是证据）——**客户端根本没有
+    //   `/dsh-market` 这个路由**（`/dsh-market/*` 是宿主的 HTTP 数据端点）。
+    //   于是真机上 pathname 永远不匹配 ⇒
+    //     ① market.css / market-chrome.css 一条都不注入；
+    //     ② marketPageBar() 的两处调用点都被 if(inMarket) 挡掉 ⇒ 一个 data-dsh-mkt-*
+    //        都没打上、#dsh-mkt-bar 从未注入。
+    //   表现正是真机图1：标题被挤成竖排（没有 nowrap）、社区说明/申请收录/重启提醒
+    //   全在、× 没变 ←、两个按钮不同排。r69 之前所有"市场页"验证都跑在
+    //   repro/server.js 合成的 /dsh-market 上 —— 桩是绿的，真机是死的。
+    //   修法：mobile.css 永远在 st；market.css + market-chrome.css 放进**另一个常驻
+    //   <style>**。两者全部以 [data-dsh-market-root] 为作用域，而该属性由插件自己写在
+    //   市场根节点上（MarketSection.tsx:5500 / client.js:11571），不渲染市场时天然不命中，
+    //   所以常驻注入没有任何副作用（也顺带修掉 pushState 不触发 popstate 的老问题）。
+    function hasMarketRoot(){
+      try{ return !!document.querySelector('[data-dsh-market-root]'); }catch(e){ return false; }
+    }
+    // ⚠️ inMarket 仍**只按 pathname** 判定：:370 那个大 IIFE 用 `if(!inMarket)` 决定要不要
+    //    做设置页/导航的准备，不能因为"设置浮层里正开着市场"就跳过。
+    //    "市场页样式/操作条要不要上"改由两个自守卫的入口决定：
+    //    css 常驻注入（作用域 [data-dsh-market-root]，不渲染就不命中）+ marketPageBar()
+    //    开头 `if(!root) return`。
     var inMarket=DSH_MKT_RE.test(location.pathname);
     function applyDshScope(){
       inMarket=DSH_MKT_RE.test(location.pathname);
-      st.textContent=inMarket?__DSH_MARKET_CSS__:__DSH_CSS__;
-      var ms=document.getElementById(msId);
-      if(inMarket){
-        if(!ms){ms=document.createElement('style');ms.id=msId;ms.textContent=__DSH_MARKET_CHROME_CSS__;          (document.head||document.documentElement).appendChild(ms);}
-      }else if(ms&&ms.parentNode){ms.parentNode.removeChild(ms);}
+      st.textContent=__DSH_CSS__;
+      if(!document.getElementById(msId)){
+        var ms=document.createElement('style');ms.id=msId;
+        ms.textContent=__DSH_MARKET_CHROME_CSS__+'\n'+__DSH_MARKET_CSS__;
+        (document.head||document.documentElement).appendChild(ms);
+      }
     }
     applyDshScope();
     (document.head||document.documentElement).appendChild(st);
@@ -94,6 +122,25 @@
       if(r.width<=1||r.height<=1){return false;}
       var vw=window.innerWidth||0,vh=window.innerHeight||0;
       if(vw&&vh&&(r.left>vw-2||r.top>vh-2||r.right<2||r.bottom<2)){return false;}
+      // r71（侧滑返回后汉堡消失的残留根因）：再沿**祖先链**查一遍。
+      //   为什么必须有：display 不继承，opacity 也**不**继承 —— dsh 用一个外层容器
+      //   淡出（opacity:0）关设置面板时，浮层节点自身的 computed display 仍是 flex、
+      //   opacity 仍是 1，而 rect 也**不是 0**（opacity:0 不改变布局）⇒ 上面几道
+      //   自身判据全部漏过，syncOvFlag() 会把 body.dsh-ov-open 加回来，
+      //   mobile.css 的 `body.dsh-ov-open #dsh-mtop{display:none!important}` 再把汉堡藏死。
+      //   ⚠️ 这正是 r65/r66/r69 已经踩过三次的同一坑（「祖先隐藏 vs 自身样式」）：
+      //   判"看不见"要么有自身样式证据、要么有几何证据，现在补上第三种：祖先样式证据。
+      var pn=o.parentNode,hop=0;
+      while(pn&&pn.nodeType===1&&hop<12){
+        hop++;
+        var pcs=null;
+        try{ pcs=window.getComputedStyle(pn); }catch(e){ pcs=null; }
+        if(pcs){
+          if(pcs.display==='none'||pcs.visibility==='hidden'){return false;}
+          if(parseFloat(pcs.opacity||'1')===0){return false;}
+        }
+        pn=pn.parentNode;
+      }
       return true;
     }
     function settingsOverlay(){
@@ -928,7 +975,8 @@ var ovCloseTried=false;
       if(window.__dshSettingsSync){try{window.__dshSettingsSync();}catch(e){}}
       // 市场页：dshmarket 是独立 bundle，可能在我们注入之后才渲染完 —— 反复尝试
       // 整理它的头部（全部幂等），渲染晚也不会漏。
-      if(inMarket){try{marketPageBar();}catch(e){}}
+      try{ arrowizeClose(); }catch(e){}
+      try{ marketPageBar(); }catch(e){}
     },500);
     detectDark();
     // ============================================================
@@ -1109,13 +1157,25 @@ var ovCloseTried=false;
           logo.setAttribute('data-dsh-mkt-logo','1');
         }
       }
-      var ver=mktFind(root,/^dsh-market/i);
-      if(ver&&mktTextLen(ver)>40){ver=null;}
-      if(!ver){
-        var tv=mktTextNode(root,/^dsh-market/i,24);
-        ver=tv?tv.parentElement:null;
-      }
-      if(ver&&ver!==title){ver.setAttribute('data-dsh-mkt-ver','1');}
+      // ③ r71 · 真机 DOM 校准（子代理对 dshmarket 1.66.14 的 DOM 地图）：
+      //    标题那一行 div.nUhMVa_titleRow（= 上面的 row）里其实塞了 7 个东西：
+      //      svg MarketLogo / h2「插件市场」/ a.repoLink「dsh-market」/ span.version「v1.x.y」
+      //      / Button「更新插件市场」/ Button「全部更新 (n)」/ Button「重启前都不再提醒」
+      //    旧逻辑只拿 /^dsh-market/i 去认"版本号"，命中的其实是 **repoLink**，
+      //    真正的 span.version 没人管 ⇒ 版本号跟着那一堆按钮被挤、被压在按钮底下。
+      //    现在：repoLink → -repo，version → -ver，两个宿主按钮让位（-native-upd / -hide）。
+      var repo=mktFind(root,/^dsh-market$/i);
+      if(!repo){var rn=mktTextNode(root,/^dsh-market$/i,24);repo=rn?rn.parentElement:null;}
+      if(repo&&repo!==title&&repo!==row&&mktTextLen(repo)<=24){repo.setAttribute('data-dsh-mkt-repo','1');}
+      var ver=mktFind(root,/^v\d+\.\d+/);
+      if(!ver){var vn=mktTextNode(root,/^v\d+\.\d+/,16);ver=vn?vn.parentElement:null;}
+      if(ver&&ver!==repo&&mktTextLen(ver)<=24){ver.setAttribute('data-dsh-mkt-ver','1');}
+      // 原生「更新插件市场」让位给注入操作条里的同名按钮（文案完全一致，见 #dsh-mkt-upd）；
+      // 「全部更新 (n)」设计稿没有 → 一并收掉。两者都只是重复入口，数据/功能不受影响。
+      var natUpd=mktFind(root,/^更新插件市场$/);
+      if(natUpd){natUpd.setAttribute('data-dsh-mkt-native-upd','1');}
+      var updAll=mktFind(root,/^全部更新/);
+      if(updAll&&mktTextLen(updAll)<=16){updAll.setAttribute('data-dsh-mkt-hide','1');}
       // ④ 社区说明：它常与「导出日志」同容器（裸文本 + 两个按钮），所以只能
       //    "隐藏文字"不能整块隐藏 —— CSS 侧用 font-size:0 藏裸文本、再把直接子元素
       //    恢复字号。锚定"发现社区/社区为"开头并限制长度，避免命中卡片正文。
@@ -1129,7 +1189,13 @@ var ovCloseTried=false;
         var dn=mktTextNode(root,/发现社区|社区为/,60);
         desc=dn?dn.parentElement:null;
       }
-      if(desc){desc.setAttribute('data-dsh-mkt-desc','1');}
+      if(desc){desc.setAttribute('data-dsh-mkt-desc','1');
+        // r71 · 设计稿图2 里没有"社区说明"这一行 ⇒ 它所在的 div.nUhMVa_sub 整块不显示
+        //   （说明文字、「申请收录插件」、原生「导出日志」都在这个 div 里，设计稿三者都去掉；
+        //   导出日志由注入的操作条顶替，文案一致）。
+        var dpar=desc.parentNode;
+        if(dpar&&dpar!==root&&dpar!==row&&dpar.setAttribute){dpar.setAttribute('data-dsh-mkt-sub','1');}
+      }
       var sug=mktFindWide(/申请收录/,40,600);
       if(sug){sug.setAttribute('data-dsh-mkt-hide','1');}
       // 设计稿操作区只有两个按钮 → dsh 的「重启前都不再提醒」不显示
@@ -1169,6 +1235,36 @@ var ovCloseTried=false;
         else{root.appendChild(bar);}
       }else if(root.firstChild){root.insertBefore(bar,root.firstChild);}
       else{root.appendChild(bar);}
+    }
+    // r71 · 全局「× → ←」（设计稿第 6 条 / 图一）：所有"返回上一级"的关闭按钮都换成左上箭头。
+    //   做法是**直接改按钮内部字形**，不碰位置、不碰点击行为和 aria-label
+    //   （大屏不注入这些 CSS 时它们本来就在最左）。
+    //   ⚠️ 不能再用 CSS ::after 画箭头：mobile.css:141 已经把这个元素（L3 关闭键）的
+    //   ::after 拿去当 44px 触控热区了，再画会被顶掉 —— 这正是真机图一里市场页
+    //   画不出 ← 的原因之一。
+    function arrowizeClose(){
+      if(!mq.matches){return;}
+      var nodes;
+      try{ nodes=document.querySelectorAll('button[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"],[data-dsh-mkt-close]'); }catch(e){ return; }
+      for(var i=0;i<nodes.length;i++){
+        var b=nodes[i];
+        if(b.querySelector('[data-dsh-arrow-icon]')){b.setAttribute('data-dsh-arrow','1');continue;}
+        b.setAttribute('data-dsh-arrow','1');
+        var kids=b.children||[],j;
+        for(j=0;j<kids.length;j++){try{kids[j].style.setProperty('visibility','hidden','important');}catch(e){}}
+        var cns=b.childNodes||[];
+        for(j=0;j<cns.length;j++){
+          if(cns[j].nodeType===3){cns[j].nodeValue='';}
+        }
+        var svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('width','18');svg.setAttribute('height','18');
+        svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
+        svg.setAttribute('stroke-width','2.2');svg.setAttribute('stroke-linecap','round');
+        svg.setAttribute('stroke-linejoin','round');svg.setAttribute('data-dsh-arrow-icon','1');
+        var p=document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.setAttribute('d','M19 12H5M12 19l-7-7 7-7');
+        svg.appendChild(p);b.appendChild(svg);
+      }
     }
     function marketPageBar(){
       var root=document.querySelector('[data-dsh-market-root]');
@@ -1257,10 +1353,10 @@ var ovCloseTried=false;
         // 每轮 DOM 变化都顺手做三件事（全部幂等）：
         //   ① tagHosts  —— 维护我们自己的指纹 .dsh-s-ov/.dsh-s-nav；
         //   ② syncOvFlag —— 同步 dsh-ov-open，并保证顶栏在树上（U18 自愈）；
-        //   ③ 市场页头部整理 —— 只在市场页跑。
+        //   ③ 市场页头部整理 —— 幂等，自己会判断有没有 [data-dsh-market-root]
         var run=function(){
-          moRaf=false;tagHosts();syncOvFlag();
-          if(inMarket){try{marketPageBar();}catch(e){}}
+          moRaf=false;tagHosts();syncOvFlag();arrowizeClose();
+          try{marketPageBar();}catch(e){}
         };
         if(window.requestAnimationFrame){window.requestAnimationFrame(run);}
         else{setTimeout(run,0);}

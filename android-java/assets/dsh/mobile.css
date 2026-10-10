@@ -92,18 +92,32 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
      免得并排出现两个同样意思的出口。
      r40 铁律三：往别人的 flex 容器塞节点 = 把宽高交给对方决定，
      所以 flex/width/max-width 都显式写死，不指望 _panel 的布局。*/
+  /* r71 · 按设计稿图3（设置页）：左上是一颗 34px 圆底 ←，「设置」居中在同一行。
+     旧样式是"整行一条 ← 设置 + 下边框"，图3 里既没有下边框、标题也是居中的。*/
   #dsh-back{flex:0 0 auto !important;display:flex !important;align-items:center !important;
-    gap:10px !important;width:100% !important;max-width:100% !important;
-    padding:10px 12px !important;margin:0 0 4px !important;box-sizing:border-box !important;
-    border-bottom:1px solid var(--ds-ink-200,#d8e1ea) !important;}
-  #dsh-back-btn{display:flex !important;align-items:center !important;gap:10px !important;
-    flex:0 0 auto !important;border:0 !important;background:transparent !important;
-    color:var(--ds-ink-900,#0d1b2e) !important;font-size:16px !important;
-    font-weight:600 !important;line-height:22px !important;padding:4px 6px !important;
-    margin:0 !important;min-height:44px !important;min-width:0 !important;
-    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
-  #dsh-back-btn svg{flex:none !important;}
-  #dsh-back-btn .dsh-back-t{font-weight:600 !important;white-space:nowrap !important;}
+    justify-content:flex-start !important;position:relative !important;
+    gap:0 !important;width:100% !important;max-width:100% !important;
+    height:calc(52px + env(safe-area-inset-top,0px)) !important;
+    padding:env(safe-area-inset-top,0px) 16px 0 16px !important;
+    margin:0 !important;box-sizing:border-box !important;border-bottom:0 !important;}
+  #dsh-back-btn{display:inline-flex !important;align-items:center !important;justify-content:center !important;
+    gap:0 !important;flex:0 0 auto !important;border:0 !important;
+    width:34px !important;height:34px !important;min-height:34px !important;min-width:34px !important;
+    padding:0 !important;border-radius:999px !important;
+    background:var(--ds-ink-100,#f0f0f0) !important;color:var(--ds-ink-900,#0d1b2e) !important;
+    margin:0 !important;cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-back-btn svg{flex:none !important;width:18px !important;height:18px !important;}
+  /* 标题居中（图3）：文案脱离按钮、铺满整行居中；
+     pointer-events:none 保证它不会挡住按钮的点击。 */
+  #dsh-back-btn .dsh-back-t{position:absolute !important;left:0 !important;right:0 !important;top:0 !important;
+    height:calc(52px + env(safe-area-inset-top,0px)) !important;
+    display:flex !important;align-items:center !important;justify-content:center !important;
+    padding-top:env(safe-area-inset-top,0px) !important;box-sizing:border-box !important;
+    font-size:17px !important;font-weight:600 !important;white-space:nowrap !important;
+    color:var(--ds-ink-900,#0d1b2e) !important;pointer-events:none !important;}
+  /* r71 · mobile.js 的 arrowizeClose() 注入的 ← 字形（全局"× → ←"），保证尺寸/可见性 */
+  [data-dsh-arrow-icon]{display:inline-block !important;width:18px !important;height:18px !important;
+    visibility:visible !important;flex:none !important;}
   /* dsh 的 tab 面板靠 hidden 属性切换显隐（取证：dsh-client-ui-settings-plugins/
      lib/client.js 里 `role:"tabpanel"` + `hidden: !selected`）。但 `.panel` 这类
      CSS-module 类自带 display，会**盖过浏览器 UA 的 [hidden]{display:none}** ——
