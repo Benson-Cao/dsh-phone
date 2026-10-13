@@ -25,15 +25,21 @@
 | 状态文案一直停在「正在启动」 | 运行时没上报状态 | 已修：`DSH_STATE` 生产者补齐（start_dsh / termux_init / precheck / extracting / retrying / error）。若仍停住，直接看 `dsh-web.log` 有没有 `DSH_STATE:` 行 |
 | 构建卡在 `maven.google.com` | 代理失效 | `--offline`（见 [`build.md`](build.md)） |
 | 构建报 `APP_BUILD_SCRIPT points to an unknown file` | 工程路径含空格 | `mv` 到无空格路径，junction 无效 |
+| 页面里 JS 报错、进程也活着，但 logcat **一片空白** | vivo 吞第三方 App 日志（实测 `logcat --pid` 0 行） | 别在 logcat 上耗时间，直接 `bash scripts/remote-debug.sh <IP:端口>` 建 CDP 通道，再 `node scripts/cdp-eval.js --console 20` |
+| 启动页诊断"看着什么错都没有" | 诊断页**只给末 25 行** | 那 25 行常常全是重复状态行；用 `remote-debug.sh` 拉全量日志，它当场统计 start_dsh 次数 / EADDRINUSE 次数 / 第一处报错 |
 
 ---
 
 ## 排查顺序（省时间）
 
 1. **看诊断页** — App 已经把 `dsh-web.log` 尾部打出来了。
+   ⚠️ 它只有**末 25 行**：如果那 25 行全是 `start_dsh / termux_init` 的重复，别急着下结论
+   —— 说明"启动器在反复拉起"，真因在这 25 行**之上**。此时走第 5 步拉全量日志。
 2. **看 `dsh-web.log` 有没有 `DSH_STATE:` 行** — 判断是「运行时没起来」还是「起来了但 UI 没收到」。
 3. **`bash scripts/check-build-env.sh`** — 如果怀疑是构建/环境问题。
-4. **才去连电脑 / logcat**。
+4. **才去连电脑 / logcat**（vivo 上 logcat 可能完全无效，见速查表）。
+5. **`bash scripts/remote-debug.sh <设备IP:端口>`** — 全量日志 + CDP 通道一次拿到，
+   它会把「启动器跑了几次 / 有没有 EADDRINUSE / 第一处报错」直接统计出来。
 
 ---
 

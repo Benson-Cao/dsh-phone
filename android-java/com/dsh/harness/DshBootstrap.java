@@ -616,6 +616,11 @@ public final class DshBootstrap {
         + "      return _spawnSync.call(this, command, args, pick(options, false));\n"
         + "    };\n"
         + "  } catch (e) { }\n"
+        // ↓ 方案 A：SAF FS 路由（见 docs/saf-feasibility.md §7）。
+        //   用 try 包住是**硬性要求**：这个文件由 assets 拷进 libexec，万一缺失/损坏，
+        //   require 抛异常会让 node 直接起不来 —— 那等于用一个可选功能拖垮整个启动链。
+        //   缺它就退化成「不走 SAF」，dsh 照常可用。
+        + "  try { require('./dsh-saf-shim.js'); } catch (e) { }\n"
         + "})();\n";
 
     /**
@@ -686,6 +691,11 @@ public final class DshBootstrap {
         //（koffi.node 是 MB 级二进制，保留长度比对 + 下面两处存在性检查不动）。
         java.io.FileWriter shimFw = new java.io.FileWriter(shim);
         try { shimFw.write(NODE_SHIM); } finally { shimFw.close(); }
+
+        // 方案 A：SAF FS 路由 shim（$PREFIX/libexec/dsh-saf-shim.js）。
+        // 由上面的 NODE_SHIM 用 try{require} 兜住，所以这里拷贝失败也只是功能缺席，
+        // 不会让 node 起不来。无条件覆盖：文本脚本等长改动也必须能生效（同 shim 的 P3-9）。
+        copyAssetToFile(ctx, "dsh/saf-fs-shim.js", new File(libexec, "dsh-saf-shim.js"));
 
         File launcher = new File(p, "bin/dsh-web.sh");
         launcher.getParentFile().mkdirs();

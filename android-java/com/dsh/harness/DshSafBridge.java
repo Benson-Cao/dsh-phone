@@ -301,4 +301,111 @@ public final class DshSafBridge {
             return "{}";
         }
     }
+
+    // ============================================================
+    // 方案 A · 存储目录（把用户授权的外部目录挂到 $HOME/saf）
+    //
+    // 与上面的「导出」是两件事：导出是**用户主动把文件交出去**（一次性动作），
+    // 存储目录是**让 dsh 透明读写外部目录**（长期配置）。所以入口分开，
+    // 但同受 localOriginAllowed 保护 —— 后者等于把整个目录的读写权交出去。
+    // 详见 docs/saf-feasibility.md §7。
+    // ============================================================
+
+    /** 当前状态（JSON）：是否配置、目录名、挂载点、代理是否活着。 */
+    @JavascriptInterface
+    public String safStatus() {
+        Activity a = act();
+        if (a == null) return "{}";
+        return SafConfig.statusJson(a, SafConfig.hasPersistedPermission(a));
+    }
+
+    /**
+     * 打开系统目录选择器。返回请求码，页面可据此提示「请在弹出的界面里选目录」。
+     *
+     * @return {@link MainActivity#REQ_SAF_DIR}；不可用时 -1
+     */
+    @JavascriptInterface
+    public int safPickDir() {
+        final Activity a = act();
+        if (a == null || !localOriginAllowed("safPickDir")) return -1;
+        if (!(a instanceof MainActivity)) return -1;
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                ((MainActivity) a).startSafPick();
+            }
+        });
+        return MainActivity.REQ_SAF_DIR;
+    }
+
+    /** 取消挂载并释放授权。 */
+    @JavascriptInterface
+    public String safClear() {
+        Activity a = act();
+        if (a == null || !localOriginAllowed("safClear")) return "denied";
+        SafConfig.clear(a);
+        SafProxyServer.stop();
+        SafConfig.writeRuntimeConfig(a);
+        return "ok";
+    }
+
+    /**
+     * 端到端自检：先探代理（HTTP + token），再在挂载点下写/读/删一个临时文件。
+     *
+     * <p>两步都做是因为它们的失败模式不同：代理不通是服务没起来/token 不对；
+     * 读写不通是授权失效或 provider 不支持写。只报一个"失败"没法排障。
+     */
+    @JavascriptInterface
+    public String safSelfTest() {
+        final Activity a = act();
+        if (a == null || !localOriginAllowed("safSelfTest")) return safFail("denied");
+        try {
+            long t0 = System.currentTimeMillis();
+            JSONObject o = new JSONObject();
+            o.put("proxy", pingProxy());
+            String rel = ".dsh-saf-selftest.txt";
+            String payload = "dsh-saf-ok-" + t0;
+            boolean wrote = SafTree.write(a, rel, payload.getBytes("UTF-8"));
+            if (!wrote) { o.put("ok", false); o.put("err", "写入失败（授权可能已失效）"); return o.toString(); }
+            byte[] back = SafTree.read(a, rel);
+            boolean same = back != null && payload.equals(new String(back, "UTF-8"));
+            SafTree.delete(a, rel);
+            o.put("ok", same);
+            o.put("ms", System.currentTimeMillis() - t0);
+            o.put("read", back == null ? "(null)" : new String(back, "UTF-8"));
+            return o.toString();
+        } catch (Throwable t) {
+            return safFail(t.getMessage());
+        }
+    }
+
+    /** 探一次代理（带 token），验证 HTTP + 鉴权这一环。 */
+    private boolean pingProxy() {
+        if (!SafProxyServer.isRunning()) return false;
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection)
+                new java.net.URL(SafProxyServer.url() + "/ping").openConnection();
+            c.setRequestMethod("GET");
+            c.setRequestProperty("x-dsh-token", SafProxyServer.token());
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(3000);
+            return c.getResponseCode() == 200;
+        } catch (Throwable t) {
+            Log.w(TAG, "代理自检失败: " + t.getMessage());
+            return false;
+        } finally {
+            if (c != null) try { c.disconnect(); } catch (Throwable ignored) { }
+        }
+    }
+
+    private static String safFail(String msg) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("ok", false);
+            o.put("err", msg == null ? "unknown" : msg);
+            return o.toString();
+        } catch (Throwable t) {
+            return "{\"ok\":false}";
+        }
+    }
 }

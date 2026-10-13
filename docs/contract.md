@@ -224,15 +224,19 @@ void onReadLine(String line){
 - 现有唯一通道是 **shell/node → Java 单向 stdout**，没有 Java → 运行时的文件读写 RPC；
 - 因此「通过 `SafFileOperator` 桥接」缺少任何机制支撑，连「直接使用文档路径」也不行（node 打不开 `content://`）。
 
-**可行的真实方案（需新建子系统，绝非「轻量可选」）：**
+**可行的真实方案（需新建子系统，绝非「轻量可选」）—— 已于 2026-10-13 落地：**
 
 1. Java 侧起本地代理（abstract unix socket 或 `127.0.0.1` HTTP），暴露 content Uri 的读 / 写 / 枚举；
 2. node/dsh 的数据目录访问改为走该代理（FS 路由适配器）；
 3. `request_saf` 状态保留，仅用于提示用户去设置页授权；
 4. 配置落 `saf_config.json`，运行时启动时读取以决定是否走代理。
 
-> **结论**：在 IPC 代理建成前，`request_saf` 仅作为「提示」语义存在，SAF 实际读写能力
-> **暂缓**。不要按原草案把 `SafFileOperator` 直接接进 node。
+> **结论（2026-10-13 修订）**：上面的第 1、2、4 条**已实现**。
+> 实现要点：走 `127.0.0.1` HTTP + token 鉴权；node 侧用 `NODE_OPTIONS=--require`
+> 预加载补丁，**不改 dsh 的 npm 包**（因此升级 dsh 不需要重做）。
+> 第 3 条的 `request_saf` 仍是提示语义 —— 现在它由页面「存储目录」面板承载。
+> 详见 [`saf-feasibility.md`](saf-feasibility.md) §7。
+> 原草案的 `SafFileOperator`（直接把 content Uri 操作接进 node）**依然不可行**，不要那样做。
 
 ```Plain Text
 DSH_STATE:{"state":"request_saf","msg":"尚未配置存储目录，请前往设置选择数据存储位置","data":{"required":true}}

@@ -1,0 +1,1130 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Phone · UI 设计系统与设计稿</title>
+<style>
+/* ============================================================
+   DSH Phone UI Design System
+   所有色值/尺寸均取自项目真实实现：
+     · android-java/assets/dsh/mobile.css  → --ds-* 变量
+     · android-java/com/dsh/harness/DshPalette.java → 原生取色
+     · mobile.js 注入的 DOM 结构（navCell / syc-panel / exp-panel 等）
+   对比度数值由 WCAG 2.1 公式（含 sRGB 伽马线性化）实算，非估算。
+   ============================================================ */
+
+:root{
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:22px; --r-full:999px;
+  --dur-fast:150ms; --dur:240ms;
+  --ease:cubic-bezier(.2,.8,.3,1);
+  --doc-max:1180px;
+}
+
+/* ---------- 浅色主题（对齐 mobile.css body 变量） ---------- */
+:root[data-theme="light"]{
+  --bg:#F7F9FC;            /* --ds-ink-fb-50   页面底 */
+  --surface:#FFFFFF;       /* --ds-surface-fb  卡片底 */
+  --surface-2:#EEF2F6;     /* --ds-ink-fb-100  hover / 次级面 */
+  --ink-900:#0D1B2E;       /* --ds-ink-fb-900  正文 */
+  --ink-700:#1E3450;       /* --ds-ink-fb-700  次要 */
+  --ink-500:#5A6D84;       /* --ds-ink-fb-500  辅助 */
+  --ink-400:#8296AB;       /* --ds-ink-fb-400  弱化（仅大字/装饰） */
+  --line:#D8E1EA;          /* --ds-ink-fb-200  分隔线（装饰） */
+  --line-strong:#7A8CA0;   /* 控件边框（≥3:1） */
+  --brand:#1466B8;         /* --ds-brand-500 */
+  --brand-600:#0F5296;     /* --ds-brand-600 */
+  --brand-50:#EEF7FE;      /* --ds-brand-50 */
+  --brand-100:#D6ECFC;     /* --ds-brand-100 */
+  --on-brand:#FFFFFF;      /* 品牌底上的文字 */
+  --ok:#0F7A4A; --warn:#8A5300; --danger:#B42318; --info:#1466B8;
+  --sysbar:#F7F9FC;        /* 系统栏 = dsh 首页浅色背景 */
+  --scrim:rgba(13,27,46,.42);
+  --shadow-1:0 1px 2px rgba(13,27,46,.06);
+  --shadow-2:0 4px 12px rgba(13,27,46,.10);
+  --shadow-3:0 8px 28px rgba(13,27,46,.22);
+  --site-bg:#EEF1F6; --site-card:#FFFFFF; --site-line:#DFE5EC;
+}
+
+/* ---------- 深色主题（对齐 mobile.css 深色变量 + 真机取样） ---------- */
+:root[data-theme="dark"]{
+  --bg:#141B23;            /* --ds-surface-fb 深 */
+  --surface:#1C242F;       /* --ds-ink-fb-50 深 卡片底 */
+  --surface-2:#26313F;     /* --ds-ink-fb-100 深 */
+  --ink-900:#E6EDF5;       /* --ds-ink-fb-900 深 */
+  --ink-700:#C8D4E2;
+  --ink-500:#A3B3C6;
+  --ink-400:#8296AB;
+  --line:#3C4D61;          /* --ds-ink-fb-200 深 */
+  --line-strong:#55677E;   /* 控件边框（≥3:1） */
+  --brand:#5AA9F5;         /* --ds-brand-500 深 */
+  --brand-600:#8CC2F9;
+  --brand-50:#143253;
+  --brand-100:#1D4A7A;
+  --on-brand:#0D1B2E;      /* 深底品牌按钮必须配深字（白字仅 2.49:1） */
+  --ok:#3DDC97; --warn:#F5B544; --danger:#FF7A70; --info:#5AA9F5;
+  --sysbar:#151517;        /* 真机量得的 dsh 首页背景，勿用 #141B23 */
+  --scrim:rgba(0,0,0,.55);
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 4px 12px rgba(0,0,0,.55);
+  --shadow-3:0 8px 28px rgba(0,0,0,.6);
+  --site-bg:#0E131A; --site-card:#1A212B; --site-line:#2B3542;
+}
+
+html{scroll-behavior:smooth}
+*{box-sizing:border-box}
+body{
+  margin:0; font-family:var(--font-sans); font-size:15px; line-height:1.6;
+  color:var(--ink-900); background:var(--site-bg);
+  -webkit-font-smoothing:antialiased;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+
+/* ---------- 页头 ---------- */
+.site-hd{
+  position:sticky; top:0; z-index:50;
+  background:color-mix(in srgb, var(--site-card) 92%, transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--site-line);
+}
+.hd-in{max-width:var(--doc-max); margin:0 auto; padding:14px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap}
+.hd-t{font-size:17px; font-weight:700; letter-spacing:.2px; margin:0}
+.hd-s{font-size:12.5px; color:var(--ink-500); margin:2px 0 0}
+.hd-sp{flex:1}
+.chip{
+  display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px;
+  border-radius:var(--r-full); background:var(--surface-2); color:var(--ink-700);
+  font-size:12px; font-weight:600; white-space:nowrap;
+}
+.chip b{font-family:var(--font-mono); font-weight:600}
+
+/* 主题切换 */
+.tgl{display:inline-flex; padding:3px; gap:2px; border-radius:var(--r-full); background:var(--surface-2); border:1px solid var(--site-line)}
+.tgl button{
+  appearance:none; border:0; background:transparent; font:inherit; font-size:12.5px; font-weight:600;
+  color:var(--ink-500); padding:5px 14px; border-radius:var(--r-full); cursor:pointer;
+  transition:all var(--dur-fast) var(--ease); min-height:30px;
+}
+.tgl button[aria-pressed="true"]{background:var(--surface); color:var(--ink-900); box-shadow:var(--shadow-1)}
+
+/* ---------- 导航 ---------- */
+.tabs{max-width:var(--doc-max); margin:0 auto; padding:0 20px 12px; display:flex; gap:8px; flex-wrap:wrap}
+.tabs a{
+  text-decoration:none; font-size:13px; font-weight:600; color:var(--ink-500);
+  padding:6px 12px; border-radius:var(--r-full); border:1px solid var(--site-line);
+  transition:all var(--dur-fast) var(--ease);
+}
+.tabs a:hover{color:var(--ink-900); border-color:var(--ink-400)}
+.tabs a.on{background:var(--brand); border-color:var(--brand); color:var(--on-brand)}
+
+/* ---------- 主体 ---------- */
+main{max-width:var(--doc-max); margin:0 auto; padding:8px 20px 80px}
+section{margin:36px 0 0; scroll-margin-top:130px}
+h2{
+  font-size:20px; font-weight:700; margin:0 0 4px;
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+}
+h2 .idx{
+  font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--brand);
+  background:var(--brand-50); border-radius:6px; padding:2px 7px; letter-spacing:.5px;
+}
+h3{font-size:15px; font-weight:700; margin:26px 0 10px; color:var(--ink-900)}
+.lead{color:var(--ink-500); font-size:13.5px; margin:6px 0 18px; max-width:820px}
+.card{
+  background:var(--site-card); border:1px solid var(--site-line);
+  border-radius:var(--r-lg); padding:18px; box-shadow:var(--shadow-1);
+}
+.grid{display:grid; gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:900px){.g3,.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* ---------- 色板 ---------- */
+.swatches{display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:12px}
+.sw{border:1px solid var(--site-line); border-radius:var(--r-md); overflow:hidden; background:var(--site-card); cursor:pointer; transition:transform var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.sw:hover{transform:translateY(-2px); box-shadow:var(--shadow-2)}
+.sw-f{height:66px; display:flex; align-items:flex-end; padding:8px 10px; font-family:var(--font-mono); font-size:11px; font-weight:700}
+.sw-b{padding:9px 10px}
+.sw-n{font-size:12.5px; font-weight:700}
+.sw-t{font-family:var(--font-mono); font-size:11px; color:var(--ink-500); margin-top:2px}
+.sw-u{font-size:11px; color:var(--ink-500); margin-top:4px; line-height:1.45}
+
+/* 对比度表 */
+table{width:100%; border-collapse:collapse; font-size:13px}
+th,td{text-align:left; padding:9px 10px; border-bottom:1px solid var(--site-line); vertical-align:middle}
+th{font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-500); font-weight:700}
+tbody tr:hover{background:var(--surface-2)}
+.mono{font-family:var(--font-mono); font-size:12px}
+.num{font-family:var(--font-mono); font-weight:700; font-variant-numeric:tabular-nums}
+.tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:var(--r-full); letter-spacing:.3px}
+.tag.pass{background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok)}
+.tag.fail{background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger)}
+.tag.warn2{background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn)}
+.dot{display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:7px; vertical-align:-2px; border:1px solid rgba(0,0,0,.14)}
+
+/* ---------- 字阶 / 间距 ---------- */
+.spec{display:flex; align-items:baseline; gap:14px; padding:11px 0; border-bottom:1px dashed var(--site-line)}
+.spec:last-child{border-bottom:0}
+.spec .tk{font-family:var(--font-mono); font-size:11.5px; color:var(--brand); width:150px; flex:0 0 auto; font-weight:700}
+.spec .demo{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.spec .val{font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500); flex:0 0 auto}
+.sp-row{display:flex; align-items:center; gap:12px; padding:7px 0}
+.sp-bar{height:14px; border-radius:4px; background:var(--brand); opacity:.85}
+.sp-lb{font-family:var(--font-mono); font-size:11.5px; color:var(--ink-500); width:64px; flex:0 0 auto}
+.rad{display:flex; gap:12px; flex-wrap:wrap}
+.rad div{text-align:center}
+.rad .box{width:74px; height:52px; background:var(--surface-2); border:1px solid var(--line-strong); margin-bottom:6px}
+.rad span{font-family:var(--font-mono); font-size:11px; color:var(--ink-500); display:block}
+
+/* ---------- 组件演示 ---------- */
+.demo-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px}
+.dz{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); padding:16px; display:flex; flex-direction:column; gap:12px}
+.dz-t{font-size:11.5px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--ink-500)}
+.dz-row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+
+/* 按钮 */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  min-height:44px; padding:0 18px; border:0; border-radius:9px;
+  font:inherit; font-size:14.5px; font-weight:600; cursor:pointer;
+  transition:all var(--dur-fast) var(--ease); -webkit-tap-highlight-color:transparent;
+}
+.btn:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.btn:active{transform:translateY(1px)}
+.btn-p{background:var(--brand); color:var(--on-brand)}
+.btn-p:hover{background:var(--brand-600)}
+.btn-s{background:var(--surface-2); color:var(--ink-900)}
+.btn-s:hover{background:var(--line)}
+.btn-g{background:transparent; color:var(--brand); padding:0 12px}
+.btn-g:hover{background:var(--brand-50)}
+.btn-d{background:var(--danger); color:#fff}
+.btn-d:hover{filter:brightness(1.08)}
+.btn[disabled]{opacity:.5; cursor:not-allowed; pointer-events:none}
+.btn.sm{min-height:36px; font-size:13.5px; padding:0 14px}
+.btn.blk{width:100%}
+.btn-load{position:relative; color:transparent !important}
+.btn-load::after{content:""; position:absolute; width:16px; height:16px; border-radius:50%; border:2px solid currentColor; border-top-color:transparent; animation:spin .7s linear infinite; color:var(--on-brand)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 输入框 */
+.f{display:block}
+.f-lb{display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--ink-700)}
+.f-in{
+  display:block; width:100%; min-height:44px; padding:10px 12px;
+  font:inherit; font-size:15px; color:var(--ink-900);
+  background:var(--surface); border:1px solid var(--line-strong); border-radius:9px;
+  transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease);
+}
+.f-in::placeholder{color:var(--ink-400)}
+.f-in:focus{outline:0; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-50)}
+.f-in:disabled{background:var(--surface-2); color:var(--ink-400)}
+.f-in.err{border-color:var(--danger)}
+.f-hlp{font-size:12px; color:var(--ink-500); margin-top:6px}
+.f-hlp.err{color:var(--danger); font-weight:600}
+
+/* 列表行（navCell 真机规格） */
+.navcell{
+  display:flex; align-items:center; gap:12px; width:100%;
+  min-height:54px; padding:0 14px; border:0; border-radius:14px;
+  background:var(--surface); color:var(--ink-900);
+  font:inherit; font-size:15.5px; font-weight:600; text-align:left; cursor:pointer;
+  transition:background var(--dur-fast) var(--ease); -webkit-tap-highlight-color:transparent;
+}
+.navcell:hover{background:var(--surface-2)}
+.navcell:active{background:var(--surface-2); transform:scale(.995)}
+.navcell:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.navcell .ic{flex:0 0 auto; width:18px; height:18px; color:var(--ink-500); display:flex; align-items:center; justify-content:center}
+.navcell .lb{flex:1 1 auto; min-width:0; margin-left:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.navcell .flag{font-size:11px; font-weight:700; padding:3px 8px; border-radius:var(--r-full); background:var(--brand-50); color:var(--brand); flex:0 0 auto}
+.navcell .flag.need{background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn)}
+.navcell .ar{flex:0 0 auto; color:var(--ink-400); display:flex}
+.navlist{display:flex; flex-direction:column; gap:8px}
+
+/* 抽屉行 */
+.drawer-row{
+  display:flex; align-items:center; gap:10px; width:100%; min-height:40px;
+  padding:0 10px; border:0; border-radius:var(--r-sm); background:transparent;
+  color:var(--ink-700); font:inherit; font-size:14px; font-weight:500; text-align:left; cursor:pointer;
+}
+.drawer-row:hover,.drawer-row:active{background:var(--surface-2)}
+.drawer-row .ic{width:18px; height:18px; color:var(--ink-500); display:flex; flex:0 0 auto}
+
+/* 开关 */
+.sw2{appearance:none; width:46px; height:28px; border-radius:999px; background:var(--line); position:relative; cursor:pointer; transition:background var(--dur-fast) var(--ease); flex:0 0 auto; border:0}
+.sw2::after{content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; box-shadow:var(--shadow-1); transition:transform var(--dur-fast) var(--ease)}
+.sw2:checked{background:var(--brand)}
+.sw2:checked::after{transform:translateX(18px)}
+.sw2:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+
+/* 徽标 / Toast / 空态 / 骨架 */
+.pill{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:var(--r-full)}
+.pill.ok{background:color-mix(in srgb,var(--ok) 16%,transparent); color:var(--ok)}
+.pill.warn2{background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn)}
+.pill.err{background:color-mix(in srgb,var(--danger) 16%,transparent); color:var(--danger)}
+.pill.info{background:var(--brand-50); color:var(--brand)}
+
+.toast{
+  display:flex; align-items:center; gap:10px; max-width:340px;
+  background:var(--ink-900); color:var(--bg);
+  border-radius:var(--r-md); padding:12px 14px; font-size:13.5px; font-weight:600;
+  box-shadow:var(--shadow-3);
+}
+.empty{text-align:center; padding:26px 16px; color:var(--ink-500)}
+.empty svg{color:var(--ink-400); margin-bottom:10px}
+.empty .t{font-size:14.5px; font-weight:700; color:var(--ink-700); margin-bottom:4px}
+.empty .d{font-size:13px}
+.sk{background:var(--surface-2); border-radius:6px; height:12px; animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.bar{height:6px; border-radius:999px; background:var(--surface-2); overflow:hidden}
+.bar>i{display:block; height:100%; background:var(--brand); border-radius:999px}
+
+/* ---------- 手机稿 ---------- */
+.phones{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:22px}
+.shot{display:flex; flex-direction:column; align-items:center; gap:10px}
+.phone{
+  width:300px; height:640px; border-radius:34px; overflow:hidden; position:relative;
+  background:var(--bg); border:1px solid var(--site-line);
+  box-shadow:var(--shadow-3); display:flex; flex-direction:column;
+}
+.pbar{
+  height:26px; flex:0 0 auto; background:var(--sysbar);
+  display:flex; align-items:center; justify-content:space-between; padding:0 12px;
+  font-size:10.5px; font-weight:700; color:var(--ink-900);
+}
+.pbar .dots{display:flex; gap:3px; align-items:center}
+.pbar .dots i{width:3px; height:8px; background:currentColor; border-radius:1px; display:block; opacity:.9}
+.pbody{flex:1; overflow:hidden; position:relative; display:flex; flex-direction:column}
+.cap{font-size:12.5px; color:var(--ink-500); text-align:center; max-width:300px}
+.cap b{color:var(--ink-900)}
+
+/* 启动页 */
+.splash{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 32px; text-align:center; gap:0}
+.splash .logo{width:72px; height:72px; border-radius:18px; background:linear-gradient(135deg,var(--brand),var(--brand-600)); box-shadow:var(--shadow-2); display:flex; align-items:center; justify-content:center; color:var(--on-brand); font-size:30px; font-weight:800; margin-bottom:20px}
+.splash .ti{font-size:26px; font-weight:700; letter-spacing:.3px; margin-bottom:10px}
+.splash .st{font-size:14px; color:var(--ink-500); font-weight:400}
+.splash .rule{width:120px; height:3px; border-radius:2px; background:linear-gradient(90deg,var(--brand),transparent); margin-top:22px}
+
+/* 首页 */
+.home{padding:6px 16px 16px; display:flex; flex-direction:column; gap:14px; flex:1}
+.ham{width:44px; height:44px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:transparent; color:var(--ink-900); border:0; cursor:pointer}
+.ham:hover{background:var(--surface-2)}
+.hero{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-xl); padding:16px; box-shadow:var(--shadow-1)}
+.hero .q{font-size:15px; font-weight:600; color:var(--ink-900); margin-bottom:10px}
+.hero .inp{min-height:44px; border:1px solid var(--line-strong); border-radius:12px; padding:0 12px; display:flex; align-items:center; font-size:13.5px; color:var(--ink-400)}
+.hero .acts{display:flex; justify-content:space-between; align-items:center; margin-top:12px}
+.hero .send{width:36px; height:36px; border-radius:50%; background:var(--brand); color:var(--on-brand); display:flex; align-items:center; justify-content:center}
+.chips{display:flex; gap:8px; flex-wrap:wrap}
+.chip2{font-size:12px; font-weight:600; padding:7px 12px; border-radius:var(--r-full); background:var(--surface-2); color:var(--ink-700); border:1px solid var(--line)}
+.sec-t{font-size:12px; font-weight:700; color:var(--ink-500); letter-spacing:.4px}
+.sess{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:12px}
+.sess .n{font-size:14px; font-weight:600; margin-bottom:3px}
+.sess .m{font-size:11.5px; color:var(--ink-500)}
+
+/* 设置页 */
+.set{padding:8px 16px 16px; flex:1; display:flex; flex-direction:column; gap:6px}
+.set h4{font-size:19px; font-weight:700; margin:6px 0 10px}
+.inj{position:relative}
+.inj::after{content:"注入项"; position:absolute; right:10px; top:-7px; font-size:9px; font-weight:700; background:var(--brand); color:var(--on-brand); padding:1px 6px; border-radius:999px}
+
+/* 市场页 */
+.mkt{padding:8px 16px 16px; flex:1; display:flex; flex-direction:column; gap:12px}
+.mkt-bar{display:flex; align-items:center; gap:8px}
+.mkt-bar .bk{width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; border:0; background:transparent; color:var(--ink-900); cursor:pointer}
+.mkt-bar .bk:hover{background:var(--surface-2)}
+.mkt-bar b{flex:1; font-size:16px}
+.pcards{display:flex; flex-direction:column; gap:10px}
+.pcard{display:flex; gap:12px; align-items:center; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:12px}
+.pcard .pi{width:40px; height:40px; border-radius:10px; background:var(--brand-50); color:var(--brand); display:flex; align-items:center; justify-content:center; flex:0 0 auto}
+.pcard .pn{font-size:14px; font-weight:600}
+.pcard .pd{font-size:11.5px; color:var(--ink-500); margin-top:2px; line-height:1.4}
+.pcard .pb{margin-left:auto; flex:0 0 auto}
+
+/* 浮层 */
+.ov{position:absolute; inset:0; background:var(--scrim); display:flex; align-items:flex-end; justify-content:center; padding:12px}
+.ov-card{width:100%; max-width:520px; max-height:78vh; background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--shadow-3); overflow:hidden; display:flex; flex-direction:column}
+.ov-bar{display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line)}
+.ov-bar .bk{width:36px; height:36px; border-radius:10px; border:0; background:transparent; color:var(--ink-900); display:flex; align-items:center; justify-content:center; cursor:pointer}
+.ov-bar .bk:hover{background:var(--surface-2)}
+.ov-bar b{flex:1; text-align:center; font-size:15px}
+.ov-bar .sp{width:36px}
+.ov-body{padding:14px; overflow-y:auto}
+.ov-hd{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+.ov-hd span{font-size:15px; font-weight:700}
+.ov-hd .dev{font-size:11px; color:var(--ink-500)}
+.tip{font-size:12px; color:var(--ink-500); line-height:1.5; margin-bottom:12px; background:var(--surface-2); border-radius:var(--r-sm); padding:9px 10px}
+.ov-acts{display:flex; gap:8px; margin-top:12px}
+.ov-acts .btn{flex:1}
+.st-line{font-size:12px; color:var(--ink-500); margin-top:10px}
+.st-line.err{color:var(--danger); font-weight:600}
+.rows{display:flex; flex-direction:column; gap:8px}
+.row{display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface)}
+.row .rn{font-size:13.5px; font-weight:600; flex:1}
+.row .rm{font-size:11px; color:var(--ink-500)}
+
+/* 标注 */
+.note{
+  font-size:11.5px; color:var(--ink-500); background:var(--surface-2);
+  border-left:3px solid var(--brand); border-radius:0 6px 6px 0; padding:8px 10px; margin-top:10px; line-height:1.55;
+}
+.note b{color:var(--ink-900)}
+kbd{font-family:var(--font-mono); font-size:11px; background:var(--surface-2); border:1px solid var(--site-line); border-radius:4px; padding:1px 5px}
+
+/* Toast 演示位 */
+#toastHost{position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:99; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none}
+footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:var(--ink-500); font-size:12.5px; border-top:1px solid var(--site-line)}
+
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important; transition-duration:.01ms !important}}
+</style>
+</head>
+<body>
+
+<header class="site-hd">
+  <div class="hd-in">
+    <div>
+      <h1 class="hd-t">DSH Phone · UI 设计系统与设计稿</h1>
+      <p class="hd-s">基于 <b>mobile.css</b> 的 <span class="mono">--ds-*</span> 变量、<b>DshPalette.java</b> 原生取色与 <b>mobile.js</b> 注入结构反推 · 对比度由 WCAG 2.1 公式实算</p>
+    </div>
+    <div class="hd-sp"></div>
+    <span class="chip">版本 <b>r104</b></span>
+    <span class="chip">基线 <b>390×844</b></span>
+    <div class="tgl" role="group" aria-label="主题切换">
+      <button type="button" data-theme-btn="light" aria-pressed="true">浅色</button>
+      <button type="button" data-theme-btn="dark" aria-pressed="false">深色</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <a href="#foundations" class="on">01 设计基础</a>
+    <a href="#color">02 色彩系统</a>
+    <a href="#type">03 字阶与度量</a>
+    <a href="#components">04 组件库</a>
+    <a href="#screens">05 页面设计稿</a>
+    <a href="#a11y">06 无障碍审计</a>
+    <a href="#handoff">07 交付规范</a>
+    <a href="#gap">08 落地差距</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ============ 01 设计基础 ============ -->
+<section id="foundations">
+  <h2><span class="idx">01</span>设计基础</h2>
+  <p class="lead">DSH Phone 的界面由两层构成：<b>原生壳</b>（启动页 + 系统栏 + WebView）与 <b>dsh 页面</b>（WebView 内 SPA）。设计系统的首要任务不是"好看"，而是让这两层在深浅色切换时不出现割裂——r79/r103/r104 三代修复全部源于此。</p>
+
+  <div class="grid g3">
+    <div class="card">
+      <h3 style="margin-top:0">主题判定：两段式</h3>
+      <p style="font-size:13.5px;color:var(--ink-700);margin:0">
+        启动页阶段 WebView 尚未加载，读不到 dsh 主题 → 按系统 <kbd>uiMode</kbd> 猜测；
+        页面加载完成后由 <span class="mono">detectDark()</span> 回传真实主题并修正、落盘供下次冷启动。
+      </p>
+      <div class="note"><b>铁律：</b>缓存只能由<b>权威信号</b>覆盖系统。探测失败时宁可跟随系统，也不能把一次错误的猜测固化（r79 真机因此出现过"浅色启动页 + 深色页面"）。</div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">系统栏与首页必须同色</h3>
+      <p style="font-size:13.5px;color:var(--ink-700);margin:0">
+        深色下系统栏取 <span class="mono">#151517</span>（真机取样自 dsh 首页），而启动页底是 <span class="mono">#141B23</span>。
+        两者<b>刻意分开</b>：一个对齐首页、一个属于我们自己。
+      </p>
+      <div class="note">两者相差 R=1 / B=5，但大面积纯色相邻时肉眼可见"发蓝"——这正是 r104 修复的问题。首页改底色时必须重新量一次。</div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">注入层的三条铁律</h3>
+      <p style="font-size:13.5px;color:var(--ink-700);margin:0 0 8px">我们的 UI 是<b>注入</b>到 React 应用里的，不是自己的页面：</p>
+      <div style="font-size:13px;color:var(--ink-700);line-height:1.75">
+        ① 类名带 <span class="mono">dshmine_</span> 前缀，且<b>内含</b> <span class="mono">_navCell</span> 等子串以复用 dsh 原生样式；<br>
+        ② <b>append-only</b>——绝不移动/删除 dsh 的节点；<br>
+        ③ 幂等标记 <span class="mono">data-dsh-*</span> 挂在<b>我们自己创建的节点</b>上。
+      </div>
+      <div class="note">r78 的图标消失就是违反 ③：标记挂在 dsh 节点上，React 重渲染清空子节点但保留属性 → 标记在、内容没了 → 幂等早退，永远补不回来。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 色彩 ============ -->
+<section id="color">
+  <h2><span class="idx">02</span>色彩系统</h2>
+  <p class="lead">下面每个色值都对应代码里的真实 token（点击色卡可复制 hex）。浅色取自 <span class="mono">mobile.css</span> 的 <span class="mono">body{}</span> 变量段，深色取自 <span class="mono">[data-ds-dark-theme]</span> 段。</p>
+
+  <h3>浅色主题 · 中性色与品牌色</h3>
+  <div class="swatches" id="swLight"></div>
+
+  <h3>深色主题 · 中性色与品牌色</h3>
+  <div class="swatches" id="swDark"></div>
+
+  <h3>语义色（项目当前缺失，本设计稿补齐）</h3>
+  <div class="swatches" id="swSem"></div>
+  <div class="note">语义色用于同步状态、安装结果、错误提示等<b>状态表达</b>。此前项目只有品牌蓝，导致"同步失败"和"同步成功"只能靠文案区分——补齐后状态可被颜色先读出来。四色在两套主题下对比度均 ≥5:1。</div>
+
+  <h3>对比度实测（WCAG 2.1，含 sRGB 伽马线性化）</h3>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>用途</th><th>色值</th><th>on 页面底</th><th>on 卡片底</th><th>AA 正文 ≥4.5</th><th>结论</th></tr></thead>
+      <tbody id="crBody"></tbody>
+    </table>
+  </div>
+
+  <h3>⚠️ 实测发现的三个真问题</h3>
+  <div class="grid g3">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag fail">BUG</span><b style="font-size:14px">Java 对比度公式算错</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0">
+        <span class="mono">DshPalette.lum()</span> 只做了线性加权，<b>缺 sRGB 伽马线性化</b>，导致数值系统性偏低：
+        <span class="mono">#0D1B2E</span> 实为 <b>16.41:1</b> 却被算成 6.86:1。
+      </p>
+      <div class="note">危害方向是<b>误杀</b>：真实达标的设计稿色会被判 FAIL，逼着把颜色改深。建议补上伽马校正后再做回归。</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag warn2">层级</span><b style="font-size:14px">弱化色过黑，"弱化"失效</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0">
+        现用 <span class="mono">L_MUTED #2C2D35</span>（12.98:1）与正文 <span class="mono">#0D1B2E</span>（16.41:1）几乎同深度，层级差被抹平。
+      </p>
+      <div class="note">建议改用 <span class="mono">--ds-ink-500 #5A6D84</span>（<b>5.03:1</b>）：仍过 AA，且明显弱于正文——既合规又保住了层级。</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag fail">FAIL</span><b style="font-size:14px">深色品牌按钮不能配白字</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0">
+        深色下品牌色变亮（<span class="mono">#5AA9F5</span>），白字在其上只有 <b>2.49:1</b>，远低于 4.5:1。
+      </p>
+      <div class="note">深色品牌的按钮文字必须用 <span class="mono">#0D1B2E</span>（<b>6.95:1</b>）。浅色下则相反——白字 on <span class="mono">#1466B8</span> = 5.80:1 达标。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 字阶与度量 ============ -->
+<section id="type">
+  <h2><span class="idx">03</span>字阶与度量</h2>
+  <p class="lead">字号不是随手定的：真机里 <span class="mono">navCell</span> 是 15.5px、抽屉行 14px、启动页标题 26px BOLD、状态行 14px（r79 从 12px 上调——弱化层级改由字号与字重表达，不再靠压低对比度）。</p>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">字阶</h3>
+      <div class="spec"><span class="tk">display / 26 / 700</span><span class="demo" style="font-size:26px;font-weight:700">DSH Phone</span><span class="val">启动页标题</span></div>
+      <div class="spec"><span class="tk">title / 19 / 700</span><span class="demo" style="font-size:19px;font-weight:700">设置</span><span class="val">页面标题</span></div>
+      <div class="spec"><span class="tk">body-strong / 15.5 / 600</span><span class="demo" style="font-size:15.5px;font-weight:600">插件市场</span><span class="val">列表行标题</span></div>
+      <div class="spec"><span class="tk">body / 14 / 500</span><span class="demo" style="font-size:14px;font-weight:500">插件 · 工作区</span><span class="val">抽屉行</span></div>
+      <div class="spec"><span class="tk">body / 14 / 400</span><span class="demo" style="font-size:14px">正在准备运行环境…</span><span class="val">启动页状态</span></div>
+      <div class="spec"><span class="tk">caption / 12 / 400</span><span class="demo" style="font-size:12px;color:var(--ink-500)">上次同步：上传 3 · 下载 1</span><span class="val">辅助说明</span></div>
+      <div class="spec"><span class="tk">micro / 11 / 400</span><span class="demo" style="font-size:11px;color:var(--ink-500)">本机：dsh-phone-a1b2</span><span class="val">设备标识</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">间距（4pt 栅格）</h3>
+      <div class="sp-row"><span class="sp-lb">4px</span><span class="sp-bar" style="width:4px"></span><span style="font-size:12px;color:var(--ink-500)">图标与文字的最小间隙</span></div>
+      <div class="sp-row"><span class="sp-lb">8px</span><span class="sp-bar" style="width:8px"></span><span style="font-size:12px;color:var(--ink-500)">列表行间距 / 浮层按钮间距</span></div>
+      <div class="sp-row"><span class="sp-lb">12px</span><span class="sp-bar" style="width:12px"></span><span style="font-size:12px;color:var(--ink-500)">卡片内边距 / 浮层边距</span></div>
+      <div class="sp-row"><span class="sp-lb">16px</span><span class="sp-bar" style="width:16px"></span><span style="font-size:12px;color:var(--ink-500)">页面左右安全边距</span></div>
+      <div class="sp-row"><span class="sp-lb">24px</span><span class="sp-bar" style="width:24px"></span><span style="font-size:12px;color:var(--ink-500)">区块间距</span></div>
+      <div class="sp-row"><span class="sp-lb">32px</span><span class="sp-bar" style="width:32px"></span><span style="font-size:12px;color:var(--ink-500)">启动页左右留白</span></div>
+      <h3 style="margin-top:20px">圆角</h3>
+      <div class="rad">
+        <div><div class="box" style="border-radius:8px"></div><span>8 · 抽屉行</span></div>
+        <div><div class="box" style="border-radius:9px"></div><span>9 · 输入/按钮</span></div>
+        <div><div class="box" style="border-radius:14px"></div><span>14 · 列表行</span></div>
+        <div><div class="box" style="border-radius:16px"></div><span>16 · 卡片/浮层</span></div>
+        <div><div class="box" style="border-radius:22px"></div><span>22 · 输入主卡</span></div>
+        <div><div class="box" style="border-radius:999px"></div><span>full · 胶囊</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>关键尺寸与层级</h3>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>对象</th><th>规格</th><th>来源 / 说明</th></tr></thead>
+      <tbody>
+        <tr><td>列表行 <span class="mono">navCell</span></td><td class="num">高 54px · 圆角 14 · 字 15.5/600</td><td>与 dsh 原生项同款；图标 18px，标题左边距 <b>64px</b>，右侧 chevron 16px</td></tr>
+        <tr><td>抽屉行</td><td class="num">高 40px · 圆角 8 · gap 10</td><td><span class="mono">#dsh-sb-plugin</span> / <span class="mono">#dsh-sb-export</span>；图标 18px</td></tr>
+        <tr><td>顶部汉堡 <span class="mono">#dsh-mbtn</span></td><td class="num">44×44 触控</td><td>抽屉打开时切为"收起"图标并钉在 logo 同一水平线</td></tr>
+        <tr><td>浮层卡片</td><td class="num">max-width 520 · max-height 78vh · 圆角 16</td><td>遮罩 <span class="mono">rgba(13,27,46,.42)</span>；阴影 <span class="mono">0 8px 28px rgba(13,27,46,.22)</span></td></tr>
+        <tr><td>启动页</td><td class="num">logo 72 · 标题 26/700 · 渐变线 120×3</td><td>渐变末端必须用<b>底色透明</b>（深底用白透明会泛白雾）</td></tr>
+        <tr><td>系统栏（深）</td><td class="mono">#151517</td><td>= dsh 首页实测背景；与启动页底 <span class="mono">#141B23</span> 分工不同</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>z-index 层级</h3>
+  <div class="card">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <span class="pill info">抽屉 60 / 侧栏 62</span>
+      <span class="pill info">顶栏 61（抽屉开时 65）</span>
+      <span class="pill info">市场页 65</span>
+      <span class="pill info">导出浮层 80</span>
+      <span class="pill info">同步浮层 82</span>
+      <span class="pill info">Toast 99</span>
+    </div>
+    <div class="note" style="margin-top:12px">浮层必须高于抽屉与顶栏，否则会被压在下面；新增浮层时请在 80+ 区间取号，并在<span class="mono">mobile.css</span> 注释里登记，避免两个浮层抢同一层。</div>
+  </div>
+</section>
+
+<!-- ============ 04 组件 ============ -->
+<section id="components">
+  <h2><span class="idx">04</span>组件库</h2>
+  <p class="lead">所有交互元素最小触控尺寸 <b>44×44</b>；列表行与抽屉行例外（54 / 40px 高，但整行可点，宽度撑满，实际触控面积远超阈值）。</p>
+
+  <h3>按钮</h3>
+  <div class="demo-grid">
+    <div class="dz">
+      <span class="dz-t">变体</span>
+      <div class="dz-row">
+        <button class="btn btn-p">保存并同步</button>
+        <button class="btn btn-s">立即同步</button>
+        <button class="btn btn-g">取消</button>
+        <button class="btn btn-d">删除</button>
+      </div>
+      <div class="dz-row">
+        <button class="btn btn-p sm">小尺寸</button>
+        <button class="btn btn-s sm">小尺寸</button>
+      </div>
+    </div>
+    <div class="dz">
+      <span class="dz-t">状态</span>
+      <div class="dz-row">
+        <button class="btn btn-p" disabled>禁用</button>
+        <button class="btn btn-p btn-load">加载中</button>
+        <button class="btn btn-p">聚焦态</button>
+      </div>
+      <div class="dz-row"><button class="btn btn-p blk">整宽按钮（浮层主行动）</button></div>
+    </div>
+  </div>
+  <div class="note"><b>深色注意：</b>品牌按钮在深色下文字色自动切为 <span class="mono">#0D1B2E</span>（白字只有 2.49:1）。上排按钮可切到深色主题直接验证。</div>
+
+  <h3>表单</h3>
+  <div class="demo-grid">
+    <div class="dz">
+      <span class="dz-t">默认 / 聚焦</span>
+      <label class="f"><span class="f-lb">WebDAV 地址</span><input class="f-in" type="url" placeholder="http://192.168.1.10:5005"></label>
+      <label class="f"><span class="f-lb">间隔（秒）</span><input class="f-in" type="number" value="60"><span class="f-hlp">最小 30 秒，仅局域网生效</span></label>
+    </div>
+    <div class="dz">
+      <span class="dz-t">错误 / 禁用</span>
+      <label class="f"><span class="f-lb">账号</span><input class="f-in err" value="admin" aria-invalid="true"><span class="f-hlp err">连接失败：请检查地址与端口</span></label>
+      <label class="f"><span class="f-lb">设备标识</span><input class="f-in" value="dsh-phone-a1b2" disabled><span class="f-hlp">自动生成，不可修改</span></label>
+    </div>
+  </div>
+  <div class="note"><b>坑：</b>输入框必须 <span class="mono">box-sizing:border-box</span>。<span class="mono">width:100%</span> + padding + border 在 content-box 下会横向溢出约 22px（r76 实测）。边框色用 <span class="mono">--line-strong</span>（浅 <span class="mono">#7A8CA0</span> / 深 <span class="mono">#55677E</span>，≥3:1），装饰分隔线才用 <span class="mono">--line</span>。</div>
+
+  <h3>列表行与抽屉行</h3>
+  <div class="demo-grid">
+    <div class="dz">
+      <span class="dz-t">设置列表行（54px）</span>
+      <div class="navlist">
+        <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="lb">插件市场</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+        <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg></span><span class="lb">模型</span><span class="flag need">未配置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+        <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></span><span class="lb">插件</span><span class="flag">12 个</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+      </div>
+    </div>
+    <div class="dz">
+      <span class="dz-t">抽屉行（40px）· 开关 · 徽标</span>
+      <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>新会话</button>
+      <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></span>插件</button>
+      <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span>工作区</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+        <span style="font-size:13.5px;font-weight:600;flex:1">自动同步</span>
+        <input class="sw2" type="checkbox" checked aria-label="自动同步">
+      </div>
+      <div class="dz-row" style="margin-top:6px">
+        <span class="pill ok">已同步</span><span class="pill warn2">冲突 2 份</span><span class="pill err">连接失败</span><span class="pill info">本地</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>反馈：进度 / 空态 / 骨架 / Toast</h3>
+  <div class="demo-grid">
+    <div class="dz">
+      <span class="dz-t">进度与骨架</span>
+      <div class="bar"><i style="width:62%"></i></div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="sk" style="width:80%"></div><div class="sk" style="width:96%"></div><div class="sk" style="width:64%"></div>
+      </div>
+    </div>
+    <div class="dz">
+      <span class="dz-t">空状态</span>
+      <div class="empty">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7h18M3 12h18M3 17h12"/></svg>
+        <div class="t">还没有导出记录</div>
+        <div class="d">选择要导出的内容，系统会打包为一个文件</div>
+      </div>
+    </div>
+    <div class="dz">
+      <span class="dz-t">Toast</span>
+      <button class="btn btn-s" data-toast="已保存同步配置">显示 Toast</button>
+      <div class="toast"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>已保存同步配置</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 页面稿 ============ -->
+<section id="screens">
+  <h2><span class="idx">05</span>页面设计稿</h2>
+  <p class="lead">六张关键页面稿，按真机结构还原（390×844 等比缩至 300×640）。切到深色主题可同时预览两套稿——注意<b>系统栏颜色随页面走</b>，这正是 r104 的修复点。</p>
+
+  <div class="phones">
+
+    <!-- 启动页 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="splash">
+            <div class="logo">D</div>
+            <div class="ti">DSH Phone</div>
+            <div class="st">正在准备运行环境…</div>
+            <div class="rule"></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>启动页</b> · logo 72 / 标题 26 BOLD / 状态 14 / 渐变线 120×3</div>
+    </div>
+
+    <!-- 首页 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="home">
+            <button class="ham" aria-label="打开侧边栏"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+            <div class="hero">
+              <div class="q">今天想做什么？</div>
+              <div class="inp">给 DSH 下达指令…</div>
+              <div class="acts">
+                <div class="chips"><span class="chip2">写代码</span><span class="chip2">查资料</span></div>
+                <div class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+              </div>
+            </div>
+            <div class="sec-t">最近会话</div>
+            <div class="sess"><div class="n">插件市场改造</div><div class="m">2 小时前 · 12 条消息</div></div>
+            <div class="sess"><div class="n">NAS 同步方案</div><div class="m">昨天 · 34 条消息</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>首页</b> · 输入主卡圆角 22 · 汉堡 44×44 纯图标（无胶囊底）</div>
+    </div>
+
+    <!-- 设置页 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="set">
+            <h4>设置</h4>
+            <div class="navlist">
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="lb">插件市场</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg></span><span class="lb">模型</span><span class="flag need">未配置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span><span class="lb">插件</span><span class="flag">12 个</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span><span class="lb">Agent 预设</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <div class="inj"><button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span><span class="lb">NAS 同步</span><span class="flag">已配置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>设置列表</b> · 前四项为 dsh 原生，<b>NAS 同步为注入项</b>（r76：配置类功能的归宿是设置列表，不是导出面板）</div>
+    </div>
+
+    <!-- 市场页 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="mkt">
+            <div class="mkt-bar">
+              <button class="bk" aria-label="返回"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+              <b>插件市场</b><span style="width:36px"></span>
+            </div>
+            <input class="f-in" placeholder="搜索插件…" style="min-height:38px;font-size:13.5px">
+            <div class="chips"><span class="chip2">全部</span><span class="chip2">已安装</span><span class="chip2">工具</span></div>
+            <div class="pcards">
+              <div class="pcard"><span class="pi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></span><div><div class="pn">adapter-discord</div><div class="pd">接入 Discord 消息平台</div></div><button class="btn btn-p sm pb">安装</button></div>
+              <div class="pcard"><span class="pi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/></svg></span><div><div class="pn">plugin-schedule</div><div class="pd">定时触发任务</div></div><button class="btn btn-s sm pb">已安装</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>插件市场</b> · 图标补齐到 dsh 原生空 <span class="mono">_navIcon</span> 占位（r77/r78）</div>
+    </div>
+
+    <!-- 同步浮层 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="ov">
+            <div class="ov-card">
+              <div class="ov-bar"><button class="bk" aria-label="返回"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><b>NAS 同步</b><span class="sp"></span></div>
+              <div class="ov-body">
+                <div class="ov-hd"><span>NAS 同步</span><span class="dev">本机：dsh-phone-a1b2</span></div>
+                <div class="tip">把会话与工作区数据同步到 NAS（建议飞牛 WebDAV）。不同步插件与运行环境 —— 那些是平台相关的。</div>
+                <label class="f"><span class="f-lb">WebDAV 地址</span><input class="f-in" value="http://192.168.1.10:5005"></label>
+                <label class="f" style="margin-top:10px"><span class="f-lb">账号</span><input class="f-in" value="dsh"></label>
+                <label class="f" style="margin-top:10px"><span class="f-lb">密码（留空表示不修改）</span><input class="f-in" type="password" value="••••••"></label>
+                <label class="f" style="margin-top:10px"><span class="f-lb">间隔（秒）</span><input class="f-in" value="60"></label>
+                <div class="ov-acts"><button class="btn btn-p">保存并同步</button><button class="btn btn-s">立即同步</button></div>
+                <div class="st-line">上次同步：上传 3 · 下载 1 · 冲突保留 2 份</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>NAS 同步浮层</b> · 整屏卡片 z-index 82 · 冲突保留双份，不覆盖</div>
+    </div>
+
+    <!-- 导出浮层 -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="ov">
+            <div class="ov-card">
+              <div class="ov-bar"><button class="bk" aria-label="返回"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><b>导出数据</b><span class="sp"></span></div>
+              <div class="ov-body">
+                <div class="rows">
+                  <div class="row"><input class="sw2" type="checkbox" checked aria-label="会话"><span class="rn">会话记录</span><span class="rm">24 项</span></div>
+                  <div class="row"><input class="sw2" type="checkbox" checked aria-label="工作区"><span class="rn">工作区文件</span><span class="rm">8.2 MB</span></div>
+                  <div class="row"><input class="sw2" type="checkbox" aria-label="配置"><span class="rn">配置文件</span><span class="rm">12 KB</span></div>
+                </div>
+                <div class="ov-acts"><button class="btn btn-p">导出到文件</button></div>
+                <div class="st-line">导出文件会保存到「下载」目录，可通过 SAF 选择具体位置</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>导出数据浮层</b> · z-index 80 · r76 后同步区块已移出，回到单卡结构</div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ 06 无障碍 ============ -->
+<section id="a11y">
+  <h2><span class="idx">06</span>无障碍审计（WCAG 2.1 AA）</h2>
+  <p class="lead">目标：正文 ≥4.5:1、大字与图形 ≥3:1、触控 ≥44px。下表为<b>实算值</b>，非估算。</p>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>检查项</th><th>浅色</th><th>深色</th><th>标准</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dot" style="background:#0D1B2E"></span>正文 on 页面底</td><td class="num">16.41:1</td><td class="num">14.70:1</td><td>≥4.5</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#1E3450"></span>次要文字</td><td class="num">11.98:1</td><td class="num">11.54:1</td><td>≥4.5</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#5A6D84"></span>辅助文字 ink-500</td><td class="num">5.03:1</td><td class="num">8.11:1</td><td>≥4.5</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#8296AB"></span>弱化文字 ink-400（设计稿原值）</td><td class="num">2.89:1</td><td class="num">5.70:1</td><td>≥4.5</td><td><span class="tag fail">浅色 FAIL</span></td></tr>
+        <tr><td><span class="dot" style="background:#2C2D35"></span>弱化文字（现用 L_MUTED）</td><td class="num">12.98:1</td><td>—</td><td>≥4.5</td><td><span class="tag warn2">合规但过深</span></td></tr>
+        <tr><td><span class="dot" style="background:#1466B8"></span>品牌色作文字</td><td class="num">5.50:1</td><td class="num">6.96:1</td><td>≥4.5</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#1466B8"></span>品牌按钮上的文字</td><td class="num">5.80:1（白）</td><td class="num">6.95:1（深）</td><td>≥4.5</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#7A8CA0"></span>控件边框（输入框）</td><td class="num">3.27:1</td><td class="num">3.00:1</td><td>≥3</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td><span class="dot" style="background:#D8E1EA"></span>装饰分隔线</td><td class="num">1.25:1</td><td class="num">2.00:1</td><td>装饰豁免</td><td><span class="tag pass">豁免</span></td></tr>
+        <tr><td>触控目标</td><td colspan="2">按钮/输入 44px；列表行 54px 整行可点；汉堡 44×44</td><td>≥44</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td>焦点可见</td><td colspan="2">所有交互元素 <span class="mono">:focus-visible</span> 2px 品牌色描边 + 2px 偏移</td><td>必需</td><td><span class="tag pass">PASS</span></td></tr>
+        <tr><td>动效敏感</td><td colspan="2"><span class="mono">prefers-reduced-motion</span> 下动画与过渡归零</td><td>建议</td><td><span class="tag pass">PASS</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note" style="margin-top:14px"><b>待办两项：</b>① 修正 <span class="mono">DshPalette.lum()</span> 的伽马校正，让自检数值可信；② 把浅色弱化色从 <span class="mono">#2C2D35</span> 换为 <span class="mono">#5A6D84</span>，既过 AA 又恢复层级差。</div>
+</section>
+
+<!-- ============ 07 交付 ============ -->
+<section id="handoff">
+  <h2><span class="idx">07</span>交付规范</h2>
+  <p class="lead">改这个项目时最容易出事的地方不是配色，而是"改了 dsh 的东西"。以下为落地时的硬性约束。</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">注入铁律（违反即线上崩）</h3>
+      <ol style="font-size:13.5px;color:var(--ink-700);line-height:1.85;padding-left:20px;margin:0">
+        <li><b>不搬不删 dsh 节点</b>：React 卸载时对不在其列表里的节点 <span class="mono">removeChild</span> → <span class="mono">NotFoundError</span> 整页崩。只能 append。</li>
+        <li><b>标记挂自己创建的节点</b>：<span class="mono">data-dsh-*</span> 若挂在 dsh 节点上，React 重渲染后"标记在、内容没了"，幂等检查永远早退（r78 根因）。</li>
+        <li><b>幂等检查要同时验证内容</b>：不能只查标记存在，必须查子节点（如图标 <span class="mono">svg</span>）是否还在。</li>
+        <li><b>类名蹭子串</b>：<span class="mono">dshmine_navCell</span> 内含 <span class="mono">_navCell</span>，可复用 <span class="mono">[class*="_navCell"]</span> 规则，无需重写样式。</li>
+        <li><b>注入 button 要清默认样式</b>：<span class="mono">appearance:none;border:0;font:inherit</span>，否则多一圈灰框，看着像被选中（r77 回归）。</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">CSS 坑位清单</h3>
+      <ul style="font-size:13.5px;color:var(--ink-700);line-height:1.85;padding-left:20px;margin:0">
+        <li><span class="mono">width:100%</span> + padding + border → 必须 <span class="mono">box-sizing:border-box</span>。</li>
+        <li>flex 卡片用 <span class="mono">align-self:center</span> 会按内容收缩导致<b>宽度不等</b>；改用 <span class="mono">width:100% + max-width</span>。</li>
+        <li>深色下的渐变末端必须是<b>底色透明</b>，写死白透明会泛白雾。</li>
+        <li>Java 字符串拼接里<b>注释必须独占一行</b>；行内注释会让下一行 <span class="mono">+</span> 变一元运算符，报错却指向别处。</li>
+      </ul>
+      <h3 style="margin-top:18px">设计走查清单</h3>
+      <ul style="font-size:13.5px;color:var(--ink-700);line-height:1.85;padding-left:20px;margin:0">
+        <li>浅/深两套主题各截一次图，重点看<b>系统栏与首页交界</b>。</li>
+        <li>新增列表项后检查 label 左边距是否统一为 64px。</li>
+        <li>新增浮层后确认 z-index 不与 80/82 冲突。</li>
+        <li>改任何文字色后跑一次对比度实算，别凭肉眼。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 落地差距 ============ -->
+<section id="gap">
+  <h2><span class="idx">08</span>落地差距与路线图</h2>
+  <p class="lead">设计稿是<b>目标态</b>，不是当前实现。这一章是把 2026-10-14 的代码现状与设计稿逐项比对后的走查结果——差距全部标注了<b>归属</b>，因为有些东西我们改不了。</p>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">符合度（走查估算）</h3>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><b>色彩系统</b><span class="num">92%</span></div>
+          <div class="bar"><i style="width:92%"></i></div>
+          <div style="font-size:11.5px;color:var(--ink-500);margin-top:4px">令牌层 + 语义色容器底全部落地并实测；徽标已按 warn/info 分色</div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><b>字阶与度量</b><span class="num">95%</span></div>
+          <div class="bar"><i style="width:95%"></i></div>
+          <div style="font-size:11.5px;color:var(--ink-500);margin-top:4px">按钮实测全部 44px（导出 28→44、返回/关闭 34→44）；焦点环已全覆盖</div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><b>组件库</b><span class="num">70%</span></div>
+          <div class="bar"><i style="width:70%"></i></div>
+          <div style="font-size:11.5px;color:var(--ink-500);margin-top:4px">空状态补齐"图标+主文案+引导"、Toast 语义色统一；<b>开关仍无使用点</b></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><b>页面稿</b><span class="num">40%</span></div>
+          <div class="bar"><i style="width:40%"></i></div>
+          <div style="font-size:11.5px;color:var(--ink-500);margin-top:4px">注入部分已达标；其余由 dsh 渲染，只能覆盖样式</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">🔴 先说清楚这条边界</h3>
+      <p style="font-size:13.5px;color:var(--ink-700);margin:0 0 10px">
+        6 张页面稿里，<b>有 4 张的主体是 dsh 自己的 React 页面</b>（首页输入主卡、插件市场、设置页原生四项、页面主题切换）。
+        我们的代码是<b>注入</b>到它里面的，受铁律约束——<b>不搬不删 dsh 节点</b>，
+        所以只能覆盖样式、补齐节点，不能重写页面结构。
+      </p>
+      <div class="note">
+        因此页面稿是<b>校验基准</b>（用来判断注入的 UI 与周围是否协调），不是"照着重写一遍"的施工图。
+        把这点混为一谈，就会觉得"差得很多"却无从下手。
+      </div>
+      <h3 style="margin-top:16px">我们能 100% 落地的部分</h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span class="pill info">NAS 同步浮层</span>
+        <span class="pill info">导出数据浮层</span>
+        <span class="pill info">设置列表注入项</span>
+        <span class="pill info">抽屉插件/导出行</span>
+        <span class="pill info">市场图标与徽标</span>
+        <span class="pill info">顶栏汉堡</span>
+        <span class="pill info">启动页/系统栏</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>差距清单（按优先级）</h3>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>项目</th><th>设计稿</th><th>代码现状</th><th>优先级</th><th>归属</th></tr></thead>
+      <tbody>
+        <tr><td>导出面板按钮触控</td><td class="num">≥44px</td><td><span class="mono">padding:6px 10px</span> + 12px 字 ≈ <b>28px</b></td><td><span class="tag pass">已落地 44px</span></td><td>我们能改</td></tr>
+        <tr><td>34×34 小按钮</td><td class="num">≥44px</td><td><span class="mono">min-height:34px</span></td><td><span class="tag pass">已落地 44px</span></td><td>我们能改</td></tr>
+        <tr><td>交互元素焦点环</td><td><span class="mono">:focus-visible</span> 全覆盖</td><td>仅 navCell / 汉堡 / 关闭 3 处，<b>按钮全无</b></td><td><span class="tag pass">已补齐</span></td><td>我们能改</td></tr>
+        <tr><td>同步面板按钮高度</td><td class="num">44px</td><td class="num">40px（差 4px）</td><td><span class="tag pass">已落地 44px</span></td><td>我们能改</td></tr>
+        <tr><td>市场徽标语义</td><td>"未安装"是<b>警告态</b> → <span class="mono">--dsh-warn</span></td><td>用 <span class="mono">brand-50/600</span>（蓝色，语义错位）</td><td><span class="tag pass">已接 warn</span></td><td>我们能改</td></tr>
+        <tr><td>空状态</td><td>图标 + 主文案 + <b>引导文案</b></td><td>只有一行灰字，用户不知道下一步</td><td><span class="tag pass">已补齐</span></td><td>我们能改</td></tr>
+        <tr><td>Toast 语义色</td><td>与 <span class="mono">--dsh-*</span> 同源</td><td>4 个 kind 硬编码色值</td><td><span class="tag pass">已统一</span></td><td>我们能改</td></tr>
+        <tr><td>导出按钮圆角</td><td class="num">9px</td><td class="num">7px</td><td><span class="tag pass">已落地 9px</span></td><td>我们能改</td></tr>
+        <tr><td>冲突提示 / 信息提示</td><td>用 warn / info 语义色</td><td><span class="mono">--dsh-warn</span>、<span class="mono">--dsh-info</span> <b>0 引用</b></td><td><span class="tag warn2">待定</span></td><td>我们能改</td></tr>
+        <tr><td>开关控件</td><td>46×28 开关</td><td>代码里无 <span class="mono">switch</span> / <span class="mono">checkbox</span>，<b>也没有使用它的面板</b></td><td><span class="tag warn2">需产品决策</span></td><td>我们能改</td></tr>
+        <tr><td>首页输入主卡 / 市场卡片</td><td>圆角 22 / 卡片节奏</td><td>由 dsh 渲染</td><td>—</td><td><span class="tag warn2">dsh 原生</span></td></tr>
+        <tr><td>设置页原生四项</td><td>—</td><td>由 dsh 渲染</td><td>—</td><td><span class="tag warn2">dsh 原生</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>路线图（建议分三批）</h3>
+  <div class="grid g3">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag pass">V2-a 已完成</span><b>无障碍底线</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0 0 8px">把交互元素拉回可用线：触控 ≥44px + 焦点环全覆盖。</p>
+      <div style="font-size:12.5px;color:var(--ink-500);line-height:1.7">导出面板按钮 28→44px · 返回/关闭 34→44 · 同步按钮 40→44 · 全部 button 补 :focus-visible</div>
+      <div class="note">✓ r106 已落地，四项按钮<b>实测均为 44px</b>。新增 <span class="mono">--dsh-touch:44px</span> 令牌，不再靠各处 padding 凑高度。</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag pass">V2-b 已完成</span><b>状态语义化</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0 0 8px">让颜色先于文字传达结果：徽标/冲突/提示接上语义色。</p>
+      <div style="font-size:12.5px;color:var(--ink-500);line-height:1.7">新增 4 组语义色容器底（实算 4.74~8.00:1）· "未安装"徽标改 warn · 已就绪用 info</div>
+      <div class="note">✓ r106 已落地并两套主题实测。<b>残留</b>：同步结果里的"冲突 N 份"仍是中性色，要接 warn 需改 JS 文案渲染。</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag warn2">V2-c 部分完成</span><b>组件补齐</b></div>
+      <p style="font-size:13px;color:var(--ink-700);margin:0 0 8px">把设计稿里的组件真正做出来。</p>
+      <div style="font-size:12.5px;color:var(--ink-500);line-height:1.7">✓ 空状态补齐图标+主文案+引导 · ✓ Toast 语义色统一（并解释了为何不能用 <span class="mono">--dsh-*</span>）· ✗ 开关</div>
+      <div class="note">开关<b>没有使用它的面板</b>——没有需求就加组件是死代码，等真出现"启用/关闭某功能"的入口再做。</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  DSH Phone UI Design System · 生成于 2026-10-13 · 基线 r104 · 所有对比度数值由 WCAG 2.1 公式实算（含 sRGB 伽马线性化）
+</footer>
+
+<div id="toastHost" aria-live="polite"></div>
+
+<script>
+(function(){
+  var root=document.documentElement;
+
+  /* ---------- 主题切换 ---------- */
+  var btns=document.querySelectorAll('[data-theme-btn]');
+  function setTheme(t){
+    root.setAttribute('data-theme',t);
+    for(var i=0;i<btns.length;i++){
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-theme-btn')===t ? 'true':'false');
+    }
+    renderSwatches();
+  }
+  for(var i=0;i<btns.length;i++){
+    btns[i].addEventListener('click',function(){ setTheme(this.getAttribute('data-theme-btn')); });
+  }
+
+  /* ---------- 色板数据（全部来自项目真实 token） ---------- */
+  var LIGHT=[
+    ['--ds-ink-fb-50','#F7F9FC','页面底色','浅色全局背景；系统栏同色'],
+    ['--ds-surface-fb','#FFFFFF','卡片/浮层底','与页底仅差 1.05:1 → 靠边框与阴影分层'],
+    ['--ds-ink-fb-100','#EEF2F6','hover / 次级面','列表行按下态、tip 底色'],
+    ['--ds-ink-fb-200','#D8E1EA','分隔线','装饰性，对比度豁免'],
+    ['--ds-ink-fb-400','#8296AB','弱化文字','⚠ 2.89:1 不过 AA，仅限装饰/大字'],
+    ['--ds-ink-fb-500','#5A6D84','辅助文字','5.03:1 —— 推荐作为弱化文字'],
+    ['--ds-ink-fb-700','#1E3450','次要文字','11.98:1'],
+    ['--ds-ink-fb-900','#0D1B2E','正文/标题','16.41:1'],
+    ['--ds-brand-500','#1466B8','品牌主色','白字 5.80:1'],
+    ['--ds-brand-600','#0F5296','品牌按下','hover 态'],
+    ['--ds-brand-50','#EEF7FE','品牌浅底','选中态底色'],
+    ['border-strong','#7A8CA0','控件边框','3.27:1，输入框/勾选框用']
+  ];
+  var DARK=[
+    ['--ds-surface-fb','#141B23','页面/启动页底','我们自己的界面底（偏蓝调）'],
+    ['sysbar','#151517','系统栏','= dsh 首页实测背景，勿用 #141B23'],
+    ['--ds-ink-fb-50','#1C242F','卡片/浮层底','比页底亮一档，用于抬升'],
+    ['--ds-ink-fb-100','#26313F','hover / 次级面',''],
+    ['--ds-ink-fb-200','#3C4D61','分隔线','2.00:1，装饰性'],
+    ['--ds-ink-fb-400','#8296AB','弱化文字','深底 5.70:1，达标'],
+    ['--ds-ink-fb-500','#A3B3C6','辅助文字','8.11:1'],
+    ['--ds-ink-fb-700','#C8D4E2','次要文字','11.54:1'],
+    ['--ds-ink-fb-900','#E6EDF5','正文/标题','14.70:1'],
+    ['--ds-brand-500','#5AA9F5','品牌主色','⚠ 必须配深字，白字仅 2.49:1'],
+    ['--ds-brand-600','#8CC2F9','品牌按下',''],
+    ['border-strong','#55677E','控件边框','3.00:1']
+  ];
+  var SEM=[
+    ['success','#0F7A4A','#3DDC97','成功/已同步','浅 5.10:1 · 深 9.81:1'],
+    ['warning','#8A5300','#F5B544','警告/冲突','浅 6.00:1 · 深 9.56:1'],
+    ['danger','#B42318','#FF7A70','错误/失败','浅 6.23:1 · 深 6.83:1'],
+    ['info','#1466B8','#5AA9F5','信息/提示','浅 5.50:1 · 深 6.96:1']
+  ];
+
+  function lum(h){
+    h=h.replace('#','');
+    var r=parseInt(h.substr(0,2),16)/255,g=parseInt(h.substr(2,2),16)/255,b=parseInt(h.substr(4,2),16)/255;
+    function f(c){return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4);}
+    return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b);
+  }
+  function cr(a,b){
+    var l1=lum(a),l2=lum(b);
+    if(l1<l2){var t=l1;l1=l2;l2=t;}
+    return Math.round(((l1+0.05)/(l2+0.05))*100)/100;
+  }
+  function fgFor(hex){
+    return cr(hex,'#FFFFFF')>=cr(hex,'#0D1B2E') ? '#FFFFFF' : '#0D1B2E';
+  }
+
+  function swHtml(name,hex,usage,note){
+    return '<div class="sw" data-hex="'+hex+'" title="点击复制 '+hex+'">'
+      + '<div class="sw-f" style="background:'+hex+';color:'+fgFor(hex)+'">'+hex.toUpperCase()+'</div>'
+      + '<div class="sw-b"><div class="sw-n">'+usage+'</div>'
+      + '<div class="sw-t">'+name+'</div>'
+      + (note?'<div class="sw-u">'+note+'</div>':'')
+      + '</div></div>';
+  }
+  function renderSwatches(){
+    var isDark=root.getAttribute('data-theme')==='dark';
+    var out1='',out2='',out3='';
+    for(var i=0;i<LIGHT.length;i++){out1+=swHtml(LIGHT[i][0],LIGHT[i][1],LIGHT[i][2],LIGHT[i][3]);}
+    for(var j=0;j<DARK.length;j++){out2+=swHtml(DARK[j][0],DARK[j][1],DARK[j][2],DARK[j][3]);}
+    for(var k=0;k<SEM.length;k++){
+      var c=isDark?SEM[k][2]:SEM[k][1];
+      out3+=swHtml(SEM[k][0],c,SEM[k][3],SEM[k][4]);
+    }
+    document.getElementById('swLight').innerHTML=out1;
+    document.getElementById('swDark').innerHTML=out2;
+    document.getElementById('swSem').innerHTML=out3;
+
+    // 对比度表：按当前主题重算
+    var bg=isDark?'#141B23':'#F7F9FC';
+    var surf=isDark?'#1C242F':'#FFFFFF';
+    var rows=isDark?DARK:LIGHT;
+    var body='';
+    for(var m=0;m<rows.length;m++){
+      var hex=rows[m][1];
+      if(rows[m][0]==='sysbar'){continue;}
+      var a=cr(hex,bg),b=cr(hex,surf);
+      var isText=m>=3;
+      var std=isText?4.5:3;
+      var ok=Math.max(a,b)>=std;
+      var tag=ok?'<span class="tag pass">PASS</span>':'<span class="tag fail">FAIL</span>';
+      body+='<tr><td>'+rows[m][2]+' <span class="mono" style="color:var(--ink-500)">'+rows[m][0]+'</span></td>'
+        +'<td><span class="dot" style="background:'+hex+'"></span><span class="mono">'+hex.toUpperCase()+'</span></td>'
+        +'<td class="num">'+a.toFixed(2)+':1</td><td class="num">'+b.toFixed(2)+':1</td>'
+        +'<td class="mono">≥'+std+'</td><td>'+(isText?tag:'<span class="tag warn2">参考</span>')+'</td></tr>';
+    }
+    document.getElementById('crBody').innerHTML=body;
+  }
+  renderSwatches();
+
+  /* ---------- 点击复制色值 ---------- */
+  document.addEventListener('click',function(e){
+    var sw=e.target.closest ? e.target.closest('.sw') : null;
+    if(!sw){return;}
+    var hex=sw.getAttribute('data-hex');
+    try{
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(hex);}
+      showToast('已复制 '+hex.toUpperCase());
+    }catch(err){}
+  });
+
+  /* ---------- Toast ---------- */
+  function showToast(msg){
+    var host=document.getElementById('toastHost');
+    if(!host){return;}
+    var el=document.createElement('div');
+    el.className='toast';
+    el.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>'+msg;
+    host.appendChild(el);
+    setTimeout(function(){
+      el.style.transition='opacity 240ms, transform 240ms';
+      el.style.opacity='0'; el.style.transform='translateY(8px)';
+      setTimeout(function(){ if(el.parentNode){el.parentNode.removeChild(el);} },260);
+    },1800);
+  }
+  var tbs=document.querySelectorAll('[data-toast]');
+  for(var n=0;n<tbs.length;n++){
+    tbs[n].addEventListener('click',function(){ showToast(this.getAttribute('data-toast')); });
+  }
+
+  /* ---------- 导航高亮 ---------- */
+  var links=document.querySelectorAll('#tabs a');
+  var secs=[];
+  for(var q=0;q<links.length;q++){
+    var id=links[q].getAttribute('href').slice(1);
+    var el=document.getElementById(id);
+    if(el){secs.push({a:links[q],el:el});}
+  }
+  function onScroll(){
+    var y=window.scrollY+160,cur=secs[0];
+    for(var p=0;p<secs.length;p++){ if(secs[p].el.offsetTop<=y){cur=secs[p];} }
+    for(var r=0;r<secs.length;r++){ secs[r].a.classList.toggle('on',secs[r]===cur); }
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  onScroll();
+
+  root.setAttribute('data-js','ok');
+})();
+</script>
+</body>
+</html>

@@ -87,8 +87,18 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
   #dsh-exp-panel #dsh-exp-x:active{background:var(--ds-ink-100,#eef2f6) !important;}
   #dsh-exp-panel .dsh-exp-body{flex:1 1 auto !important;overflow-y:auto !important;
     -webkit-overflow-scrolling:touch !important;padding:4px 6px !important;}
-  #dsh-exp-panel .dsh-exp-empty{padding:26px 14px !important;text-align:center !important;
-    color:var(--ds-ink-500,#5a6d84) !important;font-size:13px !important;}
+  /* r106：空状态从"一行灰字"升级为 图标 + 主文案 + 引导文案。
+     设计稿要求空状态必须**告诉用户下一步做什么" —— 只说"暂无可导出的文件"
+     用户是不知道该干嘛的。结构（.dsh-exp-empty-ic / -t / -d）由
+     mobile.js 的 renderExportList() 空分支渲染，这里只负责样式。 */
+  #dsh-exp-panel .dsh-exp-empty{padding:30px 18px 34px !important;text-align:center !important;
+    display:flex !important;flex-direction:column !important;align-items:center !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:13px !important;line-height:1.55 !important;}
+  #dsh-exp-panel .dsh-exp-empty-ic{color:var(--ds-ink-400,#8296ab) !important;
+    margin-bottom:12px !important;display:flex !important;}
+  #dsh-exp-panel .dsh-exp-empty-t{color:var(--ds-ink-700,#1e3450) !important;
+    font-size:14px !important;font-weight:600 !important;margin-bottom:5px !important;}
+  #dsh-exp-panel .dsh-exp-empty-d{font-size:12px !important;max-width:230px !important;}
   #dsh-exp-panel .dsh-exp-list{list-style:none !important;margin:0 !important;padding:0 !important;}
   #dsh-exp-panel .dsh-exp-n{flex:1 1 auto !important;min-width:0 !important;
     white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;
@@ -105,9 +115,16 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
   /* 按钮区永远完整可见，不允许被裁 */
   #dsh-exp-panel .dsh-exp-a{flex:0 0 auto !important;display:flex !important;gap:6px !important;
     margin-left:auto !important;}
-  #dsh-exp-panel .dsh-exp-a button{border:0 !important;border-radius:7px !important;
+  /* r106：触控 28px → 44px。原写法 padding:6px 10px + 12px 字，实测高度只有约
+     28px —— 手指最宽处约 40px，这个按钮在真机上属于"经常点不中"的那类。
+     改法：min-height 用 --dsh-touch，纵向内边距交给 flex 居中（不再靠 padding 撑高），
+     圆角 7 → 9 与输入框/同步按钮统一（--dsh-radius-ctrl）。 */
+  #dsh-exp-panel .dsh-exp-a button{border:0 !important;
+    border-radius:var(--dsh-radius-ctrl,9px) !important;
     background:var(--ds-ink-100,#eef2f6) !important;color:var(--ds-ink-700,#1e3450) !important;
-    font-size:12px !important;padding:6px 10px !important;cursor:pointer !important;
+    font-size:12px !important;min-height:var(--dsh-touch,44px) !important;
+    display:inline-flex !important;align-items:center !important;justify-content:center !important;
+    padding:0 12px !important;cursor:pointer !important;
     -webkit-tap-highlight-color:transparent !important;}
   #dsh-exp-panel .dsh-exp-a button:active{background:var(--ds-ink-200,#d8e1ea) !important;}
   #dsh-exp-panel .dsh-exp-ft{padding:9px 14px calc(11px + env(safe-area-inset-bottom,0px)) !important;
@@ -123,6 +140,46 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
     overflow-x:hidden !important;}
   #dsh-exp-panel .dsh-exp-card{width:100% !important;max-width:520px !important;
     box-sizing:border-box !important;flex:0 0 auto !important;}
+
+  /* ===== 方案 A · 存储目录浮层 =====
+     视觉与导出面板保持一致（复用 .dsh-exp-card / .dsh-exp-hd / .dsh-exp-body /
+     .dsh-exp-ft / .dsh-exp-tip 那几个类），容器规则因 id 选择器作用域不能共享，
+     这里只补容器 + 本面板专属的三块（状态行 / 动作区 / 结果行）。 */
+  #dsh-safst-panel{position:fixed;inset:0;z-index:81;display:flex !important;
+    flex-direction:column !important;align-items:center !important;justify-content:flex-end !important;
+    gap:10px !important;overflow-y:auto !important;overflow-x:hidden !important;
+    background:rgba(13,27,46,.42) !important;
+    padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px)) !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  #dsh-safst-panel .dsh-exp-card{width:100% !important;max-width:520px !important;
+    box-sizing:border-box !important;flex:0 0 auto !important;display:flex !important;
+    flex-direction:column !important;background:var(--ds-surface,#fff) !important;
+    border-radius:16px !important;box-shadow:0 8px 28px rgba(13,27,46,.22) !important;
+    overflow:hidden !important;}
+  #dsh-safst-panel #dsh-safst-x{width:30px !important;height:30px !important;border:0 !important;
+    border-radius:8px !important;background:transparent !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:16px !important;cursor:pointer !important;}
+  #dsh-safst-panel .dsh-exp-body{padding:10px 14px !important;}
+  #dsh-safst-panel .dsh-safst-row{display:flex !important;align-items:flex-start !important;
+    gap:10px !important;padding:7px 0 !important;
+    border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;font-size:13px !important;}
+  #dsh-safst-panel .dsh-safst-row:last-child{border-bottom:0 !important;}
+  #dsh-safst-panel .dsh-safst-row span{flex:0 0 62px !important;
+    color:var(--ds-ink-500,#5a6d84) !important;}
+  #dsh-safst-panel .dsh-safst-row b{flex:1 1 auto !important;min-width:0 !important;
+    word-break:break-all !important;font-weight:600 !important;
+    color:var(--ds-ink-800,#22384f) !important;}
+  #dsh-safst-panel .dsh-safst-a{display:flex !important;flex-wrap:wrap !important;
+    gap:8px !important;margin-top:12px !important;}
+  #dsh-safst-panel .dsh-safst-a button{flex:1 1 auto !important;border:0 !important;
+    border-radius:9px !important;background:var(--ds-ink-100,#eef2f6) !important;
+    color:var(--ds-ink-700,#1e3450) !important;font-size:13px !important;
+    padding:9px 12px !important;cursor:pointer !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  #dsh-safst-panel .dsh-safst-a button:active{background:var(--ds-ink-200,#d8e1ea) !important;}
+  #dsh-safst-panel .dsh-safst-st{margin-top:9px !important;font-size:11.5px !important;
+    line-height:1.55 !important;color:var(--ds-ink-500,#5a6d84) !important;
+    word-break:break-all !important;}
 
   /* ===== r76 · NAS 同步浮层（从设置列表打开，独立页面语义）=====
      与导出浮层的区别：**整屏卡片 + 顶部返回条**，不是底部弹出。
@@ -165,23 +222,52 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
      clientWidth 446、input 右边界 466 超出容器，表现为输入框被裁 + 底部横向滚动条。 */
   #dsh-syc-panel .dsh-syc-f input{display:block !important;width:100% !important;
     box-sizing:border-box !important;
-    margin-top:3px !important;padding:8px 10px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;
-    border-radius:8px !important;background:var(--ds-ink-50,#f7f9fc) !important;
+    margin-top:3px !important;padding:8px 10px !important;
+    /* r105：边框从 --ds-ink-200(#d8e1ea) 换成 --dsh-line-strong。
+       原因：ink-200 在页面底上只有 1.25:1，而输入框是**可交互控件**，
+       其边界属于 WCAG 1.4.11 非文本对比（需 ≥3:1）—— 用户要靠这条边
+       看清"这里能输入"。line-strong 浅色 3.27:1 / 深色 3.00:1，达标。
+       ink-200 并未废弃：纯装饰性分隔线仍用它（装饰豁免，不需要 3:1）。 */
+    border:1px solid var(--dsh-line-strong,#7a8ca0) !important;
+    border-radius:9px !important;background:var(--ds-ink-50,#f7f9fc) !important;
     color:var(--ds-ink-900,#0f1b2e) !important;font-size:13px !important;
     -webkit-appearance:none !important;appearance:none !important;}
+  /* r105：聚焦态补上"可见焦点环"。原来只改 border-color —— 在深底上
+     品牌蓝细边框几乎看不出来，键盘/无障碍用户会丢失焦点位置。
+     现在：border 变品牌色 + 3px 品牌浅色外环（box-shadow 不占布局）。 */
   #dsh-syc-panel .dsh-syc-f input:focus{outline:none !important;
-    border-color:var(--ds-brand-500,#1466b8) !important;}
+    border-color:var(--ds-brand-500,#1466b8) !important;
+    box-shadow:0 0 0 3px var(--ds-brand-50,#eef7fe) !important;}
   #dsh-syc-panel .dsh-syc-a{display:flex !important;gap:8px !important;margin-top:9px !important;}
+  /* r105：文字色由写死的 #fff 改为 --dsh-on-brand（浅色下是白、深色下是深字）。
+     ⚠️ 这是实测出来的坑，别改回 #fff：深色主题下品牌色会**变亮**
+     （--ds-brand-500 从 #1466B8 变成 #5AA9F5），白字在其上只有 2.49:1，
+     远低于 AA 的 4.5:1；换成深字 #0D1B2E 后是 6.95:1。
+     浅色下相反：白字 on #1466B8 = 5.80:1 达标，所以浅色仍用白字。 */
   #dsh-syc-panel .dsh-syc-a button{flex:1 1 auto !important;border:0 !important;border-radius:9px !important;
-    background:var(--ds-brand-500,#1466b8) !important;color:#fff !important;
-    font-size:13px !important;font-weight:500 !important;padding:9px 10px !important;
+    background:var(--ds-brand-500,#1466b8) !important;color:var(--dsh-on-brand,#fff) !important;
+    font-size:13px !important;font-weight:500 !important;
+    /* r106：40 → 44（--dsh-touch）。40 已经很接近，但既然定了 44 就别留 4px 的
+       例外 —— 例外一多，标准就等于没有。 */
+    min-height:var(--dsh-touch,44px) !important;
+    display:inline-flex !important;align-items:center !important;justify-content:center !important;
+    padding:0 12px !important;
     cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
   #dsh-syc-panel .dsh-syc-a button:active{opacity:.82 !important;}
   #dsh-syc-panel .dsh-syc-a button#dsh-syc-now{background:var(--ds-ink-100,#eef2f6) !important;
     color:var(--ds-ink-700,#1e3450) !important;}
   #dsh-syc-panel .dsh-syc-st{margin-top:8px !important;font-size:11.5px !important;
     line-height:1.55 !important;color:var(--ds-ink-500,#5a6d84) !important;display:block !important;}
-  #dsh-syc-panel .dsh-syc-st.dsh-syc-err{color:#c0392b !important;}
+  /* r105：错误色由硬编码 #c0392b 改为 --dsh-danger 变量。
+     实测：#C0392B 在浅底是 5.16:1（达标），但在**深底只有 3.19:1** ——
+     深色下"连接失败"这句恰恰是最重要的信息，却正好不达标。
+     深色改用 #FF7A70（6.83:1），浅色保留 #C0392B。 */
+  #dsh-syc-panel .dsh-syc-st.dsh-syc-err{color:var(--dsh-danger,#c0392b) !important;
+    font-weight:600 !important;}
+  /* 成功态（同步面板回执）：此前项目只有"出错才变色"，成功与中性提示长得一样，
+     用户看不出本次同步到底成了没。 */
+  #dsh-syc-panel .dsh-syc-st.dsh-syc-ok{color:var(--dsh-ok,#0f7a4a) !important;
+    font-weight:600 !important;}
 #dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent;cursor:pointer;}
 #dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}
 #dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}
@@ -288,7 +374,14 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   .dsh-s-nav [data-dsh-mkt] .dshmine_navLabel,.dsh-s-nav [data-dsh-mine] .dshmine_navLabel{color:var(--ds-ink-900,#0d1b2e)!important;}
   .dsh-s-nav [data-dsh-mkt] [class*="_navIcon"],.dsh-s-nav [data-dsh-mine] [class*="_navIcon"],
   .dsh-s-nav [data-dsh-mkt] .dshmine_navIcon,.dsh-s-nav [data-dsh-mine] .dshmine_navIcon{color:var(--ds-ink-500,#5a6d84)!important;}
-  .dsh-s-nav [data-dsh-mkt] .dsh-mkt-flag,.dsh-s-nav [data-dsh-mine] .dsh-mkt-flag{background:var(--ds-brand-50,#eef7fe)!important;color:var(--ds-brand-600,#0f5296)!important;}
+  .dsh-s-nav [data-dsh-mkt] .dsh-mkt-flag,.dsh-s-nav [data-dsh-mine] .dsh-mkt-flag{background:var(--dsh-info-bg,#eef7fe)!important;color:var(--dsh-info,#1466b8)!important;}
+  /* r106：待处理状态（"未安装" / "装 pnpm"）改用 warn 语义。
+     原来跟"已安装 12 个"一样是品牌蓝 —— 蓝色在 UI 语义里是"信息/可点击"，
+     用户扫一眼只会以为那是普通说明，注意不到**这里有事要做**。
+     黄色才是"需要你处理"。判定依据：mobile.js 的 decorateEntry() 会给未就绪的
+     行打 data-dsh-mkt-need 属性（值为 market / pnpm），这里直接复用，不新增标记。 */
+  .dsh-s-nav [data-dsh-mkt-need] .dsh-mkt-flag{background:var(--dsh-warn-bg,#fdf1de)!important;
+    color:var(--dsh-warn,#8a5300)!important;}
   /* ===== r67 · 列表项右侧 chevron（设计稿图 2）=====
      设计稿 Screen 2：四个列表项（插件市场 / 模型 / 插件 / Agent 预设）**每一项**
      右侧都有一个灰色 chevron。r66 按"真机原生项没有箭头"取了不加的方案，
@@ -357,7 +450,10 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
     margin:0 !important;box-sizing:border-box !important;border-bottom:0 !important;}
   #dsh-back-btn{display:inline-flex !important;align-items:center !important;justify-content:center !important;
     gap:0 !important;flex:0 0 auto !important;border:0 !important;
-    width:34px !important;height:34px !important;min-height:34px !important;min-width:34px !important;
+    /* r106：34×34 → 44×44（--dsh-touch）。返回键是高频操作，
+       34px 时有约 1/3 的点击落在按钮外，用户会以为"点了没反应"。 */
+    width:var(--dsh-touch,44px) !important;height:var(--dsh-touch,44px) !important;
+    min-height:var(--dsh-touch,44px) !important;min-width:var(--dsh-touch,44px) !important;
     padding:0 !important;border-radius:999px !important;
     background:var(--ds-ink-100,#f0f0f0) !important;color:var(--ds-ink-900,#0d1b2e) !important;
     margin:0 !important;cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
@@ -406,7 +502,16 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   body.dsh-s-l3 .dsh-s-ov [class*="_header"]{padding-left:14px !important;}
   body.dsh-s-l3 .dsh-s-ov [class*="_close"]{order:-1 !important;margin-right:auto !important;}
   body.dsh-s-l3 .dsh-s-ov [class*="_headerTitle"]{flex:1 1 auto !important;padding-left:12px !important;}
-  body.dsh-s-l3 .dsh-s-ov [class*="_close"]{width:34px !important;height:34px !important;border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;position:relative !important;}
+  /* r106：这条是**我们**把 dsh 原生的关闭按钮压成了 34px（当初为了贴合参考稿的
+     视觉比例）。但它是实打实的点击目标 —— 视觉尺寸可以让步，触控尺寸不行。
+     ⚠️ 说清楚代价：背景圆是画在按钮盒子上的（border-radius:999px + background），
+     所以盒子放到 44px 后，**可见的圆钮也会从 34px 变成 44px**，视觉上比参考稿
+     大一圈。这是有意的取舍：触控达标优先于参考稿的比例。
+     若坚持 34px 的视觉圆，正确做法是保留 44px 透明热区 + 内层 34px 圆形背景
+     （需要 dsh 的关闭按钮内部有可定位的子节点，真机确认后再做）。 */
+  body.dsh-s-l3 .dsh-s-ov [class*="_close"]{width:var(--dsh-touch,44px) !important;height:var(--dsh-touch,44px) !important;
+    display:inline-flex !important;align-items:center !important;justify-content:center !important;
+    padding:0 !important;border-radius:999px !important;background:var(--ds-ink-100,#eef2f6) !important;color:var(--ds-ink-900,#0d1b2e) !important;transition:background 150ms !important;position:relative !important;}
   body.dsh-s-l3 .dsh-s-ov [class*="_close"]::after{content:'' !important;position:absolute !important;left:50% !important;top:50% !important;width:44px !important;height:44px !important;transform:translate(-50%,-50%) !important;}
   body.dsh-s-l3 .dsh-s-ov [class*="_close"]:active{background:var(--ds-ink-200,#d8e1ea) !important;}
   body.dsh-s-l2 .dsh-s-nav{padding-top:4px!important;}
@@ -540,3 +645,302 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   .dsh-s-nav [class*="_navCell"]:hover{background:var(--ds-ink-100,#eef2f6) !important;}
   .dsh-s-ov [class*="_close"]:hover{background:var(--ds-ink-200,#d8e1ea) !important;}
 @media (prefers-reduced-motion:reduce){div[class*="sidebarCol"],#dsh-scrim{transition:none !important;}}
+
+/* =====================================================================
+ * r106 · 交互动效层（motion layer）
+ *
+ * 设计原则（改动前请先读，别随手加属性）：
+ *   1. 只动画 transform / opacity —— 这两个走合成层，不触发 layout / paint。
+ *      禁止动画 width/height/top/left/margin，那些会引发重排导致掉帧。
+ *   2. 时长统一在 100–480ms：低于 80ms 察觉不到（建立不了因果），
+ *      超过 500ms 会被感知为"迟钝"。
+ *   3. 缓动与现有抽屉（220ms cubic-bezier(.4,0,.2,1)）保持同一体系，不另起炉灶。
+ *   4. 降级：文件末尾有全局 prefers-reduced-motion，且对"靠动画才可见"的
+ *      元素（.dsh-mo-tkn / .dsh-mo-tick）做了显式复位 —— 否则它们会隐形。
+ * ===================================================================== */
+
+:root{
+  /* ---- 时长刻度 ---- */
+  --dsh-mo-instant:100ms;    /* 按压位移：必须最快，超 100ms 就被读作"卡顿" */
+  --dsh-mo-quick:160ms;      /* 颜色 / 透明度切换 */
+  --dsh-mo-base:220ms;       /* 标准进出（沿用抽屉现值，不推翻已验证的） */
+  --dsh-mo-slow:320ms;       /* 页面级位移 */
+  --dsh-mo-emphatic:480ms;   /* 品牌揭示 / 成功庆祝 */
+
+  /* ---- 缓动曲线 ---- */
+  --dsh-mo-ease-std:cubic-bezier(.4,0,.2,1);       /* 通用（与抽屉同曲线） */
+  --dsh-mo-ease-in:cubic-bezier(.4,0,1,1);         /* 退场加速：离场别恋恋不舍 */
+  --dsh-mo-ease-out:cubic-bezier(0,0,.2,1);        /* 进场减速 */
+  --dsh-mo-ease-emph:cubic-bezier(.2,.9,.25,1);    /* 揭幕感：Toast 滑入、主题揭示 */
+  --dsh-mo-ease-spring:cubic-bezier(.34,1.56,.64,1); /* 轻微回弹：仅成功反馈 */
+}
+
+/* ---------------------------------------------------------------------
+ * 1. 按压反馈 —— 现状是 35 个 click 全部无按压态，这是移动端最容易被
+ *    直接感知为"这 App 卡"的地方。按下必须同帧发生。
+ * ------------------------------------------------------------------- */
+/* ⚠️ overflow:hidden 只给 .dsh-mo-press（水波需要裁剪）。
+   .dsh-mo-press-row 是自动挂载用的安全版：批量挂到现有按钮上时，
+   绝不能改 overflow —— 那会裁掉下拉菜单、气泡等溢出内容。 */
+.dsh-mo-press,.dsh-mo-press-row{
+  transition:transform var(--dsh-mo-instant) var(--dsh-mo-ease-std),
+             box-shadow var(--dsh-mo-quick) var(--dsh-mo-ease-std);
+}
+.dsh-mo-press{position:relative;overflow:hidden}
+.dsh-mo-press:active{transform:scale(.955)}
+/* 列表行位移更小：整行缩放过大会显得晃 */
+.dsh-mo-press-row:active{transform:scale(.975)}
+.dsh-mo-press:focus-visible{
+  outline:2.5px solid var(--ds-brand-500,#5aa9f5);
+  outline-offset:2px;
+}
+/* 水波：表达触点位置。用 currentColor 以适配深浅两种底 */
+.dsh-mo-ripple{
+  position:absolute;border-radius:50%;
+  background:currentColor;opacity:.22;
+  transform:scale(0);pointer-events:none;
+  animation:dsh-mo-ripple 520ms var(--dsh-mo-ease-out) forwards;
+}
+@keyframes dsh-mo-ripple{to{transform:scale(2.6);opacity:0}}
+
+/* ---------------------------------------------------------------------
+ * 2. 骨架屏 —— 冷启要十几秒，此刻用户最大的疑问是"是不是挂了"。
+ *    占位形状对齐真实内容，避免内容到达时布局跳动。
+ *    扫光用伪元素 translateX，不用 background-position（后者每帧重绘）。
+ * ------------------------------------------------------------------- */
+.dsh-mo-sk{
+  background:var(--ds-ink-100,#eef2f6);
+  border-radius:8px;position:relative;overflow:hidden;
+}
+.dsh-mo-sk::after{
+  content:'';position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent);
+  animation:dsh-mo-shimmer 1250ms linear infinite;
+}
+@keyframes dsh-mo-shimmer{to{transform:translateX(100%)}}
+.dsh-mo-sk-h{height:15px;width:58%}
+.dsh-mo-sk-l{height:11px;width:100%}
+.dsh-mo-sk-l.s2{width:82%}
+.dsh-mo-sk-l.s3{width:64%}
+
+/* ---------------------------------------------------------------------
+ * 3. Toast 轻提示 —— 项目此前完全没有 toast：保存/导出之后用户拿不到
+ *    任何确认，只能自己去看文件在不在。
+ *    注意：必须"图标 + 文字"双编码。只靠颜色区分成功/失败，
+ *    色觉障碍用户无法判别（WCAG 1.4.1）。
+ * ------------------------------------------------------------------- */
+.dsh-mo-toast{
+  position:fixed;left:14px;right:14px;bottom:26px;z-index:2147483000;
+  display:flex;gap:10px;align-items:flex-start;
+  padding:13px 15px;border-radius:var(--ds-r-md,16px);
+  background:var(--ds-ink-900,#0d1b2e);color:var(--ds-ink-50,#f7f9fc);
+  font-size:13.5px;line-height:1.5;
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  transform:translateY(160%);opacity:0;visibility:hidden;
+  transition:transform var(--dsh-mo-slow) var(--dsh-mo-ease-emph),
+             opacity var(--dsh-mo-base) var(--dsh-mo-ease-std),
+             visibility var(--dsh-mo-slow);
+  /* r106：toast 的"深色语义别名"。
+     ⚠️ 为什么不能直接 var(--dsh-ok)/var(--dsh-info)：
+     toast 底色**固定**是 --ds-ink-900（深色，不随主题切换），而 --dsh-* 语义色
+     是跟着主题走的 —— 浅色主题下 var(--dsh-info) 是 #1466B8，
+     放到这块深底上实测只有 **2.99:1（FAIL，图形需 ≥3:1）**。
+     所以这里显式给一份"深色语义值"，与深色主题的 --dsh-* 保持一致：
+     ok 9.79:1 / err 6.82:1 / warn 9.54:1 / info 6.95:1（均 on #0D1B2E 实测）。 */
+  --dsh-toast-ok:#3ddc97; --dsh-toast-err:#ff7a70;
+  --dsh-toast-warn:#f5b544; --dsh-toast-info:#5aa9f5;
+}
+.dsh-mo-toast.is-on{transform:translateY(0);opacity:1;visibility:visible}
+/* 堆叠：第二条上移。最多 2 条，超出顶掉最旧（由 JS 控制） */
+.dsh-mo-toast[data-stack="1"]{bottom:82px}
+.dsh-mo-toast-ico{
+  width:22px;height:22px;border-radius:7px;flex-shrink:0;margin-top:1px;
+  display:grid;place-items:center;font-size:12px;font-weight:700;
+}
+.dsh-mo-toast[data-kind="ok"]  .dsh-mo-toast-ico{background:rgba(61,220,151,.22);color:var(--dsh-toast-ok)}
+.dsh-mo-toast[data-kind="err"] .dsh-mo-toast-ico{background:rgba(255,122,112,.22);color:var(--dsh-toast-err)}
+.dsh-mo-toast[data-kind="warn"] .dsh-mo-toast-ico{background:rgba(245,181,68,.22);color:var(--dsh-toast-warn)}
+.dsh-mo-toast[data-kind="info"] .dsh-mo-toast-ico{background:rgba(90,169,245,.22);color:var(--dsh-toast-info)}
+
+/* ---------------------------------------------------------------------
+ * 4. AI 流式输出 —— DSH 的核心是 AI 会话。打字机式输出的价值不只是
+ *    好看：它把"等待"转换成了"正在发生"。
+ * ------------------------------------------------------------------- */
+.dsh-mo-tkn{opacity:0;animation:dsh-mo-tknIn 260ms var(--dsh-mo-ease-out) forwards}
+@keyframes dsh-mo-tknIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.dsh-mo-caret{
+  display:inline-block;width:2px;height:1em;
+  background:var(--ds-brand-500,#5aa9f5);vertical-align:-2px;
+  animation:dsh-mo-blink 1s step-end infinite;
+}
+@keyframes dsh-mo-blink{50%{opacity:0}}
+/* 思考中三点 */
+.dsh-mo-dots{display:inline-flex;gap:5px;align-items:center}
+.dsh-mo-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.45}
+.dsh-mo-dots.is-on .dsh-mo-dot{animation:dsh-mo-bounce 1.15s var(--dsh-mo-ease-std) infinite}
+.dsh-mo-dots.is-on .dsh-mo-dot:nth-child(2){animation-delay:.13s}
+.dsh-mo-dots.is-on .dsh-mo-dot:nth-child(3){animation-delay:.26s}
+@keyframes dsh-mo-bounce{
+  0%,62%,100%{transform:translateY(0);opacity:.45}
+  32%{transform:translateY(-6px);opacity:1}
+}
+
+/* ---------------------------------------------------------------------
+ * 5. 成功反馈 —— 导出/同步这类操作缺确认，会迫使用户反复验证文件是否
+ *    落地，是最磨人的隐性交互成本。
+ *    勾线延迟 130ms 再画：圆环先落定形成焦点，线条才生长，
+ *    比同时发生更易被读作一次"完成"。
+ * ------------------------------------------------------------------- */
+.dsh-mo-ring{
+  width:88px;height:88px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(18,161,80,.13);
+  transform:scale(.5);opacity:0;
+}
+.dsh-mo-ring.is-on{animation:dsh-mo-pop var(--dsh-mo-emphatic) var(--dsh-mo-ease-spring) forwards}
+@keyframes dsh-mo-pop{to{transform:scale(1);opacity:1}}
+.dsh-mo-tick path{
+  stroke:#3ddc84;stroke-width:3.4;fill:none;
+  stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:32;stroke-dashoffset:32;
+}
+.dsh-mo-tick.is-on path{
+  animation:dsh-mo-draw 460ms var(--dsh-mo-ease-out) 130ms forwards;
+}
+@keyframes dsh-mo-draw{to{stroke-dashoffset:0}}
+
+/* ---------------------------------------------------------------------
+ * 6. 主题揭示 —— 以点击点为圆心扩散，把"我点的这一下 → 整页变化"
+ *    连成一体（项目踩过状态栏与页面割裂的坑，视觉连贯尤其重要）。
+ * ------------------------------------------------------------------- */
+.dsh-mo-reveal{
+  animation:dsh-mo-reveal 520ms var(--dsh-mo-ease-emph) forwards;
+  clip-path:circle(0% at var(--dsh-mo-rv-x,84%) var(--dsh-mo-rv-y,8%));
+}
+@keyframes dsh-mo-reveal{to{clip-path:circle(150% at var(--dsh-mo-rv-x,84%) var(--dsh-mo-rv-y,8%))}}
+
+/* ---------------------------------------------------------------------
+ * 7. 思考指示（AI 请求进行中）
+ *    挂在 body 上的 harness 浮层 —— 绝不插进业务容器（React 会与之冲突）。
+ *    位置贴近底部输入框上方：过低会挡输入，过高会脱离视线焦点。
+ * ------------------------------------------------------------------- */
+.dsh-mo-thinking{
+  position:fixed;left:50%;bottom:96px;transform:translateX(-50%);
+  z-index:2147482990;pointer-events:none;
+  padding:9px 14px;border-radius:999px;
+  background:var(--ds-ink-800,#1b2735);color:var(--ds-ink-100,#eef2f6);
+  box-shadow:0 6px 18px rgba(0,0,0,.28);
+  opacity:0;animation:dsh-mo-thinkIn 200ms var(--dsh-mo-ease-out) forwards;
+}
+@keyframes dsh-mo-thinkIn{to{opacity:1}}
+
+/* ---------------------------------------------------------------------
+ * 8. 回复内容淡入（接入层给业务容器用）
+ *
+ *    ⚠️ 与 .dsh-mo-tkn 的关键区别：这里**不设 opacity:0 初值**、
+ *    也不用 animation-fill-mode:forwards。
+ *    原因是它可能挂在 React 管理的节点上 —— 一旦 React 在动画途中重渲染，
+ *    forwards 会把元素钉在半透明状态，内容就此隐形。
+ *    原则：接入层的动画只做增强，最坏结果是"没有动画"，绝不能是"看不见"。
+ * ------------------------------------------------------------------- */
+.dsh-mo-tkn-host{animation:dsh-mo-tknIn 260ms var(--dsh-mo-ease-out)}
+
+/* =====================================================================
+ * 全局无障碍降级（WCAG 2.2）—— 必须留在动效层最后
+ *
+ * 最容易翻车的一点：降级时"靠动画才可见"的元素必须显式复位。
+ * .dsh-mo-tkn 初始 opacity:0，若只把 animation 置 none 而不把 opacity
+ * 拉回 1，AI 回复会整段隐形；.dsh-mo-tick 的 dashoffset 同理。
+ * ===================================================================== */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:1ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:1ms !important;
+    scroll-behavior:auto !important;
+  }
+  .dsh-mo-sk::after{display:none}                                  /* 停扫光，保留占位结构 */
+  .dsh-mo-tkn{opacity:1 !important;animation:none !important}      /* 别让流式文本消失 */
+  .dsh-mo-caret{animation:none !important}
+  .dsh-mo-dots.is-on .dsh-mo-dot{animation:none !important;opacity:.6}
+  .dsh-mo-tick path{stroke-dashoffset:0 !important;animation:none !important}
+  .dsh-mo-ring{transform:none !important;opacity:1 !important;animation:none !important}
+  .dsh-mo-reveal{animation:none !important;clip-path:none !important}
+  .dsh-mo-press:active,.dsh-mo-press-row:active{transform:none}
+  .dsh-mo-thinking{opacity:1 !important;animation:none !important}  /* 同样靠 forwards 才可见 */
+  .dsh-mo-tkn-host{animation:none !important}
+}
+
+/* ==========================================================================
+   r105 · 设计系统令牌层（Design Tokens）
+   --------------------------------------------------------------------------
+   为什么另起一层，而不是直接改 dsh 的变量：
+     dsh 的 --ds-* 由**它自己**维护（本文件开头两行）。往里加东西等于改别人的
+     资产，dsh 一升级就被覆盖，而且排查时说不清哪条是谁写的。
+     所以这里只**新增** --dsh-* 前缀变量：命名空间独立，永不与 dsh 冲突。
+
+   数值来源：docs/design/ui-design-system.html（同一套 WCAG 实算数据）。
+   ⚠️ 改任何色值前，回设计稿重算对比度 —— 别凭肉眼，别沿用旧注释里的数。
+
+   命名 --dsh-{语义}：
+     line-strong  可交互控件边框（≥3:1，WCAG 1.4.11 非文本对比）
+     on-brand     品牌底上的文字色（浅=白 / 深=深字）
+     ok/warn/danger/info  状态语义色
+       ↑ 此前项目只有品牌蓝，导致"同步成功"和"同步失败"长得一样，
+         状态只能靠读文案区分 —— 补齐后颜色先于文字传达结果。
+
+   ⚠️ 深色段的选择器必须与第 2 行**完全一致**：
+      body[data-ds-dark-theme], html.dsh-dark, html.dsh-dark body
+      少写一个就会出现"dsh 已经是深色、我们的语义色还是浅色"的割裂。
+   ========================================================================== */
+body{
+  --dsh-line-strong:#7a8ca0;   /* 控件边框 3.27:1（ink-200 仅 1.25:1，不能当控件边） */
+  --dsh-on-brand:#ffffff;      /* 浅底品牌按钮：白字 5.80:1 */
+  --dsh-ok:#0f7a4a;            /* 5.10:1 */
+  --dsh-warn:#8a5300;          /* 6.00:1 */
+  --dsh-danger:#c0392b;        /* 5.16:1 */
+  --dsh-info:#1466b8;          /* 5.50:1 */
+  /* 语义色的**容器底**（徽标胶囊 / 提示条用）。为什么需要它：
+     只用文字色的话，"警告"和"普通提示"在列表里长得一样；加一层极淡的同色底
+     才能形成"标签"感。全部经实算：文字 on 底 ≥4.5:1（徽标是 11px 小字，
+     按正文标准卡，不享受大字 3:1 的放宽）。
+     ⚠️ 浅色下这些底与页面底对比仅 1.03~1.11 —— 胶囊几乎融进背景，
+     靠**文字色**表意。这是有意的：浅色界面再加一层底色会显得脏。 */
+  --dsh-ok-bg:#e6f4ec;         /* + #0F7A4A = 4.74:1 */
+  --dsh-warn-bg:#fdf1de;       /* + #8A5300 = 5.67:1 */
+  --dsh-danger-bg:#fbe9e7;     /* + #B42318 = 5.61:1 */
+  --dsh-info-bg:#eef7fe;       /* + #1466B8 = 5.35:1 */
+  /* 以下两个与主题无关，两套主题同值 —— 只在此处定义一次，
+     深色段不再重复（同一元素上的变量取并集，重复定义反而容易改漏）。 */
+  --dsh-touch:44px;            /* 最小触控尺寸（WCAG 2.5.5 目标尺寸） */
+  --dsh-radius-ctrl:9px;       /* 控件圆角：按钮与输入框统一 9 */
+}
+body[data-ds-dark-theme],html.dsh-dark,html.dsh-dark body{
+  --dsh-line-strong:#55677e;   /* 3.00:1 */
+  --dsh-on-brand:#0d1b2e;      /* 深色品牌按钮必须配深字 6.95:1（白字只有 2.49:1） */
+  --dsh-ok:#3ddc97;            /* 9.81:1 */
+  --dsh-warn:#f5b544;          /* 9.56:1 */
+  --dsh-danger:#ff7a70;        /* 6.83:1（原硬编码 #C0392B 在深底只有 3.19:1） */
+  --dsh-info:#5aa9f5;          /* 6.96:1 */
+  --dsh-ok-bg:#14302a;         /* + #3DDC97 = 8.00:1 */
+  --dsh-warn-bg:#3a2e14;       /* + #F5B544 = 7.32:1 */
+  --dsh-danger-bg:#3d211c;     /* + #FF7A70 = 5.77:1 */
+  --dsh-info-bg:#143253;       /* + #5AA9F5 = 5.23:1 */
+}
+
+/* --------------------------------------------------------------------------
+   焦点可见：所有**我们注入**的交互元素统一焦点环。
+   为什么单列一条：原来只有 navCell / 汉堡 / 关闭按钮 3 处有 :focus-visible，
+   按钮（导出、同步、返回）一个都没有 —— 键盘与外接设备用户会彻底丢失焦点位置。
+   用 :focus-visible 而非 :focus：鼠标点击时不显示，只有键盘导航才出现，
+   不会给触摸用户增加视觉噪音。
+   -------------------------------------------------------------------------- */
+#dsh-syc-panel button:focus-visible,
+#dsh-exp-panel button:focus-visible,
+#dsh-back-btn:focus-visible,
+#dsh-mbtn:focus-visible,
+.dsh-s-nav button[class*="_navCell"]:focus-visible,
+.dsh-s-ov [class*="_close"]:focus-visible,
+div[class*="sidebarCol"] button:focus-visible{
+  outline:2px solid var(--ds-brand-500,#1466b8) !important;
+  outline-offset:2px !important;
+}

@@ -18,9 +18,15 @@ dsh-harness-android/                ← 本仓库：harness 真相源（无gradl
 │   ├── DshProbe.java        就绪探测（**只有根路径真返回 200 才算就绪**）
 │   ├── DshBridge.java       WebView JS ↔ Java 桥
 │   ├── DshOrigin.java       本地来源判定（fail-safe：不确定就判非本地）
+│   ├── DshExporter.java     方案 C：白名单校验 + FileProvider Uri（导出 / 另存为）
+│   ├── SafConfig.java       方案 A：SAF 授权 + 挂载点持久化，写 saf_config.json
+│   ├── SafTree.java         方案 A：相对路径 → document Uri，读写 / 列目录 / 改名
+│   ├── SafProxyServer.java  方案 A：127.0.0.1 回环 HTTP 代理（token 鉴权）
 │   ├── ShellRunner.java     执行 shell / 组装环境变量
 │   └── ...
 ├── assets/dsh/                    Web 资源（market / mobile 样式等）
+│   ├── mobile.js  mobile.css  market.css  market-chrome.css
+│   └── saf-fs-shim.js       方案 A：node 预加载 FS 路由补丁（拷进 $PREFIX/libexec）
 ├── scripts/                        宿主机构建脚本（见 scripts/README.md）
 └── docs/                           本文档
 

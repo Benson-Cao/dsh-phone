@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,6 +14,11 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.provider.Settings;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
@@ -43,6 +49,9 @@ public class MainActivity extends Activity {
 
     /** 「另存为」的请求码（方案 C，见 {@link DshSafBridge#saveAs}）。 */
     public static final int REQ_SAVE_AS = 4002;
+
+    /** 选择 SAF 存储目录的请求码（方案 A，见 {@link DshSafBridge#safPickDir}）。 */
+    public static final int REQ_SAF_DIR = 4003;
 
     /** 待写入「另存为」目标的源文件（onActivityResult 要用它）。 */
     private File pendingSaveSrc = null;
@@ -142,6 +151,27 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // r107：开 WebView 远程调试（仅 debug 构建有价值，release 会被 R8 掉也无所谓）。
+        //   为什么必须开：vivo 机型会吞掉第三方应用的 logcat（实测 persist.log.tag=VERBOSE
+        //   且进程 alive，logcat --pid 仍 0 行），页面内 JS 的执行情况完全看不到。
+        //   开了之后可以用 chrome://inspect 或 CDP 直连，直接读 DOM / console / 执行 JS，
+        //   排查前端问题不再依赖 logcat。
+        try {
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "远程调试开关失败：" + t.getMessage());
+        }
+
+        // r107：SAF 代理必须在拉起 dsh **之前**就位（幂等）。
+        //   为什么不能只靠 DshService：DshService 并没有在 AndroidManifest 里注册，
+        //   startForegroundService 每次都抛（被 catch 吞掉），onStartCommand 永不回调
+        //   → 那条「代理随服务起停」的路径实际上是死的。
+        //   后果：上一次进程留下的 saf_config.json 仍是 enabled:true + 已失效的端口/token，
+        //   node 侧 shim 会拿着它去撞一个没人监听的端口，每次 SAF 操作白等 20s 超时。
+        //   这里起一次即可：未配置 → 只写 enabled:false；已配置 → 用新端口/token 覆盖。
+        //   于是配置文件永远与真实状态一致（shim 按 mtime 现读，不需要重启 dsh）。
+        SafProxyServer.start(this);
 
         // r79：必须在任何取色之前读上次记住的 dsh 主题，
         // 否则启动页会先按系统主题画一遍、再改一次（肉眼可见的闪色）。
@@ -531,7 +561,6 @@ public class MainActivity extends Activity {
 
     private void showWebView(String url) {
         if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
-        setContentView(webView);
         // r79 真机发现：进入 dsh 后**状态栏仍是启动页的浅色**，
         //   而页面已经是深色 → 顶部一条白边，深色下非常刺眼（真机截图确认）。
         //   原因：dsh 页面自己不管系统栏（mobile.js 里没有 statusBar 相关逻辑），
@@ -542,6 +571,69 @@ public class MainActivity extends Activity {
         webShown = true;
         Log.i("MainActivity", "已进入 dsh：loadUrl " + url);
         // 已进入 dsh 界面后，若服务其实没起来，onReceivedError 会显示友好页
+
+        // r106：原来这里直接 setContentView(webView) 硬切 —— 冷启十几秒后画面
+        //   "啪"一下替换，深色下那一下白闪很明显。改为交叉淡入，见下。
+        crossfadeSplashToWeb();
+    }
+
+    /**
+     * r106 交互动效：启动页 → dsh 页面交叉淡入。
+     *
+     * 取代原来的 {@code setContentView(webView)} 硬切。冷启要十几秒，
+     * 用户盯了半天，最后一帧"啪"地换掉，观感上像是闪了一下。
+     *
+     * ⚠️ 两个坑，改前务必看懂：
+     *   1. 只能淡出**启动页的子元素**，绝不能淡出 splashRoot 本身 ——
+     *      webView 是作为它的子视图加进去的，淡父视图会把刚要显示的内容
+     *      一起淡掉，结果就是白屏。
+     *   2. 必须读 ANIMATOR_DURATION_SCALE：用户在开发者选项里把动画时长
+     *      调成 0（关闭动画）时要退回硬切，别自作主张地演。
+     *      这是 Android 的无障碍约定，不是可选项。
+     */
+    private void crossfadeSplashToWeb() {
+        float animScale = 1f;
+        try {
+            animScale = Settings.Global.getFloat(getContentResolver(),
+                    Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
+        } catch (Throwable ignored) {
+            // 极少数 ROM 读不到该设置：按"动画开着"处理，不至于崩
+        }
+
+        // 没有启动页 / webView 还没建好 / 用户关了动画 → 退回原来的硬切
+        if (splashRoot == null || !(splashRoot instanceof ViewGroup)
+                || webView == null || animScale == 0f) {
+            setContentView(webView);
+            return;
+        }
+
+        final ViewGroup host = (ViewGroup) splashRoot;
+
+        // WebView 加在**最上层**淡入（addView 追加到末尾 = 顶层）
+        webView.setAlpha(0f);
+        host.addView(webView, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 进场减速（对应 CSS 的 --ease-out）：320ms
+        webView.animate().alpha(1f).setDuration(320)
+                .setInterpolator(new DecelerateInterpolator()).start();
+
+        // 退场加速（对应 CSS 的 --ease-in）：离场不该恋恋不舍
+        for (int i = 0; i < host.getChildCount(); i++) {
+            final View v = host.getChildAt(i);
+            if (v == webView) continue;          // 别把自己也淡掉
+            v.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(220)
+                    .setInterpolator(new AccelerateInterpolator())
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override public void onAnimationEnd(Animator a) {
+                            try {
+                                host.removeView(v);   // 释放合成层，别白占内存
+                            } catch (Throwable ignored) { }
+                        }
+                    }).start();
+        }
+        Log.i("MainActivity", "[动效] 启动页 → dsh 交叉淡入");
     }
 
     @Override
@@ -579,6 +671,12 @@ public class MainActivity extends Activity {
             setStatus(ok ? "已导出 " + src.getName() : "导出失败：" + src.getName());
             return;
         }
+
+        // 方案 A：用户选定了外部存储目录（挂载到 $HOME/saf）
+        if (requestCode == REQ_SAF_DIR) {
+            onSafDirPicked(resultCode, data);
+            return;
+        }
         super.onActivityResult(requestCode, resultCode, data);
     }
 
@@ -599,6 +697,62 @@ public class MainActivity extends Activity {
             pendingSaveSrc = null;
             Log.w("MainActivity", "startActivityForResult 失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 处理 SAF 目录选择结果（方案 A）。
+     *
+     * <p>关键一步是 {@code takePersistableUriPermission}：少了它，授权只在本次
+     * Activity 存活期间有效，进程一重启 {@code ContentResolver} 就抛
+     * {@code SecurityException} —— 这是 SAF 最常见的坑，且只在真机重启后才暴露。
+     */
+    private void onSafDirPicked(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            Log.i("MainActivity", "用户取消了选择存储目录");
+            return;
+        }
+        Uri tree = data.getData();
+        int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        try {
+            getContentResolver().takePersistableUriPermission(tree, flags);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "固化 SAF 授权失败: " + t.getMessage());
+        }
+        String name = readableName(tree);
+        SafConfig.save(this, tree, name);
+        SafProxyServer.start(this);      // 幂等；配置每次请求现读，换目录无需重启
+        Log.i("MainActivity", "已挂载 SAF 目录: " + name);
+        setStatus("已挂载存储目录：" + name);
+    }
+
+    /**
+     * 打开系统「选择目录」界面（方案 A）。由 {@link DshSafBridge#safPickDir} 在主线程调用。
+     */
+    void startSafPick() {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(i, REQ_SAF_DIR);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "打开目录选择器失败: " + t.getMessage());
+        }
+    }
+
+    /** 把 {@code primary:Documents/dsh} 这类 documentId 尾巴转成人类可读的名字。 */
+    private static String readableName(Uri tree) {
+        String s = tree.getLastPathSegment();
+        if (s == null) return "存储目录";
+        try {
+            s = Uri.decode(s);
+        } catch (Throwable ignored) { }
+        int i = s.lastIndexOf(':');
+        if (i >= 0 && i < s.length() - 1) s = s.substring(i + 1);
+        int j = s.lastIndexOf('/');
+        if (j >= 0 && j < s.length() - 1) s = s.substring(j + 1);
+        return s.length() == 0 ? "存储目录" : s;
     }
 
     @Override

@@ -23,6 +23,9 @@ bash scripts/check-build-env.sh
 | `lint-sh.sh` | PC | shellcheck；没装则退回 `bash -n` 语法检查 |
 | `verify-sync.sh` | PC | 校验真源（本仓库）与构建树（termux-app）是否一致 |
 | `sync-from-source.sh` | PC | 把本仓库 `android-java/` 同步进 termux-app |
+| `verify-ondevice.sh` | PC + 手机 | 真机体检：连设备 → 装包 → 冷启 → 抓 logcat → 截图 |
+| `remote-debug.sh` | PC + 手机 | **真机远程调试**：连设备 → 装包 → 冷启 → 建 WebView CDP 通道 → 拉**全量** `dsh-web.log`（诊断页只给末 25 行） |
+| `cdp-eval.js` | PC | 零依赖 CDP 客户端（node ≥22 自带 WebSocket）：读/跑设备 WebView 里的 JS、盯 console 与未捕获异常 —— vivo 吞 logcat 时的唯一可靠通道 |
 | `patch.sh` | — | 运行时补丁，由 App 解包后执行 |
 
 ## 前置依赖
@@ -71,6 +74,33 @@ BUNDLE=/path/dsh-bundle.tar.gz REPO=D:/work/termux-app bash scripts/00-build-apk
 # 想手动归档到别处
 APK_OUT=/d/other/dir APK_TAG=export bash scripts/00-build-apk.sh
 ```
+
+### C. 真机远程调试 + 全量日志（vivo 吞 logcat 时的标准动作）
+
+前提：手机开发者选项里「无线调试」已开（首次需 `adb pair <IP>:<配对端口> <6位码>`；
+老式做法是先 USB 一次再 `adb tcpip 5555`）。
+
+```bash
+bash scripts/remote-debug.sh 192.168.0.55:41235                 # IP:连接端口
+bash scripts/remote-debug.sh 192.168.0.55:41235 /path/xxx.apk   # 指定包
+```
+
+它一条龙做完：连设备 → `install -r -t` → 冷启 → 等 WebView 起来 →
+`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` →
+打印可调试页面清单 → 用 `run-as` 把**整份** `dsh-web.log` 拉到 `/d/work/ondevice/`，
+并当场统计三项诊断页给不出来的东西：**启动器运行次数**、**EADDRINUSE 次数**、**第一处报错**。
+
+拿到通道后（脚本末尾会再提示一遍）：
+
+```bash
+node scripts/cdp-eval.js --list                 # 有哪些页面
+node scripts/cdp-eval.js --console 20           # 盯 console / 未捕获异常 20s
+node scripts/cdp-eval.js "location.href"        # 直接问页面
+node scripts/cdp-eval.js --file /tmp/check.js   # 跑一段断言脚本
+```
+
+图形界面党：`chrome://inspect` → 「配置网络目标」加 `localhost:9222`（转发已建好，
+不需要在手机上点任何东西）。
 
 ## 五个会浪费几十分钟的坑
 

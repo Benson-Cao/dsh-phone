@@ -1,8 +1,11 @@
 # A1：SAF（Storage Access Framework）落地可行性评估
 
-> 状态：**评估已完成；方案 C 已落地（本轮）**，方案 A/B 维持暂缓。
-> 对应 [`contract.md`](contract.md) §8「SAF 存储桥接（诚实修订：需 IPC，建议暂缓）」。
-> 已落地部分见本文 §6。
+> 状态：**方案 A 已落地（2026-10-13）**，方案 B 维持不做，方案 C 作为「一次性导出」保留。
+> 对应 [`contract.md`](contract.md) §8「SAF 存储桥接」。
+> 已落地部分：方案 C 见本文 §6，方案 A 见本文 §7。
+>
+> 2026-10-13 修订：§4 的结论（"不建议做"）已被推翻，推翻的理由不是"想做了"，
+> 而是**两个前提变了**，详见 §7.1。
 
 ---
 
@@ -177,6 +180,113 @@ grep -rn "StorageAccessFramework\|DocumentsContract\|request_saf" \
   - **另存为** → 系统保存界面（`ACTION_CREATE_DOCUMENT`），选中后由
     `DshSafBridge.completeSave()` 写入，面板自动关闭。
 - 原生桥未就绪时**这一行不显示**（不给点不动的死按钮）。
+
+---
+
+## 7. 方案 A 已落地（2026-10-13）
+
+### 7.1 为什么 §4 的「不建议做」不再成立
+
+§4 列了三条理由，逐条复核的结果是**两条失效、一条依然有效**：
+
+| §4 的理由 | 复核结论 |
+|---|---|
+| ① 代价不对称（无需求在等） | **失效** —— 需求明确了：让 dsh 把工作区放到用户可见的外部目录 |
+| ② 上游依赖（改 npm 包 = 持续维护债） | **失效** —— 下面 7.2 的做法完全不碰 npm 包 |
+| ③ 工程量显著大于其余工作之和 | **依然有效** —— 确实是大工程，但理由②消失后代价是一次性的，不再是"债" |
+
+关键转折在②。动手前实测确认了两件事：
+
+1. **dsh 的本地文件访问只有一个实现**：`@deepseek-ai/dsh-fs-local`。
+   所有包（`dsh-tool-fs` / `dsh-session-persistence-jsonl` / `dsh-skill-filesystem` …）
+   都走 `@deepseek-ai/dsh-fs` 这层抽象，落到 dsh-fs-local 上。
+2. **dsh-fs-local 的 node fs 依赖面很窄且全是异步**：
+   `chmod/link/lstat/mkdir/open/readFile/readdir/realpath/rename/rm/stat`
+   （来自 `node:fs/promises`）+ `createReadStream`（来自 `node:fs`）。
+
+既然只用到 12 个 API，就不需要"改 dsh 源码"——
+在 **node 的 fs 模块对象**上打补丁即可，dsh 升级不受影响。
+
+### 7.2 补丁怎么打到 ESM 上（本方案最容易翻车的一处）
+
+`dsh-fs-local` 是 ESM，写法是 `import { readFile } from "node:fs/promises"`。
+ESM 从 CJS 内建模块做**具名导入**时，值在 facade 首次求值那一刻被**快照**，
+之后改 `fs.promises.readFile` 对它无效。
+
+对策（`android-java/assets/dsh/saf-fs-shim.js` 末尾）：
+打完补丁**立刻 `import()` 一次** `node:fs` 与 `node:fs/promises`，
+强制 facade 在补丁已生效的当下定型；dsh-fs-local 之后 import 的是同一个被缓存的
+facade，因此必然拿到包装版。定型结果会打到 stdout（进 `dsh-web.log`）：
+
+```
+[dsh-saf] FS 路由已装载（ESM facade: promises=true fs=true）
+```
+
+**真机排查第一步就看这一行**：只要有一个是 `false`，说明 facade 早于补丁定型，
+SAF 会静默退化成"不生效"。
+
+### 7.3 组件
+
+| 文件 | 作用 |
+|---|---|
+| `android-java/com/dsh/harness/SafConfig.java` | 授权 + 挂载点持久化；写 `$HOME/.dsh/saf_config.json` 给 node 看 |
+| `android-java/com/dsh/harness/SafTree.java` | 相对路径 → document Uri；列目录 / 读写 / 建目录 / 删除 / 改名 |
+| `android-java/com/dsh/harness/SafProxyServer.java` | `127.0.0.1:<随机端口>` 上的最小 HTTP 服务，token 鉴权 |
+| `android-java/assets/dsh/saf-fs-shim.js` | node 预加载补丁（FS 路由） |
+
+改动文件：`DshBootstrap`（拷 shim 到 `$PREFIX/libexec/` + `NODE_SHIM` 里 `try{require}`）、
+`MainActivity`（`REQ_SAF_DIR` + 选择器）、`DshSafBridge`（`safStatus/safPickDir/safClear/safSelfTest`）、
+`DshService`（代理随服务起停）、`mobile.js` + `mobile.css`（抽屉「存储目录」行与面板）。
+
+### 7.4 四道安全闸
+
+1. **只绑回环**：`ServerSocket` 显式绑 `127.0.0.1`，端口取 0 由内核分配（不抢 3080）。
+2. **对端再验一次**：accept 后核对是回环地址 —— 绑定不等于外部一定连不进来。
+3. **token 鉴权**：每次请求校验 `x-dsh-token`，定长比较。同机任何进程都能连回环端口，
+   没有 token 等于把文件柜敞开。
+4. **路径必须在挂载点内**：node 侧算一次相对路径，Java 侧 `safeRel()` 再拒一次 `..`。
+
+### 7.5 已知边界（有意不为，不是遗漏）
+
+- **同步 API（`*Sync`）只做保守处理**：读类按 ENOENT 处理，写类 fire-and-forget。
+  理由：dsh-fs-local 全部走异步，没有任何调用方需要同步；真要支持得再起 worker 线程
+  做 `Atomics.wait` 阻塞式等待，现在不付这个复杂度。
+- **单次读上限 32MB**（`SafProxyServer.MAX_READ`）：SAF 侧是整文件取回内存。
+- **`rename` 不支持跨目录**：SAF 的 `renameDocument` 只能在同父目录改名，
+  跨目录返回 EXDEV。dsh 的原子写是「`x.tmp` → `x`」，正好落在支持范围内。
+- **挂载根 `$HOME/saf` 是真实的空目录**：它的存在只是为了让 dsh 的目录浏览能选中它，
+  内容全部由 SafTree 提供。
+
+### 7.6 怎么验证
+
+不需要真机就能验 shim 的逻辑（起一个内存版假代理，跑 dsh-fs-local 实际会调的 API）：
+
+```bash
+node D:/work/dsh-saf-test/run-shim-test.js
+```
+
+覆盖：读写 / `stat` 与 `lstat(bigint)`（含 `info.mode & 511n` 这个 BigInt 断言）/
+`readdir(withFileTypes)` / `open('r')` 顺序读游标 / `open('wx')→writeFile→rename` 原子写形态 /
+`createReadStream` / 挂载点外仍走原生 fs / **ESM facade 定型**。
+
+### 7.7 自检（取代 §5 那条已过期的命令）
+
+§5 的 `grep DocumentsContract` 现在会命中 `SafTree.java` —— 那是**预期**的，
+不是"评估过期"。改用这条做完整性自检：
+
+```bash
+ls android-java/com/dsh/harness/Saf{Config,Tree,ProxyServer}.java \
+   android-java/assets/dsh/saf-fs-shim.js
+grep -n "saf-shim" android-java/com/dsh/harness/DshBootstrap.java   # 应为 3 行
+```
+
+`DshBootstrap` 里那 3 行的分工，缺任何一行 shim 都不会生效：
+
+| 行 | 作用 |
+|---|---|
+| `require('./dsh-saf-shim.js')` | 让 node 预加载它（用 `try{}` 包住，缺失也不影响启动） |
+| `copyAssetToFile(ctx, "dsh/saf-fs-shim.js", …)` | 把它从 assets 落到 `$PREFIX/libexec/` |
+| 剩下 1 行 | 注释 |
 - 文件名经 `escapeHtml` 转义后才进 DOM；路径不进 DOM（只用序号索引回查）。
 
 **遵循 `mobile.js` 既有铁律**：不搬不删 React 拥有的节点，只插入自己的行/浮层、

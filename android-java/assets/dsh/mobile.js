@@ -1879,11 +1879,16 @@ else{
         }
       }catch(e){}
     }
+    // r105：成功也上色。此前只有 isErr 时才加类，导致「同步成功」和「还没同步过」
+    // 长得一模一样 —— 用户点完「立即同步」看不出到底成了没。
+    // 现在成功走 --dsh-ok、失败走 --dsh-danger（两套主题各有一套值，
+    // 见 mobile.css 令牌层；深色下错误色由 #C0392B 换成 #FF7A70，
+    // 原色在深底只有 3.19:1 —— 最重要的失败提示却最看不清）。
     function setSyncStatus(t,isErr){
       var el=document.getElementById('dsh-syc-st');
       if(!el) return;
       el.textContent=t||'';
-      el.className='dsh-syc-st'+(isErr?' dsh-syc-err':'');
+      el.className='dsh-syc-st'+(isErr?' dsh-syc-err':(t?' dsh-syc-ok':''));
     }
     function pollSyncResult(){
       var b=safBridge();
@@ -2104,7 +2109,18 @@ else{
       try{ list=JSON.parse(sb.listExportable()); }
       catch(e){ body.textContent='读取失败：'+(e&&e.message||e); return; }
       if(!list||!list.length){
-        body.innerHTML='<div class="dsh-exp-empty">暂无可导出的文件</div>';
+        // r106：空状态补"下一步指引"（设计稿：空状态必须告诉用户该做什么，
+        // 只写"暂无可导出的文件"用户并不知道接下来干嘛）。
+        // 图标用 inline SVG，与其它注入 UI 同一套路；纯装饰 → aria-hidden。
+        body.innerHTML='<div class="dsh-exp-empty">'
+          +'<span class="dsh-exp-empty-ic" aria-hidden="true">'
+          +'<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+          +' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+          +'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>'
+          +'<path d="M14 3v5h5"/><path d="M9 15h6M9 11h3"/></svg></span>'
+          +'<span class="dsh-exp-empty-t">暂无可导出的文件</span>'
+          +'<span class="dsh-exp-empty-d">先在 dsh 里完成一次对话或生成任务，产出的文件会出现在这里</span>'
+          +'</div>';
         return;
       }
       var html='<ul class="dsh-exp-list">';
@@ -2151,6 +2167,128 @@ else{
     }
     // 抽屉每次打开都要确保这行在（React 可能把sidebarCol 重排）
     try{ ensureDrawerExportRow(); }catch(eExp){ derr('[dsh] export row init:',eExp); }
+
+    // ============================================================
+    // 方案 A · 存储目录（把用户授权的外部目录挂到 $HOME/saf）
+    //
+    // 与上面「导出数据」的分工：导出是**一次性把文件交出去**，
+    // 存储目录是**长期配置**（挂上之后 dsh 读写该目录走 SAF 代理）。
+    // 两者都在抽屉里，因为都是「用户自己的数据」语义，不进插件市场。
+    //
+    // 沿用同一套注入铁律（见 marketPageBar 段顶部注释）：
+    //   ① 只插我们自己的行；② 按结构特征定位；③ 幂等，每轮重跑无副作用。
+    // ============================================================
+    var SAFDIR_SVG='<svg width="18" height="18" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"'
+      +' aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.6.8l1.2 1.6H19'
+      +'a2 2 0 0 1 2 2v7.6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>'
+      +'<path d="M8 13h8"/><path d="M12 10v6"/></svg>';
+    // 能力探测：没有 safStatus 就是旧版原生壳，这一行不显示（别给点不动的死按钮）
+    function safNative(){
+      return (window.dshSaf && typeof window.dshSaf.safStatus==='function')
+        ? window.dshSaf : null;
+    }
+    function ensureDrawerSafRow(){
+      if(!mq.matches){return;}
+      if(!safNative()){return;}
+      var col=document.querySelector('div[class*="sidebarCol"]');
+      if(!col){return;}
+      if(document.getElementById('dsh-sb-safdir')){return;}   // 幂等
+      // 挂在「导出数据」之后；它还没有就退化成「插件」行之后。
+      var anchor=document.getElementById('dsh-sb-export')
+        || document.getElementById('dsh-sb-plugin')
+        || col.querySelector('button[class*="_newSession"]:not([class*="Label"])');
+      if(!anchor){return;}
+      var row=document.createElement('button');
+      row.id='dsh-sb-safdir';
+      row.type='button';
+      row.setAttribute('aria-label','存储目录');
+      row.innerHTML='<span class="dshsb-ic">'+SAFDIR_SVG+'</span>'
+        +'<span class="dshsb-label">存储目录</span>';
+      row.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        openSafPanel();
+      });
+      try{ anchor.insertAdjacentElement('afterend',row); }
+      catch(eIns){ if(anchor.parentNode){anchor.parentNode.insertBefore(row,anchor.nextSibling);} }
+      dlog('[dsh] drawer saf row injected');
+    }
+    function openSafPanel(){
+      var old=document.getElementById('dsh-safst-panel');
+      if(old){ closeSafPanel(); }
+      var p=document.createElement('div');
+      p.id='dsh-safst-panel';
+      p.setAttribute('role','dialog');
+      p.setAttribute('aria-label','存储目录');
+      p.innerHTML='<div class="dsh-exp-card">'
+        +'<div class="dsh-exp-hd"><b>存储目录</b>'
+        +'<button id="dsh-safst-x" type="button" aria-label="关闭">✕</button></div>'
+        +'<div id="dsh-safst-body" class="dsh-exp-body">正在读取…</div>'
+        +'<div class="dsh-exp-ft"><span class="dsh-exp-tip">'
+        +'授权后 dsh 读写该目录会走系统存储访问框架（SAF）；换目录无需重启服务。'
+        +'</span></div></div>';
+      document.body.appendChild(p);
+      p.querySelector('#dsh-safst-x').addEventListener('click',function(){ closeSafPanel(); });
+      p.addEventListener('click',function(e){ if(e.target===p){ closeSafPanel(); } });
+      document.body.classList.remove('dsh-drawer-open');
+      renderSafBody();
+    }
+    function closeSafPanel(){
+      var p=document.getElementById('dsh-safst-panel');
+      if(p){p.remove();}
+    }
+    function safLine(k,v){
+      return '<div class="dsh-safst-row"><span>'+escapeHtml(k)+'</span>'
+        +'<b>'+escapeHtml(v)+'</b></div>';
+    }
+    function renderSafBody(){
+      var body=document.getElementById('dsh-safst-body');
+      if(!body){return;}
+      var b=safNative();
+      if(!b){ body.innerHTML='<div class="dsh-exp-empty">当前版本不支持</div>'; return; }
+      var st={};
+      try{ st=JSON.parse(b.safStatus()); }catch(e){ st={}; }
+      var txt='';
+      txt+=safLine('状态', st.configured?'已挂载':'未设置');
+      if(st.configured){
+        txt+=safLine('目录', st.name||'存储目录');
+        txt+=safLine('挂载点', st.mount||'');
+        txt+=safLine('代理', st.running?('127.0.0.1:'+st.port+' 在线'):'未运行');
+        if(st.permission&&st.permission!=='granted'){ txt+=safLine('授权','已失效，请重新选择'); }
+      }
+      body.innerHTML='<div class="dsh-safst-box">'+txt+'</div>'
+        +'<div class="dsh-safst-a">'
+        +'<button id="dsh-safst-pick" type="button">'
+        +(st.configured?'更换目录':'选择目录')+'</button>'
+        +(st.configured?'<button id="dsh-safst-clear" type="button">取消挂载</button>':'')
+        +'<button id="dsh-safst-test" type="button">自检</button>'
+        +'</div><div class="dsh-safst-st" id="dsh-safst-st"></div>';
+      var stEl=document.getElementById('dsh-safst-st');
+      var pick=document.getElementById('dsh-safst-pick');
+      var clr=document.getElementById('dsh-safst-clear');
+      var test=document.getElementById('dsh-safst-test');
+      if(pick){ pick.addEventListener('click',function(){
+        try{
+          b.safPickDir();
+          if(stEl){stEl.textContent='已打开系统目录选择器，请在弹出的界面里选择并允许';}
+        }catch(e){ if(stEl){stEl.textContent='打开失败：'+(e&&e.message||e);} }
+      }); }
+      if(clr){ clr.addEventListener('click',function(){
+        try{ b.safClear(); renderSafBody(); }catch(e){}
+      }); }
+      if(test){ test.addEventListener('click',function(){
+        if(stEl){stEl.textContent='自检中…';}
+        try{
+          var r=JSON.parse(b.safSelfTest());
+          if(stEl){
+            stEl.textContent=r.ok
+              ? ('通过（'+ (r.ms||0) +'ms，回读='+r.read+'，代理='+(r.proxy?'通':'断')+'）')
+              : ('失败：'+(r.err||'未知'));
+          }
+        }catch(e){ if(stEl){stEl.textContent='自检异常：'+(e&&e.message||e);} }
+      }); }
+    }
+    try{ ensureDrawerSafRow(); }catch(eSaf){ derr('[dsh] saf row init:',eSaf); }
     // r93 · 抽屉开时把汉堡（▭ 收起形态）钉到 logo 行同一水平线（参考稿布局）。
     //   CSS 只能猜固定值，logo 行的实际 y 由 dsh 原生布局决定（真机与 fixture 差异大），
     //   所以量出来再写 style.top；抽屉关掉就清掉内联值，回落 CSS 默认（top:6px）。
@@ -2181,6 +2319,8 @@ else{
       try{ ensureDrawerPluginRow(); }catch(ePlug2){}
       // r74：导出数据行同样要每轮复查 —— React 重排 sidebarCol 会把注入行挪走/摘掉。
       try{ ensureDrawerExportRow(); }catch(eExp2){}
+      // 方案 A：存储目录行同理（且目录挂载状态会变，行本身也要在）
+      try{ ensureDrawerSafRow(); }catch(eSaf2){}
       // r76：设置列表里的「NAS 同步」项 —— React 重渲染 .dsh-s-nav 会把注入项冲掉，
       // 与插件行同理必须每轮复查。
       try{ ensureSyncCell(); }catch(eSync2){}
@@ -2621,4 +2761,692 @@ else{
   function onMq(e){if(!e.matches){close();}}
   if(document.body){mount();}
   else{document.addEventListener('DOMContentLoaded',mount);}
+})();
+
+/* =====================================================================
+ * r106 · 交互动效模块 DshMotion
+ *
+ * 为什么单独成一个 IIFE：
+ *   mobile.js 主体负责 shell（抽屉/返回/主题探测），动效是完全独立的一层。
+ *   塞进主体会让两边互相牵连 —— 动效出 bug 不该让 shell 跟着挂。
+ *   本模块全程 try/catch 兜底：动效是锦上添花，绝不能因此破坏主功能。
+ *
+ * 对外 API（挂在 window.DshMotion）：
+ *   toast(msg, kind, ms)        轻提示（kind: ok/err/warn/info）
+ *   skeleton(host, lines)       在容器内铺骨架屏，返回移除函数
+ *   success(host)               成功反馈（圆环 + 勾线绘制）
+ *   reveal(xPct, yPct, cb)      主题圆形揭示，回调里切主题
+ *   markPress(root)             手动给某子树挂按压反馈
+ *   isReduced()                 当前是否处于减弱动效状态
+ *
+ * 写法约束：本文件主体是 ES5（var / function），与项目现有代码保持一致，
+ * 不引入箭头函数、模板字符串等 —— WebView 版本碎片化，稳字当头。
+ * ===================================================================== */
+(function(){
+  if(window.DshMotion){return;}   // 防止重复注入（热更新/二次注入会叠两层监听）
+
+  try{
+    var REDUCE = !!(window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion:reduce)').matches);
+
+    /* ---------------------------------------------------------------
+     * 1. Toast 轻提示
+     *    项目此前完全没有 toast：保存/导出之后用户拿不到任何确认，
+     *    只能自己去看文件在不在 —— 这是最直接的信息缺口。
+     *    图标 + 文字双编码，不靠颜色单传（WCAG 1.4.1）。
+     * ------------------------------------------------------------- */
+    var TOAST_ICO = {ok:'\u2713', err:'!', warn:'\u26A0', info:'i'};
+    var live = [];                 // 在屏的 toast，最多 2 条
+
+    function toast(msg, kind, ms){
+      kind = TOAST_ICO[kind] ? kind : 'info';
+      var el = document.createElement('div');
+      el.className = 'dsh-mo-toast';
+      el.setAttribute('data-kind', kind);
+      el.setAttribute('role', 'status');        // 读屏可播报
+      el.setAttribute('aria-live', 'polite');
+
+      var ico = document.createElement('span');
+      ico.className = 'dsh-mo-toast-ico';
+      ico.setAttribute('aria-hidden', 'true'); // 图标不重复播报
+      ico.textContent = TOAST_ICO[kind];
+
+      var txt = document.createElement('span');
+      txt.textContent = msg;
+
+      el.appendChild(ico);
+      el.appendChild(txt);
+      document.body.appendChild(el);
+
+      // 最多 2 条：超出顶掉最旧的，避免堆叠遮住操作区
+      if(live.length >= 2){
+        var oldest = live.shift();
+        if(oldest && oldest.parentNode){ oldest.parentNode.removeChild(oldest); }
+      }
+      live.forEach(function(t, i){
+        if(i === 0){ t.setAttribute('data-stack', live.length > 1 ? '1' : '0'); }
+      });
+      live.push(el);
+
+      // 强制回流后再加 is-on，否则起始态与结束态在同一帧，transition 不触发
+      void el.offsetWidth;
+      el.classList.add('is-on');
+
+      var life = ms || 2400;   // 2400ms ≈ 中文 12–14 字读一遍
+      setTimeout(function(){
+        el.classList.remove('is-on');
+        setTimeout(function(){
+          if(el.parentNode){ el.parentNode.removeChild(el); }
+          var k = live.indexOf(el);
+          if(k >= 0){ live.splice(k, 1); }
+        }, REDUCE ? 10 : 340);
+      }, life);
+
+      return el;
+    }
+
+    /* ---------------------------------------------------------------
+     * 2. 按压反馈（自动挂载）
+     *    现状：35 个 click 绑定全部无按压态。逐个改不现实，这里用事件
+     *    委托惰性标记 —— 第一次按下时才给元素补 class，开销可忽略。
+     *
+     *    ⚠️ 用 .dsh-mo-press-row 而不是 .dsh-mo-press：后者带
+     *       overflow:hidden，批量挂到现有元素上会裁掉下拉菜单/气泡。
+     * ------------------------------------------------------------- */
+    var PRESS_SEL = 'button,[role="button"],a[href],summary,' +
+                    '[class*="_navCell"],[tabindex="0"]';
+
+    function closestPressable(node){
+      while(node && node !== document.body){
+        if(node.nodeType === 1 && node.matches && node.matches(PRESS_SEL)){ return node; }
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    function spawnRipple(el, x, y){
+      if(el.getAttribute('data-dsh-noripple') === '1'){ return; }
+      var r = el.getBoundingClientRect();
+      var d = Math.max(r.width, r.height) * 1.1;
+      var ink = document.createElement('span');
+      ink.className = 'dsh-mo-ripple';
+      ink.style.cssText = 'width:' + d + 'px;height:' + d + 'px;' +
+                          'left:' + (x - r.left - d / 2) + 'px;' +
+                          'top:' + (y - r.top - d / 2) + 'px;';
+      // 只在动画期间裁剪溢出，结束后立刻还原 —— 不永久改元素样式
+      var prevOf = el.style.overflow;
+      var prevPos = el.style.position;
+      if(!prevPos || prevPos === 'static'){ el.style.position = 'relative'; }
+      el.style.overflow = 'hidden';
+      el.appendChild(ink);
+      setTimeout(function(){
+        if(ink.parentNode){ ink.parentNode.removeChild(ink); }
+        el.style.overflow = prevOf;
+        el.style.position = prevPos;
+      }, REDUCE ? 10 : 560);
+    }
+
+    document.addEventListener('pointerdown', function(e){
+      var el = closestPressable(e.target);
+      if(!el){ return; }
+      if(!el.classList.contains('dsh-mo-press-row') &&
+         !el.classList.contains('dsh-mo-press')){
+        el.classList.add('dsh-mo-press-row');
+      }
+      spawnRipple(el, e.clientX, e.clientY);
+    }, {passive:true});
+
+    // 键盘可达性：Enter/Space 也要有反馈（不然键盘用户完全没感知）
+    document.addEventListener('keydown', function(e){
+      if(e.key !== 'Enter' && e.key !== ' '){ return; }
+      var el = closestPressable(e.target);
+      if(!el){ return; }
+      if(!el.classList.contains('dsh-mo-press-row') &&
+         !el.classList.contains('dsh-mo-press')){
+        el.classList.add('dsh-mo-press-row');
+      }
+    }, {passive:true});
+
+    /* ---------------------------------------------------------------
+     * 3. 骨架屏
+     *    冷启要十几秒，此刻用户最大的疑问是"是不是挂了"。
+     *    返回移除函数，内容到位后立刻调用 —— 骨架屏退场要干脆。
+     * ------------------------------------------------------------- */
+    function skeleton(host, lines){
+      if(!host){ return function(){}; }
+      var n = lines || 3;
+      var wrap = document.createElement('div');
+      wrap.className = 'dsh-mo-skeleton-host';
+      var h = document.createElement('div');
+      h.className = 'dsh-mo-sk dsh-mo-sk-h';
+      h.style.marginBottom = '12px';
+      wrap.appendChild(h);
+      for(var i = 0; i < n; i++){
+        var l = document.createElement('div');
+        l.className = 'dsh-mo-sk dsh-mo-sk-l' + (i === 1 ? ' s2' : (i === 2 ? ' s3' : ''));
+        l.style.marginBottom = '8px';
+        wrap.appendChild(l);
+      }
+      host.appendChild(wrap);
+      return function(){
+        if(wrap.parentNode){ wrap.parentNode.removeChild(wrap); }
+      };
+    }
+
+    /* ---------------------------------------------------------------
+     * 4. 成功反馈
+     *    圆环弹簧入场 + 勾线路径绘制。勾延迟 130ms 再画：
+     *    先让焦点落定，线条再生长，比同时发生更易被读作"完成"。
+     * ------------------------------------------------------------- */
+    function success(host){
+      if(!host){ return function(){}; }
+      var ring = document.createElement('div');
+      ring.className = 'dsh-mo-ring';
+      var NS = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'dsh-mo-tick');
+      svg.setAttribute('width', '46');
+      svg.setAttribute('height', '46');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M4 12.5 L9.5 18 L20 6.5');
+      svg.appendChild(p);
+      ring.appendChild(svg);
+      host.appendChild(ring);
+
+      void ring.offsetWidth;
+      ring.classList.add('is-on');
+      svg.classList.add('is-on');
+
+      return function(){
+        if(ring.parentNode){ ring.parentNode.removeChild(ring); }
+      };
+    }
+
+    /* ---------------------------------------------------------------
+     * 5. 主题圆形揭示
+     *    用法：DshMotion.reveal(xPct, yPct, function(){ 切换主题 });
+     *    圆心跟随点击位置，把"我点的这一下 → 整页变化"连成一体。
+     * ------------------------------------------------------------- */
+    function reveal(xPct, yPct, cb){
+      if(REDUCE || typeof cb !== 'function'){ cb && cb(); return; }
+      var layer = document.createElement('div');
+      layer.className = 'dsh-mo-reveal';
+      layer.style.cssText = 'position:fixed;inset:0;z-index:2147483000;' +
+                            'background:var(--ds-surface-fb,#fff);pointer-events:none;' +
+                            '--dsh-mo-rv-x:' + (xPct || 84) + '%;' +
+                            '--dsh-mo-rv-y:' + (yPct || 8) + '%;';
+      document.body.appendChild(layer);
+      cb();
+      setTimeout(function(){
+        if(layer.parentNode){ layer.parentNode.removeChild(layer); }
+      }, 540);
+    }
+
+    /* ---------------------------------------------------------------
+     * 6. 手动标记 / 查询
+     * ------------------------------------------------------------- */
+    function markPress(root){
+      var scope = root || document;
+      var nodes = scope.querySelectorAll(PRESS_SEL);
+      for(var i = 0; i < nodes.length; i++){
+        if(!nodes[i].classList.contains('dsh-mo-press')){
+          nodes[i].classList.add('dsh-mo-press-row');
+        }
+      }
+    }
+
+    window.DshMotion = {
+      toast:toast,
+      skeleton:skeleton,
+      success:success,
+      reveal:reveal,
+      markPress:markPress,
+      isReduced:function(){ return REDUCE; }
+    };
+
+    // 首屏把已有可点元素标记一遍，避免"第一次按下才补 class"的那一帧延迟
+    if(document.body){ markPress(document.body); }
+    else{ document.addEventListener('DOMContentLoaded', function(){ markPress(document.body); }); }
+
+    // 一行自检日志：真机上确认动效模块真的跑了（经 DshChromeClient 转发进 logcat）。
+    // 没有这行就只能验证"资源打进包了"，验证不了"运行时生效"。
+    console.log('[dsh] motion ready: reduced=' + REDUCE +
+                ' marked=' + document.querySelectorAll('.dsh-mo-press-row,.dsh-mo-press').length);
+
+  }catch(e){
+    // 动效层出任何问题都不能影响主流程 —— 静默降级为"没有动效"
+    window.DshMotion = window.DshMotion || {
+      toast:function(){}, skeleton:function(){ return function(){}; },
+      success:function(){ return function(){}; },
+      reveal:function(x, y, cb){ cb && cb(); },
+      markPress:function(){}, isReduced:function(){ return true; }
+    };
+  }
+})();
+
+/* =====================================================================
+ * r107 · DOM 探针 DshProbe（诊断用）
+ *
+ * 为什么需要：dsh 的业务前端（React）不在本仓库，是远端 bundle 渲染的 SPA。
+ * 想给"导出/主题切换/AI 回复"这类节点接动效，必须先知道它们的真实选择器——
+ * 靠猜会接错，且错了不报错（静默无效），比不接更糟。
+ *
+ * 通道：DshChromeClient.onConsoleMessage() 已把页面 console 转发到 logcat，
+ * 所以这里 console.log 出去的东西能用 `adb logcat | grep console` 读到。
+ * ===================================================================== */
+(function(){
+  if(window.DshProbe) return;
+
+  // 只保留"有辨识度"的选择器：剥掉 nth-child 等易碎片段
+  function sel(el){
+    if(!el || el.nodeType!==1) return '';
+    var s=[], cur=el, depth=0;
+    while(cur && cur.nodeType===1 && depth<4){
+      var p=cur.tagName.toLowerCase();
+      if(cur.id){ s.unshift('#'+cur.id); break; }
+      var cls=(cur.className||'');
+      if(typeof cls==='string'){
+        // dsh/React 的 class 名常带 hash，取前两段足够定位且相对稳定
+        var c=cls.trim().split(/\s+/).filter(function(x){return x && x.length<40;});
+        if(c.length){ p+='.'+c.slice(0,2).join('.'); }
+      }
+      s.unshift(p); cur=cur.parentElement; depth++;
+    }
+    return s.join(' > ');
+  }
+  function txt(el){ return ((el.textContent||'').trim()).replace(/\s+/g,' ').slice(0,40); }
+
+  /**
+   * 扫一遍 DOM，输出与动效埋点相关的候选节点。
+   * @param {string} phase 标记名（会出现在日志里，便于区分是首屏还是交互后）
+   */
+  function scan(phase){
+    var out={};
+
+    // ① 主题 / 深色切换控件
+    var th=[];
+    var all=document.querySelectorAll('button,[role="button"],[role="switch"],label,a[href="#"]');
+    for(var i=0;i<all.length;i++){
+      var e=all[i];
+      var t=txt(e), a=(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'');
+      var hay=(t+' '+a).toLowerCase();
+      if(/theme|dark|light|主题|深色|浅色|夜间|外观/.test(hay) || /theme|dark|light/.test((e.className||'').toLowerCase())){
+        th.push(sel(e)+' :: '+t);
+      }
+    }
+    out.themeCtl=th.slice(0,8);
+
+    // ② 导出 / 保存 / 同步 / 下载 类控件
+    var ex=[];
+    for(var j=0;j<all.length;j++){
+      var f=all[j];
+      var t2=txt(f), a2=(f.getAttribute('aria-label')||'')+' '+(f.getAttribute('title')||'');
+      if(/导出|保存|同步|下载|复制|export|save|download|copy|sync/.test((t2+' '+a2).toLowerCase())){
+        ex.push(sel(f)+' :: '+t2);
+      }
+    }
+    out.actionCtl=ex.slice(0,12);
+
+    // ③ 疑似 AI 消息容器：文本较长且是叶子块级元素
+    var msg={};
+    var cands=document.querySelectorAll('div,p,article,section,li');
+    for(var k=0;k<cands.length;k++){
+      var c=cands[k];
+      if(c.children.length>0) continue;               // 只看叶子
+      var t3=(c.textContent||'').trim();
+      if(t3.length<40 || t3.length>4000) continue;    // 太短不像正文，太长可能是整页
+      var key=sel(c);
+      msg[key]=(msg[key]||0)+1;
+    }
+    var top=Object.keys(msg).sort(function(a,b){return msg[b]-msg[a];}).slice(0,6);
+    out.msgLeaf=top.map(function(k){return k+'  x'+msg[k];});
+
+    // ④ 网络层能力
+    out.net={
+      hasFetch: typeof window.fetch==='function',
+      hasXHR: typeof window.XMLHttpRequest==='function',
+      hasBeacon: typeof navigator.sendBeacon==='function'
+    };
+
+    // ⑤ 顶层结构（便于定位挂载点）
+    var body=document.body;
+    out.bodyClass=(body&&body.className||'').slice(0,120);
+    out.root=[];
+    if(body){ for(var m=0;m<body.children.length && m<8;m++){ out.root.push(sel(body.children[m])); } }
+
+    console.log('[dsh] PROBE '+phase+' :: '+JSON.stringify(out));
+    return out;
+  }
+
+  window.DshProbe={
+    scan:scan,
+    sel:sel,
+    /** 交互后复扫：比如用户点了设置页之后再调一次 */
+    rescan:function(phase){ return scan(phase||'rescan'); }
+  };
+
+  // 首屏自动扫一次。
+  // ⚠️ 不能用固定延迟：SPA 真实挂载要 12–16s（session/load 本身就十几秒），
+  //    固定 6s 扫到的是空壳（实测 themeCtl/actionCtl/msgLeaf 全空），没有价值。
+  //    改为轮询等 #root 真的有内容再扫，扫到即停。
+  (function(){
+    var tries = 0;
+    var t = setInterval(function(){
+      tries++;
+      var host = document.getElementById('root');
+      var ready = !!(host && host.children.length > 0);
+      if(ready || tries >= 20){                    // 20 × 3s = 最多等 60s
+        clearInterval(t);
+        try{ scan('boot#' + tries); }catch(e){ console.log('[dsh] PROBE boot err ' + e.message); }
+      }
+    }, 3000);
+  })();
+})();
+
+/* =====================================================================
+ * r107 · 动效接入层（把 r106 的动效 API 接到真实业务动作上）
+ *
+ * 为什么是"通用接入"而不是"给按钮逐个埋点"：
+ *   dsh 的业务前端是远端 bundle 渲染的 React SPA，**不在本仓库**，每次发版
+ *   类名都可能变。给具体按钮埋点 = 埋下一堆会静默失效的选择器。
+ *   所以这里只用 harness 自己能观测到的信号：
+ *     · 网络层（fetch / XHR）—— 写操作是否成功、是否文件下载、是否 AI 会话
+ *     · 主题标记变化         —— dark class / data-ds-dark-theme
+ *     · 最近一次点击坐标     —— 揭示动画圆心
+ *     · #root 是否空         —— 骨架屏显示时机
+ *
+ * ⚠️ 铁律一：绝不向业务容器里插入子节点。
+ *    React 管理的 DOM 被外部插入元素，会在它重渲染时冲突（报错或节点错乱）。
+ *    需要自己造 DOM 的（Toast / 思考点 / 骨架）一律挂 body 或明确的空窗容器。
+ *
+ * ⚠️ 铁律二：**动画只做增强，绝不承担可见性**。
+ *    给业务元素加的 class 一律不设 opacity:0 初值、不用 animation-fill-mode:
+ *    forwards —— 万一动画被打断（React 重渲染），最坏结果是"没有动画"，
+ *    绝不能是"内容隐形"。这是动画接入最容易翻车的地方。
+ * ===================================================================== */
+(function(){
+  if(window.DshMotionWire) return;
+  window.DshMotionWire = true;
+
+  var M = window.DshMotion || {};
+  if(typeof M.toast !== 'function') return;          // r106 没加载上就别硬跑
+
+  var REDUCE = (typeof M.isReduced === 'function') ? M.isReduced() : false;
+
+  function reqMeta(input, init){
+    var url = '', method = 'GET';
+    try{
+      if(typeof input === 'string'){ url = input; }
+      else if(input && input.url){ url = input.url; }
+      if(init && init.method) method = init.method;
+      else if(input && input.method) method = input.method;
+    }catch(e){}
+    return {url:String(url || ''), method:String(method || 'GET').toUpperCase()};
+  }
+
+  /* ---------------------------------------------------------------
+   * 0. 最近一次点击坐标（主题揭示的圆心）—— 场景 08
+   *    捕获阶段注册，保证在任何 stopPropagation 之前拿到。
+   * ------------------------------------------------------------- */
+  var lastX = 84, lastY = 8;                          // 默认右上角（主题开关常见位置）
+  function markPoint(x, y){
+    var w = window.innerWidth || 1, h = window.innerHeight || 1;
+    lastX = Math.round(x / w * 100);
+    lastY = Math.round(y / h * 100);
+  }
+  document.addEventListener('pointerdown', function(e){ markPoint(e.clientX, e.clientY); }, true);
+  document.addEventListener('touchstart', function(e){   // 老 WebView 兜底
+    var t = e.touches && e.touches[0]; if(t) markPoint(t.clientX, t.clientY);
+  }, true);
+
+  /* ---------------------------------------------------------------
+   * 1. 主题揭示 —— 场景 08
+   *    不猜主题按钮的选择器，改为**监听主题标记本身的变化**：
+   *    设置里的开关、系统深色模式、还是别的入口触发的，都能接住。
+   * ------------------------------------------------------------- */
+  function darkNow(){
+    var de = document.documentElement, b = document.body;
+    return !!(de && de.classList && de.classList.contains('dsh-dark')) ||
+           !!(b  && b.hasAttribute && b.hasAttribute('data-ds-dark-theme'));
+  }
+  var darkState = darkNow(), revealLock = 0;
+  function checkTheme(){
+    var d = darkNow();
+    if(d === darkState) return;
+    darkState = d;
+    var now = Date.now();
+    if(now - revealLock < 700) return;                // 连续翻转只播一次
+    revealLock = now;
+    if(REDUCE) return;                                // 降级：直接切，不做揭示
+    try{ M.reveal(lastX, lastY, function(){}); }catch(e){}
+  }
+  if(window.MutationObserver){
+    try{ new MutationObserver(checkTheme).observe(document.documentElement, {attributes:true, attributeFilter:['class']}); }catch(e){}
+    if(document.body){
+      try{ new MutationObserver(checkTheme).observe(document.body, {attributes:true, attributeFilter:['class','data-ds-dark-theme']}); }catch(e){}
+    }
+  }
+
+  /* ---------------------------------------------------------------
+   * 2. 网络层埋点 —— 场景 06（Toast）/ 07（成功反馈）/ 05（思考指示）
+   *
+   *    本项目信息缺口最大的地方：保存 / 导出之后用户拿不到任何确认，
+   *    只能自己去看文件在不在。与其猜按钮，不如认"写操作真的成功了"
+   *    这个事实本身 —— 任何入口触发的保存都会走网络请求。
+   *    AI 会话请求同样走 POST，但它**不是**写操作，必须排除，否则
+   *    每次提问都会弹"已保存"（这个坑踩过一次）。
+   * ------------------------------------------------------------- */
+  var QUIET   = /(^|\/)(log|logs|trace|telemetry|analytics|ping|health|heartbeat|poll|metrics|events|beacon)([/?]|$)/i;
+  var AI_URL  = /(chat|complet|message|conversation|session\/load|stream|generate|ask)/i;
+  var recent  = {};                                   // 限流：同一操作 4s 内只提示一次
+
+  function throttled(url){
+    var key = url.replace(/[?&]_=\d+/, '');
+    var now = Date.now();
+    if(recent[key] && now - recent[key] < 4000) return true;
+    recent[key] = now;
+    return false;
+  }
+  var VERB = [
+    [/(export|download|导出|下载)/i, '已导出'],
+    [/(import|upload|上传)/i,       '已上传'],
+    [/(sync|同步)/i,                '已同步'],
+    [/(copy|复制)/i,                '已复制'],
+    [/(share|分享)/i,               '已生成分享链接'],
+    [/(delete|remove|删除)/i,       '已删除']
+  ];
+  function verbOf(method, url){
+    if(method === 'DELETE') return '已删除';
+    if(method === 'PUT' || method === 'PATCH') return '已更新';
+    for(var i = 0; i < VERB.length; i++){ if(VERB[i][0].test(url)) return VERB[i][1]; }
+    return '已保存';
+  }
+
+  /* --- 思考指示（AI 请求进行中）—— 场景 05 --- */
+  var thinkEl = null;
+  function showThinking(){
+    if(REDUCE || thinkEl) return;
+    try{
+      var w = document.createElement('div');
+      w.className = 'dsh-mo-thinking';
+      w.setAttribute('aria-hidden', 'true');          // 装饰性，不进读屏
+      var d = document.createElement('span');
+      d.className = 'dsh-mo-dots is-on';
+      for(var i = 0; i < 3; i++){
+        var s = document.createElement('span');
+        s.className = 'dsh-mo-dot';
+        d.appendChild(s);
+      }
+      w.appendChild(d);
+      document.body.appendChild(w);
+      thinkEl = w;
+    }catch(e){}
+  }
+  function hideThinking(){
+    if(thinkEl && thinkEl.parentNode){ thinkEl.parentNode.removeChild(thinkEl); }
+    thinkEl = null;
+  }
+
+  /** 统一处理一次写操作的响应 */
+  function onWrite(method, url, ok, status, getHeader){
+    if(method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+    if(!url) return;
+    if(QUIET.test(url) || AI_URL.test(url)) return;   // 噪音请求 / AI 会话不算写操作
+    if(throttled(method + ' ' + url)) return;
+
+    // ① 文件下载：Content-Disposition 带 filename → 成功反馈 + 落位说明
+    var cd = '';
+    try{ cd = (getHeader && getHeader('content-disposition')) || ''; }catch(e){}
+    var fm = cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
+    if(ok && fm){
+      var name = decodeURIComponent(fm[1]).replace(/["']/g, '');
+      try{ setTimeout(M.success(document.body), 2600); }catch(e){}
+      try{ M.toast('已导出：' + name, 'ok', 3200); }catch(e){}
+      return;
+    }
+
+    // ② 普通写操作
+    if(ok){
+      try{ M.toast(verbOf(method, url), 'ok'); }catch(e){}
+    }else if(status >= 400){
+      try{ M.toast('操作失败（HTTP ' + status + '）', 'err', 3200); }catch(e){}
+    }
+  }
+
+  /* --- fetch：只包一层，写操作判定与 AI 判定共用 --- */
+  var origFetch = (typeof window.fetch === 'function') ? window.fetch : null;
+  if(origFetch){
+    window.fetch = function(input, init){
+      var meta = reqMeta(input, init);
+      var isAI = (meta.method === 'POST') && AI_URL.test(meta.url);
+      if(isAI) showThinking();
+      var p;
+      try{ p = origFetch.apply(window, arguments); }
+      catch(e){ if(isAI) hideThinking(); throw e; }
+      if(p && typeof p.then === 'function'){
+        p.then(function(res){
+          try{
+            var getH = function(n){ try{ return res.headers && res.headers.get(n); }catch(e2){ return null; } };
+            onWrite(meta.method, meta.url, !!(res && res.ok), res && res.status, getH);
+          }catch(e){}
+          return res;
+        }, function(err){ if(isAI) hideThinking(); throw err; });
+        if(isAI){
+          p.then(function(){ setTimeout(hideThinking, 400); });
+        }
+      }else if(isAI){
+        hideThinking();
+      }
+      return p;
+    };
+  }
+
+  /* --- XMLHttpRequest --- */
+  if(typeof window.XMLHttpRequest === 'function' && window.XMLHttpRequest.prototype){
+    var XP = window.XMLHttpRequest.prototype;
+    var origOpen = XP.open, origSend = XP.send;
+    XP.open = function(m, u){
+      try{
+        this.__dshM = String(m || 'GET').toUpperCase();
+        this.__dshU = String(u || '');
+        this.__dshAI = (this.__dshM === 'POST') && AI_URL.test(this.__dshU);
+      }catch(e){}
+      return origOpen.apply(this, arguments);
+    };
+    XP.send = function(){
+      var self = this;
+      try{
+        if(this.__dshAI) showThinking();
+        this.addEventListener('load', function(){
+          try{
+            if(self.__dshAI) setTimeout(hideThinking, 400);
+            var getH = function(n){ try{ return self.getResponseHeader(n); }catch(e2){ return null; } };
+            onWrite(self.__dshM, self.__dshU,
+                    self.status >= 200 && self.status < 300, self.status, getH);
+          }catch(e){}
+        });
+        this.addEventListener('error',   function(){ if(self.__dshAI) hideThinking(); });
+        this.addEventListener('abort',   function(){ if(self.__dshAI) hideThinking(); });
+      }catch(e){}
+      return origSend.apply(this, arguments);
+    };
+  }
+
+  /* ---------------------------------------------------------------
+   * 3. 回复内容淡入 —— 场景 05
+   *    只加 class（.dsh-mo-tkn-host），不改结构、不设 opacity 初值。
+   *    万一动画被 React 打断，最坏是没有动画，绝不会内容隐形。
+   * ------------------------------------------------------------- */
+  var fadeMark = {};
+  function fadeIn(el){
+    if(!el || el.nodeType !== 1 || !el.classList) return;
+    var key = (el.className || '') + '|' + el.tagName;
+    var now = Date.now();
+    if(fadeMark[key] && now - fadeMark[key] < 400) return;   // 同一元素别反复触发
+    fadeMark[key] = now;
+    try{
+      el.classList.add('dsh-mo-tkn-host');
+      setTimeout(function(){ try{ el.classList.remove('dsh-mo-tkn-host'); }catch(e){} }, 320);
+    }catch(e){}
+  }
+  if(window.MutationObserver && document.body){
+    try{
+      new MutationObserver(function(records){
+        for(var i = 0; i < records.length; i++){
+          var r = records[i];
+          var n = (r.type === 'characterData') ? r.target.parentNode : r.target;
+          if(!n || n.nodeType !== 1) continue;
+          if(n.closest && n.closest('#dsh-m-shell')) continue;   // 跳过 harness 自己的壳
+          if(!(n.textContent || '').trim()) continue;
+          fadeIn(n);
+        }
+      }).observe(document.body, {childList:true, subtree:true, characterData:true});
+    }catch(e){}
+  }
+
+  /* ---------------------------------------------------------------
+   * 4. 骨架屏 —— 场景 02
+   *    只在"容器确实是空的"这个确定事实下铺，一旦有内容立刻撤，
+   *    既不盖住内容，也不会造成内容到达时的布局跳动。
+   * ------------------------------------------------------------- */
+  var ROOT_SEL = '#root,#app,main,[data-reactroot],[id="__next"]';
+  function rootHost(){
+    try{
+      var n = document.querySelectorAll(ROOT_SEL);
+      for(var i = 0; i < n.length; i++){ if(n[i]) return n[i]; }
+    }catch(e){}
+    return null;
+  }
+  function hostIsEmpty(host){
+    if(!host) return false;
+    var kids = host.children;
+    for(var i = 0; i < kids.length; i++){
+      var c = String(kids[i].className || '');
+      if(c.indexOf('dsh-mo-skeleton-host') >= 0) continue;      // 忽略自己铺的
+      return false;
+    }
+    return true;
+  }
+  var skStop = null;
+  function syncSkeleton(){
+    var host = rootHost();
+    if(!host) return;
+    if(hostIsEmpty(host)){
+      if(skStop) return;
+      try{ skStop = M.skeleton(host, 3); }catch(e){ skStop = null; }
+    }else if(skStop){
+      try{ skStop(); }catch(e){}
+      skStop = null;
+    }
+  }
+  setTimeout(syncSkeleton, 400);
+  var skTimer = setInterval(function(){
+    syncSkeleton();
+    var host = rootHost();
+    if(host && !hostIsEmpty(host) && !skStop) clearInterval(skTimer);   // 稳定了就停轮询
+  }, 700);
+  setTimeout(function(){ clearInterval(skTimer); syncSkeleton(); }, 45000);  // 兜底收尾
+
+  console.log('[dsh] motion wire ready: reduced=' + REDUCE);
 })();

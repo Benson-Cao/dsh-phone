@@ -72,6 +72,10 @@ public final class DshService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundCompat();
+        // 方案 A：代理必须先于 dsh 起来 —— 它要先把 saf_config.json 写好
+        //（挂载点 + 端口 + token），node 侧的 shim 才能一上来就走代理。
+        // 未配置存储目录时 start() 内部只会写 enabled:false，不做无用功。
+        SafProxyServer.start(this);
         ensureDshRunning();
         // 每次 onStartCommand 都补一个调度线程：START_STICKY 被系统重启后
         // 会重新回调这里，保证「服务被杀过之后同步还能恢复」。
@@ -84,6 +88,9 @@ public final class DshService extends Service {
     @Override
     public void onDestroy() {
         Log.i(TAG, "服务被销毁");
+        // 代理随服务一起收：留着一个没人用的监听端口没有意义，
+        // 且下次 start 会重新挑端口/token（旧 token 作废，更安全）。
+        SafProxyServer.stop();
         super.onDestroy();
     }
 
