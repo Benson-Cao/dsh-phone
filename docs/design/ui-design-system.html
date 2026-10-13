@@ -927,7 +927,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <tr><td>空状态</td><td>图标 + 主文案 + <b>引导文案</b></td><td>只有一行灰字，用户不知道下一步</td><td><span class="tag pass">已补齐</span></td><td>我们能改</td></tr>
         <tr><td>Toast 语义色</td><td>与 <span class="mono">--dsh-*</span> 同源</td><td>4 个 kind 硬编码色值</td><td><span class="tag pass">已统一</span></td><td>我们能改</td></tr>
         <tr><td>导出按钮圆角</td><td class="num">9px</td><td class="num">7px</td><td><span class="tag pass">已落地 9px</span></td><td>我们能改</td></tr>
-        <tr><td>冲突提示 / 信息提示</td><td>用 warn / info 语义色</td><td><span class="mono">--dsh-warn</span>、<span class="mono">--dsh-info</span> <b>0 引用</b></td><td><span class="tag warn2">待定</span></td><td>我们能改</td></tr>
+        <tr><td>冲突提示 / 信息提示</td><td>用 warn / info 语义色</td><td>warn 已接同步回执（r108 <span class="mono">setSyncResult</span>）· info 已就绪徽标在用（r106）</td><td><span class="tag pass">已落地</span></td><td>我们能改</td></tr>
         <tr><td>开关控件</td><td>46×28 开关</td><td>代码里无 <span class="mono">switch</span> / <span class="mono">checkbox</span>，<b>也没有使用它的面板</b></td><td><span class="tag warn2">需产品决策</span></td><td>我们能改</td></tr>
         <tr><td>首页输入主卡 / 市场卡片</td><td>圆角 22 / 卡片节奏</td><td>由 dsh 渲染</td><td>—</td><td><span class="tag warn2">dsh 原生</span></td></tr>
         <tr><td>设置页原生四项</td><td>—</td><td>由 dsh 渲染</td><td>—</td><td><span class="tag warn2">dsh 原生</span></td></tr>
@@ -946,8 +946,8 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
     <div class="card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag pass">V2-b 已完成</span><b>状态语义化</b></div>
       <p style="font-size:13px;color:var(--ink-700);margin:0 0 8px">让颜色先于文字传达结果：徽标/冲突/提示接上语义色。</p>
-      <div style="font-size:12.5px;color:var(--ink-500);line-height:1.7">新增 4 组语义色容器底（实算 4.74~8.00:1）· "未安装"徽标改 warn · 已就绪用 info</div>
-      <div class="note">✓ r106 已落地并两套主题实测。<b>残留</b>：同步结果里的"冲突 N 份"仍是中性色，要接 warn 需改 JS 文案渲染。</div>
+      <div style="font-size:12.5px;color:var(--ink-500);line-height:1.7">新增 4 组语义色容器底（实算 4.74~8.00:1）· "未安装"徽标改 warn · 已就绪用 info · 同步冲突回执接 warn（r108）</div>
+      <div class="note">✓ r106 已落地并两套主题实测；r108 <span class="mono">setSyncResult</span> 把"冲突保留 N 份"接 warn 并加粗，V2-b 收口。</div>
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="tag warn2">V2-c 部分完成</span><b>组件补齐</b></div>

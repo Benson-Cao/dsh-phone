@@ -268,6 +268,11 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
      用户看不出本次同步到底成了没。 */
   #dsh-syc-panel .dsh-syc-st.dsh-syc-ok{color:var(--dsh-ok,#0f7a4a) !important;
     font-weight:600 !important;}
+  /* r108：有冲突时整行转 warn 色，"冲突保留 N 份"加粗（见 mobile.js setSyncResult）。
+     冲突 = NAS 与本机都改过同一文件、两份都保留 → 要用户去处理的遗留事项，
+     不该跟"同步成功"同一个色。实测 warn 在浅底 6.00:1 / 深底 9.56:1。 */
+  #dsh-syc-panel .dsh-syc-st.dsh-syc-warn{color:var(--dsh-warn,#8a5300) !important;}
+  #dsh-syc-panel .dsh-syc-st.dsh-syc-warn b{font-weight:700 !important;}
 #dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent;cursor:pointer;}
 #dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}
 #dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}

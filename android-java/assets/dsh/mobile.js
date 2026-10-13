@@ -1890,6 +1890,26 @@ else{
       el.textContent=t||'';
       el.className='dsh-syc-st'+(isErr?' dsh-syc-err':(t?' dsh-syc-ok':''));
     }
+    // r108：把"上传/下载/冲突"三个数字渲染成带语义色的回执。
+    // 为什么冲突要单独一色：冲突意味着「同一份文件 NAS 和本机都改过，两份都留着」——
+    // 这是要用户去处理的遗留事项，跟"同步成功"不是一个性质，不能同色。
+    // （r105 只做了 ok/danger 两态，冲突仍是中性色；这里补上。）
+    // ⚠️ 三个值来自 bridge 的 JSON（外部数据），必须 parseInt + escapeHtml 之后
+    //    才能进 innerHTML —— 直接字符串拼接等于把外部数据当 HTML，那是注入面。
+    function setSyncResult(up,down,conflicts){
+      var el=document.getElementById('dsh-syc-st');
+      if(!el) return;
+      var u=parseInt(up,10),d=parseInt(down,10),c=parseInt(conflicts,10);
+      if(isNaN(u))u=0; if(isNaN(d))d=0; if(isNaN(c))c=0;
+      if(c>0){
+        el.className='dsh-syc-st dsh-syc-warn';
+        el.innerHTML='上次同步：上传 '+escapeHtml(String(u))+' · 下载 '+escapeHtml(String(d))
+          +' · <b>冲突保留 '+escapeHtml(String(c))+' 份</b>（两份都留着，需人工确认保留哪份）';
+      }else{
+        el.className='dsh-syc-st dsh-syc-ok';
+        el.textContent='上次同步：上传 '+u+' · 下载 '+d;
+      }
+    }
     function pollSyncResult(){
       var b=safBridge();
       if(!b) return;
@@ -1900,8 +1920,8 @@ else{
         var r=JSON.parse(b.syncLastResult());
         if(r&&r.ran&&r.at){
           if(r.message==='ok'){
-            setSyncStatus('上次同步：上传 '+r.uploaded+' · 下载 '+r.downloaded
-              +(r.conflicts?(' · 冲突保留 '+r.conflicts+' 份'):''), false);
+            // r108：改走 setSyncResult —— 有冲突时要把"冲突保留 N 份"标成 warn
+            setSyncResult(r.uploaded,r.downloaded,r.conflicts);
           }else{
             setSyncStatus('上次同步：'+r.message, true);
           }
