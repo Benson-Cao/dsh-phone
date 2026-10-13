@@ -22,6 +22,8 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import org.json.JSONObject;
+
 /**
  * 应用主入口。
  *
@@ -81,6 +83,9 @@ public class MainActivity extends Activity {
     private LinearLayout loadingBox;
     private TextView statusText;
     private final Handler main = new Handler(Looper.getMainLooper());
+
+    /** WebView 是否已真正进入（用于避免 DSH_STATE 错误诊断覆盖正常界面）。 */
+    private boolean webShown = false;
 
     private String dshUrl() {
         return "http://127.0.0.1:" + DshProcessManager.DSH_PORT;
@@ -169,6 +174,21 @@ public class MainActivity extends Activity {
         root.addView(scroll, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+
+        // 接入 DSH_STATE 协议（contract.md §6）：运行时把结构化状态写进 dsh-web.log，
+        // DshProcessManager 增量扫描并回调此处，统一驱动启动页状态文案 / 错误诊断。
+        // 观察者内部用 runOnUiThread 切回主线程，避免在工作线程改 UI。
+        DshProcessManager.setObserver(new DshProcessManager.StateObserver() {
+            @Override public void onState(final JSONObject s) {
+                main.post(new Runnable() {
+                    @Override public void run() { handleDshState(s); }
+                });
+            }
+            @Override public void onLog(final String line, final int level) {
+                // 启动页暂无实时日志面板；保留接口，后续可接诊断页。
+                // level 已按 [ERR]/[WARN]/其余 分类（0=info,1=warn,2=err）。
+            }
+        });
 
         // 浅色底→ 深色状态栏图标；状态栏背景 = --ink-50（与启动页同色）。
         getWindow().setStatusBarColor(INK_50);
@@ -396,10 +416,42 @@ public class MainActivity extends Activity {
         return webView;
     }
 
+    /**
+     * 处理一条 DSH_STATE 状态（已在主线程）。contract.md §6：
+     * - error → 更新文案，并在 WebView 尚未进入时弹结构化诊断（错误码 + 消息 + 日志）；
+     * - ready/retrying/start_dsh 等 → 仅更新状态文案；
+     * - ready **不在此加载 WebView**：避免"token 已打印但服务未就绪"的假就绪，
+     *   WebView 加载仍由 DshProbe.tryReady 的「根路径真返回 200」把关；
+     * - 带 progress 时附百分比。
+     */
+    private void handleDshState(JSONObject s) {
+        try {
+            String state = s.optString("state", "");
+            String msg = s.optString("msg", "");
+            int progress = s.optInt("progress", -1);
+            if ("error".equals(state)) {
+                String code = s.optString("code", "UNKNOWN");
+                setStatus("启动错误 [" + code + "]: " + msg);
+                if (!webShown) {
+                    showDiagnostics("启动失败 [" + code + "]:\n\n" + msg
+                            + "\n\n（运行时通过 DSH_STATE 上报，详情见下方日志）\n\n"
+                            + DshProcessManager.tailLog(MainActivity.this, 40));
+                }
+                return;
+            }
+            StringBuilder sb = new StringBuilder(msg);
+            if (progress >= 0) sb.append(" (").append(progress).append("%)");
+            setStatus(sb.toString());
+        } catch (Exception e) {
+            Log.w("MainActivity", "handleDshState 解析失败", e);
+        }
+    }
+
     private void showWebView(String url) {
         if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
         setContentView(webView);
         webView.loadUrl(url);
+        webShown = true;
         Log.i("MainActivity", "已进入 dsh：loadUrl " + url);
         // 已进入 dsh 界面后，若服务其实没起来，onReceivedError 会显示友好页
     }
@@ -510,5 +562,11 @@ public class MainActivity extends Activity {
         if (webView != null && !sHistoryCleared) {
             try { webView.clearHistory(); sHistoryCleared = true; } catch (Throwable ignored) { }
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        DshProcessManager.setObserver(null);   // 释放对 Activity 的引用，避免泄漏
     }
 }

@@ -3,10 +3,15 @@ package com.dsh.harness;
 import android.content.Context;
 import android.util.Log;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.List;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * dsh 后台服务的守护：启 / 停 / 重启 / 端口探测 / 日志 tail。
@@ -19,6 +24,26 @@ public final class DshProcessManager {
     // 单一常量源：端口只定义在 DshBootstrap.DSH_PORT，这里转发避免两处漂移
     public static final int DSH_PORT = DshBootstrap.DSH_PORT;
     private static final String LOG_NAME = "dsh-web.log";
+
+    /**
+     * DSH_STATE: 状态行观察者。运行时（node / launcher / patch）把结构化状态写进
+     * dsh-web.log（与现有重定向一致），本类增量扫描该文件并回调此观察者。
+     * 观察者由 UI 层（MainActivity）设置，必须用 runOnUiThread 切回主线程再改 UI。
+     */
+    public interface StateObserver {
+        /** 解析成功的 DSH_STATE 对象（绝不为 null）。 */
+        void onState(JSONObject state);
+        /** 普通日志行；level: 0=info, 1=warn, 2=err。 */
+        void onLog(String line, int level);
+    }
+
+    private static volatile StateObserver observer = null;
+    private static volatile boolean scanning = false;
+
+    public static void setObserver(StateObserver o) { observer = o; }
+
+    /** 停止增量扫描（进程停止时调用）。 */
+    public static void stopStateScan() { scanning = false; }
 
     private DshProcessManager() {}
 
@@ -58,8 +83,10 @@ public final class DshProcessManager {
             }
             pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
             pb.redirectError(ProcessBuilder.Redirect.appendTo(logFile));
+            final long scanStart = logFile.exists() ? logFile.length() : 0;
             running = pb.start();
             Log.i(TAG, "bash 进程已启动");
+            startStateScan(ctx, scanStart);   // 增量扫描 dsh-web.log，解析 DSH_STATE: 行回调 UI
         } catch (Exception e) {
             Log.e(TAG, "启动 bash 失败", e);
             return false;
@@ -75,6 +102,7 @@ public final class DshProcessManager {
             try { running.destroy(); } catch (Exception ignored) { }
             running = null;
         }
+        stopStateScan();
     }
 
     public static boolean restart(Context ctx) {
@@ -162,6 +190,131 @@ public final class DshProcessManager {
             return sb.toString();
         } catch (Exception e) {
             return "(读取日志失败: " + e.getMessage() + ")";
+        }
+    }
+
+    /**
+     * 增量扫描 dsh-web.log，解析 DSH_STATE: 行并回调 {@link StateObserver}。
+     *
+     * 设计要点（与 contract.md §6.1 一致）：
+     * - 不改动 ProcessBuilder 重定向（仍 appendTo dsh-web.log），只新增一个 tail 式读取；
+     * - 从 startOffset（本次启动前日志文件长度）开始扫描，跳过上一轮残留；
+     *   按字节偏移增量读取，正确处理"写到一半的行"；
+     * - 守护线程，随进程退出；用 scanning 标志去重，避免重复启动。
+     *
+     * @param ctx 上下文（用于定位 HOME 日志目录）
+     * @param startOffset 扫描起始字节偏移，一般传启动前日志长度
+     */
+    public static void startStateScan(final Context ctx, final long startOffset) {
+        if (scanning) return;
+        synchronized (DshProcessManager.class) {
+            if (scanning) return;
+            scanning = true;
+        }
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                File log = new File(DshBootstrap.home(ctx), LOG_NAME);
+                long pos = startOffset;
+                // 防御：若启动前日志不存在却传了 >0 偏移，回退到从 0 开始
+                if (pos > 0 && !log.exists()) pos = 0;
+                StringBuilder leftover = new StringBuilder();
+                while (scanning) {
+                    try {
+                        if (!log.exists()) { Thread.sleep(250); continue; }
+                        long len = log.length();
+                        if (len < pos) pos = 0;   // 日志被截断/重建
+                        if (len > pos) {
+                            FileInputStream fis = new FileInputStream(log);
+                            try {
+                                fis.skip(pos);
+                                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                                byte[] buf = new byte[8192];
+                                int n;
+                                while ((n = fis.read(buf)) > 0) bos.write(buf, 0, n);
+                                pos += bos.size();
+                                String chunk = leftover.append(
+                                    new String(bos.toByteArray(), "UTF-8")).toString();
+                                leftover.setLength(0);
+                                int lineStart = 0;
+                                for (int i = 0; i < chunk.length(); i++) {
+                                    if (chunk.charAt(i) == '\n') {
+                                        processLine(chunk.substring(lineStart, i));
+                                        lineStart = i + 1;
+                                    }
+                                }
+                                if (lineStart < chunk.length()) {
+                                    leftover.append(chunk.substring(lineStart));
+                                }
+                            } finally {
+                                fis.close();
+                            }
+                        }
+                        Thread.sleep(200);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (Exception e) {
+                        try { Thread.sleep(500); } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+            }
+        }, "dsh-state-scan");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * node 启动成功后会打印一行带 token 的 web URL：
+     *   dsh web: http://127.0.0.1:3080/?token=xxxxxxxxxxxx
+     * 生产者（运行时）目前没显式发 DSH_STATE ready，这里把它规范化为 ready 事件，
+     * 让启动页状态文案能即时更新（contract.md §3）。注意：
+     * - ready 只更新状态文本，绝不触发 WebView 加载 —— WebView 仍由
+     *   DshProbe.tryReady 的「根路径真返回 200」把关，避免"token 已打印但服务未就绪"假就绪；
+     * - 真正加载 WebView 用的 token URL 仍由 readTokenUrl() 提供，不依赖此规范化。
+     * - [^\s]+ 在空白处截断，正好剥掉行尾可能的 \r（CRLF）。
+     */
+    private static final java.util.regex.Pattern TOKEN_URL_PAT =
+            java.util.regex.Pattern.compile("http://127\\.0\\.0\\.1:\\d+/\\?token=[^\\s]+");
+
+    /** 处理单行：token URL → 规范化 ready；DSH_STATE: → 解析回调；其余按前缀分级回调。 */
+    private static void processLine(String line) {
+        // (3)(4) 生产者侧：node 打印的 token URL 规范化成 ready 事件。
+        // 必须在 DSH_STATE 分支之前判定，否则会被当普通日志。
+        java.util.regex.Matcher tm = TOKEN_URL_PAT.matcher(line);
+        if (tm.find()) {
+            String webUrl = tm.group();
+            try {
+                JSONObject obj = new JSONObject();
+                obj.put("state", "ready");
+                obj.put("msg", "DSH 服务已启动");
+                obj.put("progress", 100);
+                JSONObject data = new JSONObject();
+                data.put("web_url", webUrl);
+                obj.put("data", data);
+                StateObserver o = observer;
+                if (o != null) o.onState(obj);
+            } catch (JSONException ignored) { }
+            return;
+        }
+
+        if (line.startsWith("DSH_STATE:")) {
+            try {
+                JSONObject obj = new JSONObject(line.substring("DSH_STATE:".length()));
+                StateObserver o = observer;
+                if (o != null) o.onState(obj);
+            } catch (JSONException je) {
+                StateObserver o = observer;
+                if (o != null) o.onLog("Invalid state msg: " + line, 2);
+            }
+        } else {
+            int level = 0;
+            if (line.startsWith("[ERR]")) level = 2;
+            else if (line.startsWith("[WARN]")) level = 1;
+            StateObserver o = observer;
+            if (o != null) o.onLog(line, level);
         }
     }
 }

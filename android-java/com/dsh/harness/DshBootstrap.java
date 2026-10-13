@@ -673,6 +673,10 @@ public final class DshBootstrap {
         StringBuilder sb = new StringBuilder();
         sb.append("#!/bin/bash\n");
         sb.append("# 由 DshBootstrap 自动生成：启动 dsh Web 服务\n");
+        // ↓ DSH_STATE 协议（详见 docs/contract.md）：启动阶段上报「正在拉起 DSH 服务」。
+        //   必须在 exec node 之前打印，此时 bash 尚未被 node 取代，输出能进 dsh-web.log 被扫描。
+        sb.append("# 上报启动状态（DSH_STATE 协议，详见 docs/contract.md）\n");
+        sb.append("printf 'DSH_STATE:{\"state\":\"start_dsh\",\"msg\":\"正在拉起 DSH 服务\"}\\n'\n");
         sb.append("export PREFIX=\"").append(p).append("\"\n");
         sb.append("export HOME=\"").append(h).append("\"\n");
         sb.append("mkdir -p \"$HOME/.tmp\" \"$HOME/.cache\" \"$PREFIX/tmp\" \"$PREFIX/var/tmp\" 2>/dev/null\n");

@@ -187,6 +187,23 @@ void onReadLine(String line){
 
 ---
 
+### 6.1 Java 集成落地方案（解决传输层决策）
+
+原草案假设「Java 捕获进程 stdout 流」，与现状不符。落地时 **推荐如下**，无需改动已工作的 `ProcessBuilder` 重定向：
+
+- **不改动捕获方式**：`DshProcessManager.start()` 继续把 stdout/stderr `Redirect.appendTo(dsh-web.log)`（保留 `tailLog` / `readTokenUrl` 不变）。`DSH_STATE:` 行由运行时（node / launcher / patch）写入同一文件即可被捕获。
+- **新增增量扫描**：在 `DshProcessManager` 中增加 `scanStates(Consumer<JSONObject> cb)` —— 用「记住上次读取偏移」的方式 `tail -F` 式读取 `dsh-web.log`，逐行匹配 `DSH_STATE:` 后 `org.json` 解析并回调。**不轮询整文件**，只追增量，避免启动期 IO 放大（参照现有 `tailLog` 的实现思路）。
+- **驱动点**：由 `DshService.ensureDshRunning`（保活线程）或 `MainActivity` 在 `tryReady` 成功后启动该扫描线程；回调在 `runOnUiThread` 中刷新进度条 / 状态文本 / 错误对话框。
+- **Java 自有 bootstrap 状态（precheck / extracting）**：由 `DshBootstrap` 在执行解包时通过现有进程内回调直接更新 UI，**不**走 `DSH_STATE:`（这些日志在 Logcat，不进 `dsh-web.log`）。`DSH_STATE:` 主要用于 **运行时（node / launcher / patch）→ Java** 的上报。
+- **ready / token**：`ready` 状态**只更新启动页状态文案，不在 Java 侧加载 WebView**。原因：本项目 WebView 加载必须以「根路径真返回 200」为准（`DshProbe.tryReady`），token 打印 / `ready` 信号本身不可信（frontend-static 注册 fallback 前打印 token 会导致 404 空响应体）。`ready.data.web_url` 若带 token 可预先缓存，但最终加载仍由 `tryReady` 把关；回退仍用 `readTokenUrl`。（已实现：`MainActivity.handleDshState` 对 `ready` 仅 `setStatus`，绝不 `showWebView`。）
+- **token URL 行规范化**：node 启动成功会打印一行 `dsh web: http://127.0.0.1:3080/?token=...`，但运行时目前未显式发 `DSH_STATE ready`。为避免「改运行时才能看到 ready 文案」的耦合，`DshProcessManager.processLine` 在扫描日志时**主动把该行规范化为 `ready` 事件**（`state=ready`、`progress=100`、`data.web_url=<tokenURL>`），仅驱动状态文案，不触发 WebView。真正加载用的 token 仍由 `readTokenUrl()` 提供，二者互不依赖。（对应 P3/P4 落地。）
+- **error**：`MainActivity` 在 WebView 未进入（`webShown == false`）时，用 `msg + code` 弹结构化诊断页；已进入则只更新文案，不覆盖正常界面。
+- **观察者接线**：`MainActivity.onCreate` 调 `DshProcessManager.setObserver(...)`，`onDestroy` 清为 `null`（避免持有 Activity 引用）；`DshProcessManager.start()` 拉起进程后自动 `startStateScan`，`stop()` 时 `stopStateScan()`。
+- **progress**：当前启动页无真实进度条（被品牌渐变线替代），`progress` 附到 `statusText` 文案后（如「正在启动 (35%)」），不强制改 UI 控件。
+- **未来若切到捕获进程 stdout**：只需把 `startStateScan` 的扫描源从文件换成进程流，解析逻辑不变（协议 §1.6）。
+
+这样协议层与现状零冲突，且为后续「运行时细粒度状态上报」预留了统一入口。
+
 ## 7. 协议约束 & 避坑规则
 
 1. ❌ 禁止在 JSON 内输出换行；所有消息必须单行。
