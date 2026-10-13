@@ -18,9 +18,32 @@ set -euo pipefail
 REPO="${1:-termux-app}"
 APP="$REPO/app"
 SRC_DIR="$(cd "$(dirname "$0")/../android-java" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 NEW_PKG="com.dsh.harness"
 NEW_APP_NAME="DeepSeek Harness"
+
+# ---- 版本单一来源：version.ini（maintainability-plan.md §四.1）----
+# 过去这里写死 versionCode 999，导致每次出包 versionCode 都一样：
+#   - 系统无法区分新旧包（"同版本覆盖安装"，装错批次也不拦）；
+#   - 只能靠人工给 APK 改名来讲批次，文件名与真实版本极易对不上。
+# 现在统一从 version.ini 读，脚本里不再出现版本字面量。
+VERSION_INI="$ROOT/version.ini"
+if [ ! -f "$VERSION_INI" ]; then
+  echo "✗ 找不到 $VERSION_INI（版本单一来源，见 maintainability-plan.md §四.1）"; exit 1
+fi
+# 只取 key=value 的值部分；容错空行 / # 注释 / 行首空格。
+ini_get() {
+  local key="$1" fallback="${2:-}"
+  local v
+  v="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\([^#]*\).*/\1/p" "$VERSION_INI" \
+        | head -1 | tr -d '[:space:]')"
+  [ -n "$v" ] || v="$fallback"
+  printf '%s' "$v"
+}
+VERSION_CODE="$(ini_get version_code 999)"
+VERSION_NAME="$(ini_get version_name 1.0.0)"
+echo "==> 版本来源: version.ini  versionCode=$VERSION_CODE  versionName=$VERSION_NAME"
 
 echo "==> 改造目标仓库: $REPO"
 
@@ -37,8 +60,14 @@ else
   sed -i "s|applicationId \".*\"|applicationId \"$NEW_PKG\"|" "$APP/build.gradle"
   echo "  ✓ applicationId -> $NEW_PKG"
 fi
-sed -i "s/^        versionCode .*/        versionCode 999/" "$APP/build.gradle"
-echo "  ✓ versionCode -> 999（避免降级安装被拒）"
+# versionCode 来自 version.ini（不再是写死的 999）。
+# versionName 同样接进来：原来完全没有，导致应用信息里只能看到系统默认值。
+if ! grep -q '^        versionName ' "$APP/build.gradle"; then
+  sed -i "0,/^        versionCode /s//        versionName \"$VERSION_NAME\"\n        versionCode /" "$APP/build.gradle"
+fi
+sed -i "s/^        versionCode .*/        versionCode $VERSION_CODE/" "$APP/build.gradle"
+sed -i "s/^        versionName .*/        versionName \"$VERSION_NAME\"/" "$APP/build.gradle"
+echo "  ✓ versionCode -> $VERSION_CODE / versionName -> $VERSION_NAME（避免降级安装被拒）"
 
 # ---- 1) TermuxConstants.java：包名 + App 名常量（最关键） ----
 CONSTANTS=$(find "$REPO" -name "TermuxConstants.java" | head -1)
@@ -94,6 +123,12 @@ echo "  ✓ 拷贝 android-java/com/dsh/harness/*.java -> $DST"
 mkdir -p "$APP/src/main/res/xml"
 cp -f "$SRC_DIR"/res/xml/network_security_config.xml "$APP/src/main/res/xml/"
 echo "  ✓ 拷贝 network_security_config.xml -> $APP/src/main/res/xml/"
+
+# ---- 5.6) 拷贝 FileProvider 路径配置（方案 C，见 docs/saf-feasibility.md）----
+# 必须和第 6 步注册的 <provider> 成对出现，否则运行期
+# FileProvider.getUriForFile 会抛 IllegalArgumentException（"Failed to find configured root"）。
+cp -f "$SRC_DIR"/res/xml/dsh_file_paths.xml "$APP/src/main/res/xml/"
+echo "  ✓ 拷贝 dsh_file_paths.xml -> $APP/src/main/res/xml/"
 
 # ---- 6) 注册 MainActivity 为启动入口 ----
 MANIFEST="$APP/src/main/AndroidManifest.xml"
@@ -163,6 +198,57 @@ print(f"  ✓ 注册 MainActivity 为 LAUNCHER（当前 LAUNCHER 数量: {n}，�
 if n != 1:
     print("  ⚠ LAUNCHER 数量异常，请手工检查 AndroidManifest.xml")
 PYEOF
+fi
+
+# ---- 6.5) 注册 dsh 数据导出的 FileProvider（方案 C，幂等）----
+# 为什么要独立成一步（而不是塞进上面的 Python 块）：
+#   那个块只在「MainActivity 还没注册」时才跑。首次之后所有重跑都会走
+#   `else` 分支跳过 —— 如果 provider 注册也放里面，第二次构建 provider
+#   就消失了，而运行期 FileProvider.getUriForFile 会抛
+#   IllegalArgumentException（Failed to find configured root），且只在真机才暴露。
+# 所以这里独立判断，保证「重复跑脚本」与「跑一次」结果一致。
+if grep -q "dsh.files" "$MANIFEST"; then
+  echo "  · dsh FileProvider 已注册，跳过"
+else
+  "$PY" - "$MANIFEST" <<'PYEOF2'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+
+# authority 用 ${TERMUX_PACKAGE_NAME} 变量 —— 01 步会把常量改成 com.dsh.harness，
+# 而 manifestPlaceholders 正是靠它注入，跟项目现有两个 provider 保持同一套做法。
+# ⚠️ 不设 android:exported="true"：FileProvider 默认 false 才是安全的。
+#    只有我们显式 FLAG_GRANT_READ_URI_PERMISSION 授权的 App 才能读。
+#    逐文件授权，不做目录树共享。
+#
+# ⚠️ paths 必须写在 <meta-data> **子元素**里（android.support.FILE_PROVIDER_PATHS），
+#    不能写成 android:resource="..." 属性 —— 实测那样写 AAPT 直接报
+#    "attribute android:metadata not found"，构建失败。
+provider = (
+    '    <provider\n'
+    '        android:name="androidx.core.content.FileProvider"\n'
+    '        android:authorities="${TERMUX_PACKAGE_NAME}.dsh.files"\n'
+    '        android:exported="false"\n'
+    '        android:grantUriPermissions="true">\n'
+    '        <meta-data\n'
+    '            android:name="android.support.FILE_PROVIDER_PATHS"\n'
+    '            android:resource="@xml/dsh_file_paths" />\n'
+    '    </provider>\n'
+)
+s = s.replace('</application>', provider + '</application>')
+open(p, 'w', encoding='utf-8').write(s)
+print("  ✓ 注册 FileProvider（authority=${TERMUX_PACKAGE_NAME}.dsh.files）")
+PYEOF2
+fi
+
+# ---- 6.6) 自检：provider 与 paths xml 必须成对 ----
+if grep -q "dsh.files" "$MANIFEST" && [ -f "$APP/src/main/res/xml/dsh_file_paths.xml" ]; then
+  echo "  ✓ FileProvider 与 dsh_file_paths.xml 成对存在"
+elif grep -q "dsh.files" "$MANIFEST"; then
+  echo "  ✗ 有 provider 但缺 dsh_file_paths.xml —— 运行期会崩，请检查第 5.6 步"
+  exit 1
+else
+  echo "  · 未注册 FileProvider（方案 C 未启用）"
 fi
 
 # ---- 7) 创建 assets 目录，放 bundle + patch（由 build.sh 拷入实际文件） ----

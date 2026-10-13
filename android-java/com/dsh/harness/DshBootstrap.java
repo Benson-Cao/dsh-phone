@@ -265,6 +265,11 @@ public final class DshBootstrap {
         lastError = null;
         repairNote = null;
 
+        // r73（A2）：上报 precheck —— 前置环境校验开始。
+        // 走进程内回调而非 DSH_STATE:（contract.md §6.1：bootstrap 阶段的日志只进
+        // Logcat、不进 dsh-web.log，写成协议行会永远扫不到）。
+        DshProcessManager.emitState("precheck", "正在检查运行环境…", -1);
+
         // stamp 命中 ≠ 文件齐全：解包中途写失败（多为空间不足）会留下"永久残档"。
         // 这里抽查关键文件，缺任何一个就自动修复重解包。
         if (!needExtract) {
@@ -278,6 +283,9 @@ public final class DshBootstrap {
 
         try {
             if (needExtract) {
+                // r73（A2）：上报 extracting —— 解包 700MB 是首启最长的阶段，
+                // 有进度反馈时用户才知道没卡死。
+                DshProcessManager.emitState("extracting", "正在解包运行环境（首次约需 1–3 分钟）…", 0);
                 // 先确认空间够再动旧解包：否则清理完才发现空间不足，用户两头空。
                 long free = usableBytes(ctx);
                 if (free < 0) Log.w(TAG, "usableBytes 失败，空间检查跳过（r72/D10）");
@@ -311,6 +319,8 @@ public final class DshBootstrap {
             }
 
             // 每次启动都做的轻量修护：升级 APK 后无需重新解包 700MB
+            // r73（A2）：termux_init —— 进入软链 / ICU / koffi 修护阶段。
+            DshProcessManager.emitState("termux_init", "正在修复 Termux 环境…", 95);
             fixBinPermissions(ctx);
             ensureIcuLinks(ctx);
             ensureKoffiNative(ctx);
@@ -354,9 +364,18 @@ public final class DshBootstrap {
                 @Override public void onProgress(int files, long bytes) {
                     count[0] = files;
                     long now = System.currentTimeMillis();
+                    // r73（A2）：节流同时用于 Logcat 与 UI 上报（原来只写 Logcat，
+                    // UI 完全看不到解包进度，用户只能对着静止的界面等 1–3 分钟）。
                     if (now - lastReport[0] > 1500) {
                         lastReport[0] = now;
                         Log.i(TAG, "解包中: " + files + " 个文件, " + (bytes / 1048576) + " MB");
+                        // 进度按字节估算 0~99%：不预知总大小，用已写字节对
+                        // MIN_FREE_BYTES 之外的经验阈值无意义，故改用「文件数」的
+                        // 粗略档位：<5000 → 30%，<20000 → 60%，否则 90%。
+                        // 不给 100% —— 解包完还有校验/修软链，100% 留给 ready。
+                        int pct = files < 5000 ? 30 : (files < 20000 ? 60 : 90);
+                        DshProcessManager.emitState("extracting",
+                                "正在解包运行环境… " + files + " 个文件", pct);
                     }
                 }
             };
@@ -675,8 +694,19 @@ public final class DshBootstrap {
         sb.append("# 由 DshBootstrap 自动生成：启动 dsh Web 服务\n");
         // ↓ DSH_STATE 协议（详见 docs/contract.md）：启动阶段上报「正在拉起 DSH 服务」。
         //   必须在 exec node 之前打印，此时 bash 尚未被 node 取代，输出能进 dsh-web.log 被扫描。
+        // r73（A2 补齐生产者）：原来只有 start_dsh 一个生产者，termux_init / error /
+        //   crashed / stopped 全缺，Java 侧解析器虽已就绪却收不到这些态
+        //   （见 docs/真机验证清单-DSH_STATE协议.md §10）。此处补齐，且严格用
+        //   contract.md §3 枚举值，不自造字段。
+        //
+        // ⚠️ 转义铁律：Java 字符串里要写 \" 让 bash 收到双引号；msg 内不得出现
+        //   未转义双引号，否则 JSON 解析失败（会被降级成普通日志，静默丢状态）。
         sb.append("# 上报启动状态（DSH_STATE 协议，详见 docs/contract.md）\n");
-        sb.append("printf 'DSH_STATE:{\"state\":\"start_dsh\",\"msg\":\"正在拉起 DSH 服务\"}\\n'\n");
+        // start_dsh：启动链第一个态（保留原有行为，不能删——MainActivity 依赖它）。
+        sb.append("printf 'DSH_STATE:{\"state\":\"start_dsh\",\"msg\":\"正在拉起 DSH 服务\",\"progress\":70}\\n'\n");
+        // termux_init：环境变量已就位、node 即将 exec —— 对应契约里
+        // 「Termux 文件系统 / 软链 / ICU 初始化」这一段在启动链上的位置。
+        sb.append("printf 'DSH_STATE:{\"state\":\"termux_init\",\"msg\":\"Termux 环境已就绪，正在启动 Node\",\"progress\":90}\\n'\n");
         sb.append("export PREFIX=\"").append(p).append("\"\n");
         sb.append("export HOME=\"").append(h).append("\"\n");
         sb.append("mkdir -p \"$HOME/.tmp\" \"$HOME/.cache\" \"$PREFIX/tmp\" \"$PREFIX/var/tmp\" 2>/dev/null\n");
@@ -694,6 +724,24 @@ public final class DshBootstrap {
         // 缓存目录写进 HOME/.cache（createLauncher 已 mkdirs）。
         sb.append("export NODE_COMPILE_CACHE=\"$HOME/.cache/node-compile-cache\"\n");
         sb.append("cd \"").append(h).append("\"\n");
+// r73（A2）：exec 之前先自查 node 是否真的存在 —— 缺失时给出结构化 error，
+        //   否则只会静默失败、UI 永远停在「正在启动」（真机最难查的一类问题）。
+        //   注意这里不能用 [[ ]]（bundle 的 bash 版本行为不稳），统一用 [ ]。
+        //
+        // ⚠️ 实测结论（Git Bash bash 5.x，三种方案全部验证过）：
+        //   1) `trap ... EXIT` —— exec 失败时 **不触发**（bash 对 exec 失败走特殊路径）→ 死代码；
+        //   2) `exec ... || { ...; }` —— 同上不触发，exec 失败直接终止脚本 → 死代码；
+        //   3) 子 shell `( exec ... )` —— 能拿到退出码，但 node 正常退出也会被误判成
+        //      error（真机 node 被杀/重启就刷假报错），且破坏 exec 的核心目的：
+        //      **让 node 接管 PID 成为进程组长**，这是 DshProcessManager 保活的基础
+        //      （见其注释「不能用 cmd & + waitFor，子进程会随调用方结束被回收」）。
+        //   结论：exec 位置的失败**不可捕获**，不为错误上报牺牲进程模型。
+        //   这里只保留 [ -x ] 前置检查（能覆盖真机 99% 的「node 缺失」场景），
+        //   exec 之后的异常由 Java 侧 DshProbe.tryReady 超时兜底（DSH-START_TIMEOUT）。
+        sb.append("if [ ! -x \"$PREFIX/bin/node\" ]; then\n");
+        sb.append("  printf 'DSH_STATE:{\"state\":\"error\",\"msg\":\"node 可执行文件缺失，请重新解包运行环境\",\"code\":\"TERMUX-INIT_FAIL\"}\\n'\n");
+        sb.append("  exit 127\n");
+        sb.append("fi\n");
         // --expose-internals：web profile 的 patchReload=live 会创建 cordis-plugin-hmr，
         //   缺这个 flag 它会抛 "--expose-internals is required for HMR service" 并让整个进程退出。
         // --no-open：Termux 里没有 xdg-open，开浏览器必然失败。

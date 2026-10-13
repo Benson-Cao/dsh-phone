@@ -194,5 +194,127 @@ public class DshWebViewClient extends WebViewClient {
         }
         // dsh 的 UI 是桌面优先布局，手机上必须先补一刀（限宽侧栏 + 自动折叠）
         MobileTuning.apply(view);
+
+        // r79：启动页深色模式的第二段 —— 页面真正加载完，**此时才读得到 dsh 的主题**。
+        // 启动页阶段只能按系统 uiMode 猜（见 DshPalette 注释），若用户是在 dsh 里
+        // 设的主题且与系统不同，这里就是唯一一次纠正机会。
+        //
+        // ⚠️ 真机调试（r79）发现：只探一次**不够**。dsh 是 SPA，
+        // onPageFinished 触发时 DOM 可能还没渲染出背景色，getComputedStyle 返回空，
+        // 于是静默失败 —— 真机日志里连一条记录都没有，查了很久。
+        // 现在改成**最多重试 5 次、间隔递增**（1s/2s/4s/8s/12s），
+        // 覆盖 SPA 首屏渲染的不确定时长。
+        probeTheme(view, 0);
+    }
+
+    /** 探测 dsh 页面主题（带退避重试）。attempt 从 0 开始。 */
+    private void probeTheme(final WebView view, final int attempt) {
+        final int MAX_ATTEMPT = 5;
+        // ⚠️ r79 真机实测：首次延迟必须给足 —— dsh 是 SPA，onPageFinished 触发时
+        //   主题（@media/class）往往还没应用上，body 背景还是浅色。
+        //   原先只等 400ms → 必然误判。1.2s 起，配合上面的 sys: 兜底才稳。
+        long delay = attempt == 0 ? 1200L : Math.min(15000L, 1500L << attempt);
+        try {
+            view.postDelayed(new Runnable() {
+                @Override public void run() {
+                    try {
+                        view.evaluateJavascript(
+                                // ⚠️ r79 真机调试（第二轮）修正：**直接读 dsh 的权威判定结果**，
+                                //   不要自己重算 body 背景色亮度。
+                                //   原因：真机上出现过「回读=light 但页面明显是深色」的矛盾 ——
+                                //   因为 dsh 的主题不一定落在 body 背景上（可能是内层容器或 CSS 变量），
+                                //   自己算出来的结论与页面实际观感不一致，还把错误值落了盘。
+                                //   而 `documentElement.classList.contains('dsh-dark')`
+                                //   正是 mobile.js 的 detectDark() 算完后写下的**最终结论**，
+                                //   读它 = 直接复用页面的判定，零分歧。
+                                // ① 权威：mobile.js 的 detectDark() 算完写下的结论
+                                // ② dsh 强制浅色标记
+                                // ⚠️ ③ 之后全是**猜测** → 一律加 guess: 前缀，
+                                //    Java 侧见到guess: 就丢弃结果、跟随系统。
+                                //    （r79 真机：早期版本把猜测当权威，错误落盘，
+                                //      导致深色系统下启动页画成浅色 —— 闪瞎眼）
+                                "(function(){try{"
+                                + "var h=document.documentElement,b=document.body;"
+                                + "if(!h||!b)return '';"
+                                // ⚠️⚠️ r79 真机踩坑：**语义曾经搞反过，务必看清再改**。
+                                //   `data-ds-dark-theme` 的名字像"强制浅色"，但它其实是
+                                //   **「dsh 深色主题已启用」的标记** —— mobile.css 第 2 行：
+                                //     body[data-ds-dark-theme]{--ds-ink-fb-900:#e6edf5;
+                                //                                 --ds-surface-fb:#141b23;...}
+                                //   配的全是**深色变量**。
+                                //   mobile.js 里那句 `classList.remove('dsh-dark')` 只是
+                                //   **避免双重应用**（页面已经用 data-* 应用过了），
+                                //   不是"改成浅色"。
+                                //   我曾误判为浅色 → 真机上深色系统却画出浅色启动页。
+                                + "if(b.hasAttribute('data-ds-dark-theme'))return 'dark';"
+                                + "if(h.classList.contains('dsh-dark'))return 'dark';"
+                                + "return 'guess:none';"
+                                + "}catch(e){return 'guess:err'}})()",
+                                new android.webkit.ValueCallback<String>() {
+                                    @Override public void onReceiveValue(String value) {
+                                        // ⚠️ **每条分支都打日志**：静默失败是最难查的一类问题，
+                                        //   尤其在无法本地复现的真机上。
+                                        String v = value == null ? "" : value.replace("\"", "").trim();
+                                        Log.i("DshWebViewClient", "[dsh] theme probe #"
+                                                + attempt + " raw=" + value);
+                                        // ★ r79 真机教训：探测结果**不是**绝对权威。
+                                        //   dsh 是 SPA，onPageFinished 时主题常常还没生效，
+                                        //   此时读到浅色会误导启动页（浅色启动页 + 深色页面，闪瞎眼）。
+                                        //   所以 JS 只报**权威信号**（html.dsh-dark /
+                                        //   data-ds-dark-theme）；拿不到就报 guess:*，
+                                        //   Java 侧见到 guess: 一律丢弃、跟随系统。
+                                        //   ——探测只是"系统的补充"，不是"系统的主人"。
+                                        if (v.startsWith("guess:")) {
+                                            Log.i("DshWebViewClient",
+                                                    "[dsh] 未拿到权威主题信号，跟随系统（"
+                                                            + v.substring(6).trim() + "）");
+                                            if (attempt < MAX_ATTEMPT) {
+                                                probeTheme(view, attempt + 1);
+                                            } else {
+                                                // 重试用尽仍无权威信号 → 确定跟随系统，并刷新系统栏
+                                                DshPalette.preferSystem(view.getContext());
+                                                Log.i("DshWebViewClient",
+                                                        "[dsh] 最终跟随系统主题（页面未给出权威信号）");
+                                                try {
+                                                    MainActivity ma = (MainActivity) view.getContext();
+                                                    ma.refreshSystemBarsForTheme();
+                                                } catch (Throwable ignored) { }
+                                            }
+                                            return;
+                                        }
+                                        if ("dark".equals(v) || "light".equals(v)) {
+                                            boolean dark = "dark".equals(v);
+                                            boolean changed = DshPalette.rememberDshDark(
+                                                    view.getContext(), dark);
+                                            Log.i("DshWebViewClient", "[dsh] 页面权威主题=" + v
+                                                    + (changed ? "（配色已更新）" : "（配色本就一致）"));
+                                            // ⚠️ 关键：知道真实主题后**立刻重刷系统栏**。
+                                            //   否则状态栏会停留在启动页的颜色 —— 深色页面配浅色状态栏，
+                                            //   顶部一条白边（r79 真机截图确认过的现象）。
+                                            if (changed) {
+                                                try {
+                                                    MainActivity ma = (MainActivity) view.getContext();
+                                                    ma.refreshSystemBarsForTheme();
+                                                } catch (Throwable ignored) { }
+                                            }
+                                            return;
+                                        }
+                                        // 空值 = SPA 还没渲染出背景色，继续等
+                                        if (attempt < MAX_ATTEMPT) {
+                                            probeTheme(view, attempt + 1);
+                                        } else {
+                                            Log.w("DshWebViewClient",
+                                                    "[dsh] theme probe 5 次仍无结果，放弃（沿用系统主题）");
+                                        }
+                                    }
+                                });
+                    } catch (Throwable t) {
+                        Log.w("DshWebViewClient", "[dsh] theme probe 异常: " + t.getMessage());
+                    }
+                }
+            }, delay);
+        } catch (Throwable t) {
+            Log.w("DshWebViewClient", "[dsh] theme probe postDelayed 失败: " + t.getMessage());
+        }
     }
 }

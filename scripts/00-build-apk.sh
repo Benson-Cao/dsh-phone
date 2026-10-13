@@ -26,11 +26,35 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
 REPO="${REPO:-termux-app}"
 BUNDLE="${BUNDLE:-}"
 INSTALL="${INSTALL:-0}"
+# 归档目录（出包后按版本命名留档）。默认指向约定的产物目录；
+# 设为空字符串则跳过归档。
+APK_OUT="${APK_OUT:-D:/Program AI/DSH Phone/apk-out}"
+# 归档名里的内容标签（如 export / protocol），便于一眼看出这包装了什么。
+APK_TAG="${APK_TAG:-build}"
 
-echo "########## STEP 1/6：准备 termux-app 仓库 ##########"
+# 版本单一来源（maintainability-plan.md §四.1）：version.ini。
+# 出包后据此重命名产物，人工改名不再是区分批次/版本的手段。
+VERSION_INI="$ROOT/version.ini"
+ini_get() {
+  local key="$1" fallback="${2:-}" v
+  v="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\([^#]*\).*/\1/p" "$VERSION_INI" \
+        | head -1 | tr -d '[:space:]')" 2>/dev/null || true
+  [ -n "$v" ] || v="$fallback"
+  printf '%s' "$v"
+}
+if [ -f "$VERSION_INI" ]; then
+  V_NAME="$(ini_get version_name 1.0.0)"
+  V_REV="$(ini_get build_rev 0)"
+else
+  V_NAME="unknown"; V_REV="0"
+  echo "  ! 未找到 version.ini，产物名将不含版本号"
+fi
+
+echo "########## STEP 1/7：准备 termux-app 仓库 ##########"
 if [ ! -d "$REPO/.git" ]; then
   echo "  clone termux-app（浅克隆，v0.118.0）..."
   git -c http.proxy="${PROXY:-}" -c https.proxy="${PROXY:-}" \
@@ -46,31 +70,22 @@ case "$REPO" in
     exit 1;;
 esac
 
-echo "########## STEP 2/6：放入 bundle + patch 到 assets ##########"
-ASSETS="$REPO/app/src/main/assets"
-mkdir -p "$ASSETS"
-cp -f "$HERE/patch.sh" "$ASSETS/patch.sh"
-if [ -n "$BUNDLE" ] && [ -f "$BUNDLE" ]; then
-  cp -f "$BUNDLE" "$ASSETS/dsh-bundle.tar.gz"
-  echo "  ✓ bundle + patch.sh -> assets（含 dsh 运行环境）"
-else
-  echo "  ! 未提供 BUNDLE —— 编出来是【空壳 APK】：能装能开，但会停在自检页"
-  echo "    完整版：手机 Termux 跑 02-build-bundle.sh 打出 dsh 环境后重编"
-  # 放个合法但空的占位 tar，避免 DshBootstrap 首启读 assets 崩溃
-  tar -czf "$ASSETS/dsh-bundle.tar.gz" -T /dev/null 2>/dev/null || true
-fi
+echo "########## STEP 2/7：放入 bundle + patch 到 assets ##########"
+# 实际逻辑在 03-package-asset.sh（可单独重跑，含 gzip/布局自检）。
+# 这里调它而不是复制一份粘贴 —— 过去两份逻辑各改各的，已经开始漂移。
+BUNDLE="$BUNDLE" bash "$HERE/03-package-asset.sh" "$REPO"
 
-echo "########## STEP 3/6：改造 Termux 源码（幂等） ##########"
+echo "########## STEP 3/7：改造 Termux 源码（幂等） ##########"
 bash "$HERE/01-modify-termux.sh" "$REPO"
 
-echo "########## STEP 4/6：拷贝 Java 源码 ##########"
+echo "########## STEP 4/7：拷贝 Java 源码 ##########"
 # ⚠️ 必须是 .java：Termux v0.118.0 没有 Kotlin 插件，.kt 会被完全忽略、不编进 dex
 DST="$REPO/app/src/main/java/com/dsh/harness"
 mkdir -p "$DST"
 cp -f "$HERE/../android-java/com/dsh/harness/"*.java "$DST/"
 echo "  ✓ $(ls "$DST" | wc -l) 个源文件已就位"
 
-echo "########## STEP 5/6：编译 ##########"
+echo "########## STEP 5/7：编译 ##########"
 export ANDROID_HOME="${ANDROID_HOME:-D:/AndroidSDK}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-D:/AndroidSDK}"
 export JAVA_HOME="${JAVA_HOME:-D:/AndroidSDK/jdk17}"
@@ -106,15 +121,53 @@ cd "$REPO"
 # 注意任务名：只有 assembleDebug，没有 assembleArm64-v8aDebug
 bash gradlew :app:assembleDebug --console=plain
 
-echo "########## STEP 6/6：产物 ##########"
+echo "########## STEP 6/7：产物 ##########"
 APK="$REPO/app/build/outputs/apk/debug/termux-app_apt-android-7-debug_arm64-v8a.apk"
 [ -f "$APK" ] || APK=$(find app/build/outputs -name "*arm64-v8a*.apk" | head -1)
-if [ -z "$APK" ]; then echo "✗ 未找到产物 APK"; exit 1; fi
+if [ -z "$APK" ] || [ ! -f "$APK" ]; then echo "✗ 未找到产物 APK"; exit 1; fi
 echo "  ✓ $APK ($(du -h "$APK" | cut -f1))"
+
+# 自动按 version.ini 重命名 —— 取代过去人工改成 DSH-Phone-v999-r95-*.apk 的做法。
+# 保留原文件（cp 而非 mv）：gradle 的 outputs 目录留着不影响下次构建。
+OUT_APK="$(dirname "$APK")/DSH-Phone-${V_NAME}-r${V_REV}-$(basename "$APK")"
+cp -f "$APK" "$OUT_APK"
+echo "  ✓ 版本化副本: $OUT_APK"
+
+echo "########## STEP 7/7：产物 hash 校验 + 归档 ##########"
+# 目的：assets 静默损坏/传输截断要能被立刻发现，而不是等真机启动失败才发现。
+# 700MB bundle 打进去的包，静默损坏的排查成本极高。
+APK_DIR="$(dirname "$APK")"
+( cd "$APK_DIR" && sha256sum "$(basename "$APK")" > SHA256SUMS.txt )
+echo "  ✓ SHA256SUMS.txt（构建目录）"
+sed 's/^/      /' "$APK_DIR/SHA256SUMS.txt"
+
+# ---- 归档到统一产物目录 ----
+# 为什么要有这一步：产物散在 termux-app/app/build/outputs/apk/debug/ 下，
+# 那个目录 `./gradlew clean` 一冲就没了，且历史包会被覆盖、无法回退对比。
+# 归档后按版本命名留档，还能随时校验拷贝是否完整（258MB 拷贝值得验一次）。
+if [ -n "$APK_OUT" ]; then
+  mkdir -p "$APK_OUT" 2>/dev/null || { echo "  ! 归档目录不可写，跳过：$APK_OUT"; APK_OUT=""; }
+fi
+if [ -n "$APK_OUT" ]; then
+  # 归档名带版本与内容标签：DSH-Phone-<ver>-r<rev>-<tag>-<abi>-debug.apk
+  # 从 gradle 原始名里剥出 abi 部分（...debug_arm64-v8a.apk → arm64-v8a）
+  A_ABI="$(basename "$APK" | sed 's/^termux-app_apt-android-7-debug_//;s/\.apk$//')"
+  A_NAME="DSH-Phone-${V_NAME}-r${V_REV}-${APK_TAG}-${A_ABI}-debug.apk"
+  cp -f "$APK" "$APK_OUT/$A_NAME"
+  echo "  ✓ 已归档: $APK_OUT/$A_NAME ($(du -m "$APK_OUT/$A_NAME" | cut -f1) MB)"
+  # 归档目录里重新生成校验和（含本目录历史包，便于一次校验全部）
+  ( cd "$APK_OUT" && sha256sum *.apk > SHA256SUMS.txt 2>/dev/null || true )
+  # 拷贝完整性自查：立刻验一次，别等到装机时才发现包是坏的
+  if ( cd "$APK_OUT" && sha256sum -c SHA256SUMS.txt >/dev/null 2>&1 ); then
+    echo "  ✓ 归档校验通过"
+  else
+    echo "  ⚠ 归档校验未通过，请检查磁盘空间或拷贝中断"
+  fi
+fi
 
 if [ "$INSTALL" = "1" ]; then
   if command -v adb >/dev/null 2>&1 && adb devices | grep -q "device$"; then
-    adb install -r "$APK" && echo "  ✓ 已安装"
+    adb install -r "$OUT_APK" && echo "  ✓ 已安装（$OUT_APK）"
   else
     echo "  ! 未检测到 adb 设备，跳过安装（手机请手动安装 APK）"
   fi

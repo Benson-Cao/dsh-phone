@@ -40,6 +40,10 @@ public final class DshService extends Service {
     private static final String CHANNEL_ID = "dsh_service";
     private static final int NOTIF_ID = 0xD511;
 
+    /** r75 · NAS 同步调度的防重入锁与标志（见 {@link #scheduleSync()}）。 */
+    private static final Object SYNC_LOCK = new Object();
+    private static boolean syncRunning = false;
+
     public static void start(Context ctx) {
         try {
             Intent i = new Intent(ctx, DshService.class);
@@ -69,6 +73,10 @@ public final class DshService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundCompat();
         ensureDshRunning();
+        // 每次 onStartCommand 都补一个调度线程：START_STICKY 被系统重启后
+        // 会重新回调这里，保证「服务被杀过之后同步还能恢复」。
+        // isInterrupted/daemon 双重保证不会叠加出多个常驻线程。
+        scheduleSync();
         // START_STICKY：被系统杀掉后自动重启并回调 onStartCommand
         return START_STICKY;
     }
@@ -101,9 +109,69 @@ public final class DshService extends Service {
                 } catch (Throwable t) {
                     Log.e(TAG, "保活异常", t);
                     updateNotification("保活异常");
+                } finally {
+                    // 同步在独立线程跑：无论 dsh 起来没有，都到点就同步
+                    // （用户可能只想备份会话内容，与 dsh 服务是否健康无关）。
+                    scheduleSync();
                 }
             }
         }, "dsh-keepalive").start();
+    }
+
+    /**
+     * NAS 同步调度（r75）。
+     *
+     * <p>挂在保活线程而不是新建常驻线程：保活线程本来就在跑，
+     * 直接在里面「睡到下个点」最省资源，也不会多一个线程常驻。
+     *
+     * <p>三条防御：
+     * <ul>
+     *   <li>未配置 → 直接返回，绝不空转；</li>
+     *   <li>NAS 掉线 → {@link DshSync} 内部吞掉异常，这里只记日志不刷通知
+     *      （否则用户在外网时会一直看到"同步失败"通知，很烦）；</li>
+     *   <li>间隔下限 30s —— 防止配置成 1s 把 NAS 打成筛子。</li>
+     * </ul>
+     */
+    private void scheduleSync() {
+        if (!DshSync.isConfigured(this)) return;
+        // ⚠️ 防重入：onStartCommand 与 ensureDshRunning 的 finally 都会调到这里，
+        //   START_STICKY 重启还会再调。不挡住就会叠出多个常驻线程，
+        //   表现为几分钟后同步频率越来越高。
+        synchronized (SYNC_LOCK) {
+            if (syncRunning) return;
+            syncRunning = true;
+        }
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                long intervalMs = DshSync.intervalSec(DshService.this) * 1000L;
+                if (intervalMs < 30000L) intervalMs = 30000L;
+                try {
+                    while (!Thread.currentThread().isInterrupted()) {
+                        try {
+                            Thread.sleep(intervalMs);
+                        } catch (InterruptedException e) {
+                            return;   // 服务销毁，正常退出
+                        }
+                        try {
+                            if (!DshSync.isConfigured(DshService.this)) continue;
+                            DshSync.Result r = DshSync.syncOnce(DshService.this);
+                            // 只在真出问题时打日志；成功不刷屏
+                            if (r.ran && !"ok".equals(r.message)) {
+                                Log.w(TAG, "NAS 同步: " + r.message);
+                            }
+                        } catch (Throwable tt) {
+                            Log.w(TAG, "同步调度异常: " + tt.getMessage());
+                        }
+                    }
+                } finally {
+                    // 线程退出必须释放标志，否则线程被中断后**再也调度不起来**
+                    // （这是最容易漏的一行：表现为"重启 App 后同步再也不动了"）。
+                    synchronized (SYNC_LOCK) { syncRunning = false; }
+                }
+            }
+        }, "dsh-sync");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void updateNotification(final String text) {

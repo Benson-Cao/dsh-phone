@@ -8,6 +8,17 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 文件读写小工具。
+ *
+ * <p>为什么不直接用 {@code java.nio.file.Files}：目标Sdk 定在 28，
+ * 而 {@code DshBootstrap} 要在 API 21+ 的旧设备上解包/校验大文件，
+ * 用最朴素的流式读写最稳，不引入任何版本兼容分支。
+ *
+ * <p>⚠️ 大文件注意：{@link #readAllBytes} 会把整个文件读进内存。
+ * 只用于日志（尾部几十 KB）这类小文件；700MB 的 bundle 一律走流式，
+ * 绝不要调它。
+ */
 final class IoUtil {
     private IoUtil() {}
 

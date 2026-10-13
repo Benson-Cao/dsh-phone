@@ -51,6 +51,137 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
   #dsh-sb-plugin .dshsb-label{flex:1 1 auto !important;min-width:0 !important;
     white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;}
   #dsh-sb-plugin:active{background:var(--ds-ink-100,#eef2f6) !important;}
+  /* r74 ·「导出数据」抽屉行：与「插件」行完全同节奏（共用视觉语言，只是加一行） */
+  #dsh-sb-export{display:flex !important;align-items:center !important;gap:10px !important;
+    width:100% !important;min-height:40px !important;margin:2px 0 6px !important;
+    padding:0 10px !important;border:0 !important;border-radius:8px !important;
+    background:transparent !important;color:var(--ds-ink-700,#1e3450) !important;
+    font-size:14px !important;font-weight:500 !important;text-align:left !important;
+    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-sb-export .dshsb-ic{display:flex !important;align-items:center !important;justify-content:center !important;
+    flex:0 0 auto !important;width:18px !important;height:18px !important;
+    color:var(--ds-ink-500,#5a6d84) !important;}
+  #dsh-sb-export .dshsb-ic svg{display:block !important;width:18px !important;height:18px !important;}
+  #dsh-sb-export .dshsb-label{flex:1 1 auto !important;min-width:0 !important;
+    white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;}
+  #dsh-sb-export:active{background:var(--ds-ink-100,#eef2f6) !important;}
+
+  /* r74 · 导出数据浮层（我们自己的节点，不碰 dsh/React 的设置浮层）
+     z-index 高于抽屉(60)与 market(65)，确保叠在最上面。 */
+  #dsh-exp-panel{position:fixed;inset:0;z-index:80;display:flex !important;
+    align-items:flex-end !important;justify-content:center !important;
+    background:rgba(13,27,46,.42) !important;
+    padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px)) !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  #dsh-exp-panel .dsh-exp-card{width:100% !important;max-width:520px !important;
+    max-height:78vh !important;display:flex !important;flex-direction:column !important;
+    background:var(--ds-surface,#fff) !important;border-radius:16px !important;
+    box-shadow:0 8px 28px rgba(13,27,46,.22) !important;overflow:hidden !important;}
+  #dsh-exp-panel .dsh-exp-hd{display:flex !important;align-items:center !important;
+    justify-content:space-between !important;gap:10px !important;
+    padding:14px 14px 10px !important;border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;
+    color:var(--ds-ink-900,#0f1b2e) !important;font-size:15px !important;}
+  #dsh-exp-panel #dsh-exp-x{width:30px !important;height:30px !important;border:0 !important;
+    border-radius:8px !important;background:transparent !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:16px !important;cursor:pointer !important;}
+  #dsh-exp-panel #dsh-exp-x:active{background:var(--ds-ink-100,#eef2f6) !important;}
+  #dsh-exp-panel .dsh-exp-body{flex:1 1 auto !important;overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch !important;padding:4px 6px !important;}
+  #dsh-exp-panel .dsh-exp-empty{padding:26px 14px !important;text-align:center !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:13px !important;}
+  #dsh-exp-panel .dsh-exp-list{list-style:none !important;margin:0 !important;padding:0 !important;}
+  #dsh-exp-panel .dsh-exp-n{flex:1 1 auto !important;min-width:0 !important;
+    white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;
+    color:var(--ds-ink-800,#22384f) !important;font-size:13px !important;}
+  #dsh-exp-panel .dsh-exp-s{flex:0 0 auto !important;color:var(--ds-ink-500,#5a6d84) !important;
+    font-size:12px !important;font-variant-numeric:tabular-nums !important;}
+  /* 窄屏（实测 420px）三个字段 + 两个按钮会横向溢出把「另存为」裁掉。
+     做法：让 li 可换行，文件名独占一行时按钮自动落到第二行；
+     flex-wrap 必须配合 min-width:0，否则名字那格不肯收缩。 */
+  #dsh-exp-panel .dsh-exp-list li{display:flex !important;align-items:center !important;
+    flex-wrap:wrap !important;gap:6px 8px !important;padding:9px 8px !important;
+    border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;}
+  #dsh-exp-panel .dsh-exp-list li:last-child{border-bottom:0 !important;}
+  /* 按钮区永远完整可见，不允许被裁 */
+  #dsh-exp-panel .dsh-exp-a{flex:0 0 auto !important;display:flex !important;gap:6px !important;
+    margin-left:auto !important;}
+  #dsh-exp-panel .dsh-exp-a button{border:0 !important;border-radius:7px !important;
+    background:var(--ds-ink-100,#eef2f6) !important;color:var(--ds-ink-700,#1e3450) !important;
+    font-size:12px !important;padding:6px 10px !important;cursor:pointer !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  #dsh-exp-panel .dsh-exp-a button:active{background:var(--ds-ink-200,#d8e1ea) !important;}
+  #dsh-exp-panel .dsh-exp-ft{padding:9px 14px calc(11px + env(safe-area-inset-bottom,0px)) !important;
+    border-top:1px solid var(--ds-ink-100,#eef2f6) !important;}
+  #dsh-exp-panel .dsh-exp-tip{color:var(--ds-ink-500,#5a6d84) !important;font-size:11.5px !important;
+    line-height:1.5 !important;display:block !important;}
+
+  /* r76 · 导出面板回到**单卡**（NAS 同步已移入设置列表）
+     ⚠️ 保留 flex 列容器：卡片靠 max-width 自适应居中；
+        但必须 flex:0 0 auto —— 若给 flex:1，卡片会被拉满视口高度。 */
+  #dsh-exp-panel{flex-direction:column !important;align-items:center !important;
+    justify-content:flex-end !important;gap:10px !important;overflow-y:auto !important;
+    overflow-x:hidden !important;}
+  #dsh-exp-panel .dsh-exp-card{width:100% !important;max-width:520px !important;
+    box-sizing:border-box !important;flex:0 0 auto !important;}
+
+  /* ===== r76 · NAS 同步浮层（从设置列表打开，独立页面语义）=====
+     与导出浮层的区别：**整屏卡片 + 顶部返回条**，不是底部弹出。
+     设置列表是 L2，点进去是 L3 页面；底部弹出浮层会与之层级混淆，
+     且返回手势/返回键的行为也对不上。 */
+  #dsh-syc-panel{position:fixed;inset:0;z-index:82;display:flex !important;
+    align-items:stretch !important;justify-content:center !important;
+    background:rgba(13,27,46,.42) !important;
+    padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px)) !important;
+    -webkit-tap-highlight-color:transparent !important;}
+  #dsh-syc-panel .dsh-syc-card{width:100% !important;max-width:520px !important;
+    display:flex !important;flex-direction:column !important;
+    background:var(--ds-surface,#fff) !important;border-radius:16px !important;
+    box-shadow:0 8px 28px rgba(13,27,46,.22) !important;
+    overflow:hidden !important;box-sizing:border-box !important;}
+  #dsh-syc-panel .dsh-syc-bar{display:flex !important;align-items:center !important;
+    gap:10px !important;padding:11px 13px !important;
+    border-bottom:1px solid var(--ds-ink-100,#eef2f6) !important;flex:0 0 auto !important;}
+  #dsh-syc-panel .dsh-syc-bar #dsh-syc-back{display:inline-flex !important;
+    align-items:center !important;gap:4px !important;border:0 !important;
+    background:transparent !important;color:var(--ds-ink-700,#1e3450) !important;
+    font-size:14px !important;padding:5px 7px 5px 3px !important;border-radius:8px !important;
+    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-syc-panel .dsh-syc-bar #dsh-syc-back:active{background:var(--ds-ink-100,#eef2f6) !important;}
+  #dsh-syc-panel .dsh-syc-bar b{flex:1 1 auto !important;text-align:center !important;
+    color:var(--ds-ink-900,#0f1b2e) !important;font-size:15px !important;font-weight:600 !important;}
+  #dsh-syc-panel .dsh-syc-body{flex:1 1 auto !important;overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch !important;padding:14px !important;}
+  #dsh-syc-panel .dsh-syc-hd{display:flex !important;align-items:center !important;
+    justify-content:space-between !important;gap:8px !important;margin-bottom:6px !important;
+    color:var(--ds-ink-900,#0f1b2e) !important;font-size:14px !important;font-weight:600 !important;}
+  #dsh-syc-panel .dsh-syc-dev{color:var(--ds-ink-500,#5a6d84) !important;font-size:11px !important;
+    font-weight:400 !important;}
+  #dsh-syc-panel .dsh-syc-tip{margin-bottom:9px !important;color:var(--ds-ink-500,#5a6d84) !important;
+    font-size:11.5px !important;line-height:1.55 !important;display:block !important;}
+  #dsh-syc-panel .dsh-syc-f{display:block !important;margin-bottom:7px !important;
+    color:var(--ds-ink-500,#5a6d84) !important;font-size:11.5px !important;}
+  /* ⚠️ box-sizing:border-box 必写：width:100% + padding + border 在默认 content-box 下
+     会让实际宽度多出 (padding*2 + border*2) ≈ 22px —— 实测 body.scrollWidth 454 >
+     clientWidth 446、input 右边界 466 超出容器，表现为输入框被裁 + 底部横向滚动条。 */
+  #dsh-syc-panel .dsh-syc-f input{display:block !important;width:100% !important;
+    box-sizing:border-box !important;
+    margin-top:3px !important;padding:8px 10px !important;border:1px solid var(--ds-ink-200,#d8e1ea) !important;
+    border-radius:8px !important;background:var(--ds-ink-50,#f7f9fc) !important;
+    color:var(--ds-ink-900,#0f1b2e) !important;font-size:13px !important;
+    -webkit-appearance:none !important;appearance:none !important;}
+  #dsh-syc-panel .dsh-syc-f input:focus{outline:none !important;
+    border-color:var(--ds-brand-500,#1466b8) !important;}
+  #dsh-syc-panel .dsh-syc-a{display:flex !important;gap:8px !important;margin-top:9px !important;}
+  #dsh-syc-panel .dsh-syc-a button{flex:1 1 auto !important;border:0 !important;border-radius:9px !important;
+    background:var(--ds-brand-500,#1466b8) !important;color:#fff !important;
+    font-size:13px !important;font-weight:500 !important;padding:9px 10px !important;
+    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-syc-panel .dsh-syc-a button:active{opacity:.82 !important;}
+  #dsh-syc-panel .dsh-syc-a button#dsh-syc-now{background:var(--ds-ink-100,#eef2f6) !important;
+    color:var(--ds-ink-700,#1e3450) !important;}
+  #dsh-syc-panel .dsh-syc-st{margin-top:8px !important;font-size:11.5px !important;
+    line-height:1.55 !important;color:var(--ds-ink-500,#5a6d84) !important;display:block !important;}
+  #dsh-syc-panel .dsh-syc-st.dsh-syc-err{color:#c0392b !important;}
 #dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent;cursor:pointer;}
 #dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}
 #dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}
@@ -95,6 +226,44 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   body[data-ds-dark-theme] .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"],  body[data-ds-dark-theme] .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"],  html.dsh-dark .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"],  html.dsh-dark .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"]{color:var(--ds-brand-500,#5aa9f5)!important;}
   .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine])::after{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--ds-brand-500,#1466b8);}
   .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"],.dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"]{color:var(--ds-brand-500,#1466b8)!important;}
+  /* ===== r94 · 「插件市场」图标位（原生项补图标）=====
+     dshmarket 装好后，设置列表里的「插件市场」是它渲染的原生 navCell，
+     但那个 cell **不带 `_navIcon` 子元素**（dsh 原生四项都带）→ 图标位空着，
+     文字贴到 22px 图标该在的位置，右边三行有图标、第四行没有，像坏了一项。
+     mobile.js 的 ensureMktIcon() 往标题前插一个 .dshmine_navIconWrap，
+     里面是同一枚 SVG（与注入项 ensureMineCell 共用 MKT_ICON_SVG）。
+     尺寸/颜色逐条对齐上面 92/93 行的 `_navIcon` / `_navLabel` 规则，
+     两类 cell 于是完全同款；flex:none + 固定 22px 保证不被压扁，
+     pointer-events:none 保证图标绝不吃掉列表项的点击。*/
+  .dsh-s-nav .dshmine_navIconWrap{display:flex!important;align-items:center!important;
+    justify-content:center!important;flex:0 0 auto!important;
+    width:22px!important;height:22px!important;
+    color:var(--ds-ink-500,#5a6d84)!important;pointer-events:none!important;}
+  .dsh-s-nav .dshmine_navIconWrap svg{display:block!important;width:16px!important;height:16px!important;}
+  body[data-ds-dark-theme] .dsh-s-nav .dshmine_navIconWrap,
+  html.dsh-dark .dsh-s-nav .dshmine_navIconWrap{color:var(--ds-ink-500,#5a6d84)!important;}
+  /* r94 · 去掉选中高亮的三样特征（浅蓝底 / 左侧蓝竖条 / 蓝字蓝图标）——
+     用户拍板"三样全去"。改的是下面那组 [class*="_active"] 规则的取值，
+     不是删规则：留着选择器当"显式归零"的锚点，比删掉更抗 dsh 换类名
+     （真要删，下一版 dsh 把自己的 active 底色加回来就又复现了）。
+     根因（与 r66 同源，范围不同）：`_active` 是 dsh 自己的**路由态**，
+     而我们在 L2 列表页时它仍把「模型」标成"当前" —— 但列表页并没有"当前项"
+     这回事，四个入口是平级的。这条状态只对 L3 详情页有意义。
+     ⚠️ :active（手指按下那 0.15s 的灰底）保留 —— 那是触感反馈，不是选中态。*/
+  .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]){background:transparent!important;border-radius:14px!important;}
+  .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine])::after{content:none!important;}
+  .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"],
+  .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"]{color:var(--ds-ink-900,#0d1b2e)!important;}
+  /* 深色主题下 _active 文字本来覆写成浅蓝（--ds-brand-500），同样归零回墨色。
+     图标例外：图标一律 ink-500（与 92 行非选中态一致），标题 ink-900。*/
+  body[data-ds-dark-theme] .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"],
+  html.dsh-dark .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navLabel"]{color:var(--ds-ink-900,#0d1b2e)!important;}
+  body[data-ds-dark-theme] .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"],
+  html.dsh-dark .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]) [class*="_navIcon"]{color:var(--ds-ink-500,#5a6d84)!important;}
+  /* 归零规则的选择器比上面 90 行的 :active 重（多两个 :not），所以"当前项"
+     被按下时反而会丢掉灰底 —— 补一条把它找回来，权重必须再高一层。
+     触感反馈 ≠ 选中态：前者该留，后者该去。*/
+  .dsh-s-nav [class*="_active"]:not([data-dsh-mkt]):not([data-dsh-mine]):active{background:var(--ds-ink-100,#eef2f6)!important;}
   /* ===== r66 · 插件市场入口去掉蓝色"选中"底色（设计稿图 2）=====
      现象：设置首页「插件市场」那一项整行是深蓝底 + 左侧 3px 亮蓝竖条。
      根因：dsh 给那一项挂了含 `_active` 子串的类名，于是上面四条
@@ -135,6 +304,39 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
     align-items:center!important;justify-content:center!important;flex:0 0 auto!important;
     width:18px!important;height:18px!important;margin-left:auto!important;margin-right:2px!important;
     color:var(--ds-ink-400,#8296ab)!important;pointer-events:none!important;}
+
+  /* ===== r77 · 我们注入的 navCell 补齐样式（真机截图暴露的齐不齐问题）=====
+     ⚠️ 背景：`.dsh-s-nav [class*="_navCell"]` 这条规则能命中
+        `dshmine_navCell`（靠 **子串** 匹配），所以行高/间距/字号都对了；
+        但**浏览器默认 button 样式没被清掉** —— 原生 cell 是 div，天然没有边框，
+        我们的是 <button>，于是真机上多出一圈灰边框，看着像"被选中"（真机图可见）。
+        另外按钮默认字体也不继承，label 字重/字号与上方四项不一致。
+
+        下面这几条不是"锦上添花"，是让注入项与原生项**真正同款**的必要修补。
+        ⚠️ 未来若 dsh 把 navCell 改成 button，这条会与它冲突；
+           到时以真机为准改这里，不要假设"子串命中就够了"。 */
+  .dsh-s-nav button.dshmine_navCell{appearance:none!important;-webkit-appearance:none!important;
+    border:0!important;outline:0!important;margin:0!important;
+    font-family:inherit!important;font-size:inherit!important;
+    color:inherit!important;background:transparent!important;cursor:pointer!important;}
+  .dsh-s-nav button.dshmine_navCell:focus-visible{outline:2px solid var(--ds-brand-500,#1466b8)!important;
+    outline-offset:2px!important;}
+  /* 复用 dshmarket 空占位时填充的 SVG：保证 16px 图形，与原生四项视觉一致 */
+  .dsh-s-nav [class*="_navIcon"][data-dsh-mkt-ic] svg{display:block!important;
+    width:16px!important;height:16px!important;}
+  /* 图标尺寸与原生 _navIcon 对齐（22px 盒 / 16px 图形），否则大小视觉不匹配 */
+  .dsh-s-nav .dshmine_navIconWrap svg{width:16px!important;height:16px!important;
+    stroke-width:1.9!important;}
+  /* label 显式给字重 —— button 内文本默认不继承父级 font-weight */
+  .dsh-s-nav button.dshmine_navCell .dshmine_navLabel{font-weight:600!important;
+    color:var(--ds-ink-900,#0d1b2e)!important;}
+  body[data-ds-dark-theme] .dsh-s-nav button.dshmine_navCell .dshmine_navLabel,
+  html.dsh-dark .dsh-s-nav button.dshmine_navCell .dshmine_navLabel{
+    color:var(--ds-ink-900,#e6edf5)!important;}
+  /* 「未配置」状态提示：右侧一个灰点，提示用户还没填 NAS 地址。
+     r76 时JS 里设了 data-dsh-sync-off 但 CSS 无规则 → 是死代码，这里补上。 */
+  .dsh-s-nav [data-dsh-sync-off]{opacity:.72!important;}
+  .dsh-s-nav [data-dsh-sync-off] .dshmine_navIconWrap{color:var(--ds-ink-400,#8296ab)!important;}
   .dsh-s-nav [data-dsh-arrow] .dshmine_navArrow,.dsh-s-nav svg.dshmine_navArrow{
     width:16px!important;height:16px!important;display:block!important;
     color:inherit!important;pointer-events:none!important;}

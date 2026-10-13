@@ -2,6 +2,7 @@ package com.dsh.harness;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -20,6 +21,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import java.io.File;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -39,13 +41,51 @@ public class MainActivity extends Activity {
     /** 附件选择器的requestCode（转发给 {@link DshChromeClient#deliver}）。 */
     public static final int REQ_FILE_CHOOSER = 4001;
 
+    /** 「另存为」的请求码（方案 C，见 {@link DshSafBridge#saveAs}）。 */
+    public static final int REQ_SAVE_AS = 4002;
+
+    /** 待写入「另存为」目标的源文件（onActivityResult 要用它）。 */
+    private File pendingSaveSrc = null;
+
     // ===== 设计稿《移动端 UI 设计系统》token =====
     // 唯一依据：资料库页面《移动端 UI 设计系统》的 :root 变量表。
     // 之前 App 用的是深色 #0F1116，与设计稿的浅色体系冲突（也导致状态栏配色别扭）。
     private static final int BRAND_500 = 0xFF2B8AE8;  // 鲨鱼蓝，主色
+    // ⚠️ INK_900 / INK_400 / INK_50 只在**渐变线等品牌元素**上直接用；
+    //    所有「会随深浅色切换」的用色一律走 {@link DshPalette}。
+    //    r79：启动页加深色模式，原先这里硬编码导致深色系统下白底黑字（刺眼）。
     private static final int INK_900   = 0xFF0D1B2E;  // 描边深藏青，正文
     private static final int INK_400   = 0xFF8296AB;  // 弱化文字
-    private static final int INK_50    = 0xFFF7F9FC;  // 页面底色
+    private static final int INK_50    = 0xFFF7F9FC;  // 页面底色（仅浅色模式，见 DshPalette.bg）
+
+    /** 启动页各处视图引用：主题切换时要能就地改色，故持有点击得到。 */
+    private View splashRoot;
+    private ScrollView splashScroll;
+    private TextView splashTitle;
+    private View splashRule;
+
+    /**
+     * 应用当前调色板到启动页的全部视图。
+     *
+     * <p>抽成方法而不是写在 onCreate 里，是为了 {@link #onPageFinished} 拿到
+     * dsh 真实主题后能**再跑一次**修正（见 {@link DshPalette#refreshFromDsh}）。
+     */
+    private void applyPalette() {
+        int bg = DshPalette.bg(this);
+        if (splashRoot != null) splashRoot.setBackgroundColor(bg);
+        if (splashScroll != null) splashScroll.setBackgroundColor(bg);
+        if (splashTitle != null) splashTitle.setTextColor(DshPalette.text(this));
+        if (statusText != null) statusText.setTextColor(DshPalette.muted(this));
+        if (splashRule != null) {
+            //渐变末端必须渐变到**底色**，不能固定白色（深底下会泛白雾）
+            splashRule.setBackground(gradient(0, 100, BRAND_500, DshPalette.fadeToBg(this)));
+        }
+        getWindow().setStatusBarColor(DshPalette.systemBar(this));
+        getWindow().setNavigationBarColor(DshPalette.systemBar(this));
+        getWindow().getDecorView().setSystemUiVisibility(
+                DshPalette.systemUiFlags(this, getWindow().getDecorView().getSystemUiVisibility()));
+        DshPalette.logContrast(this);
+    }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
@@ -103,11 +143,16 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // r79：必须在任何取色之前读上次记住的 dsh 主题，
+        // 否则启动页会先按系统主题画一遍、再改一次（肉眼可见的闪色）。
+        DshPalette.preloadFromPrefs(this);
+
         FrameLayout root = new FrameLayout(this);
         // 设计稿「启动页 Splash」：品牌渐显 + 浅色底（--ink-50 #f7f9fc）。
         // 之前是深色 #0F1116 +系统深色状态栏，与设计稿的浅色体系完全冲突
         //（也是 r20「红色状态栏」刺眼的根源：深色 App 配浅色系统栏）。
-        root.setBackgroundColor(INK_50);
+        root.setBackgroundColor(DshPalette.bg(this));
+        splashRoot = root;   // r79：留给 applyPalette() 二次改色
 
         // --- 加载界面（替代黑屏），按设计稿重写 ---
         loadingBox = new LinearLayout(this);
@@ -132,11 +177,12 @@ public class MainActivity extends Activity {
         // Display / 800 —— 设计稿字体层级
         TextView title = new TextView(this);
         title.setText("DeepSeek Harness");
-        title.setTextColor(INK_900);
+        title.setTextColor(DshPalette.text(this));
         title.setTextSize(26);
         title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         title.setLetterSpacing(0.02f);
         title.setGravity(Gravity.CENTER);
+        splashTitle = title;   // r79：applyPalette() 二次改色要用
         LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tLp.bottomMargin = dp(10);
@@ -147,8 +193,11 @@ public class MainActivity extends Activity {
         // 所以这里**不再**添加任何中间副标题行。
         statusText = new TextView(this);
         statusText.setText("正在准备运行环境…");
-        statusText.setTextColor(INK_400);
-        statusText.setTextSize(12);
+        statusText.setTextColor(DshPalette.muted(this));
+        // r79：12px → 14px。既然浅色下 muted 已被迫压深到接近正文
+        //（见 DshPalette.L_MUTED 的实测说明），层级就靠字号表达。
+        // 14px 仍是小字，AA 依旧要求 4.5:1 —— 已达标。
+        statusText.setTextSize(14);
         statusText.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -157,13 +206,17 @@ public class MainActivity extends Activity {
 
         // 品牌渐变细线（--brand-500 →透明），替代原来的 ProgressBar
         View rule = new View(this);
-        rule.setBackground(gradient(0, 100, BRAND_500, 0x00FFFFFF));
+        // ⚠️ r79：末端透明色取**当前底色**，不再写死 0x00FFFFFF。
+        //   深色底下若渐变到"白色透明"，末端会泛出白雾，比不渐变更显眼。
+        rule.setBackground(gradient(0, 100, BRAND_500, DshPalette.fadeToBg(this)));
+        splashRule = rule;
         LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(dp(120), dp(3));
         rLp.topMargin = dp(18);
         loadingBox.addView(rule, rLp);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(INK_50);
+        scroll.setBackgroundColor(DshPalette.bg(this));
+        splashScroll = scroll;
         // ⚠️ 必须开 fillViewport：ScrollView 的子View 默认只按内容高度布局，
         //    此时 LinearLayout 的 gravity(CENTER) **不会**产生垂直居中效果
         //    （真机表现：整块内容贴在上方，图标刚好在状态栏下面）。
@@ -190,13 +243,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 浅色底→ 深色状态栏图标；状态栏背景 = --ink-50（与启动页同色）。
-        getWindow().setStatusBarColor(INK_50);
-        getWindow().setNavigationBarColor(INK_50);
-        int sflags = getWindow().getDecorView().getSystemUiVisibility();
-        //这次要**设置** LIGHT_STATUS_BAR（浅底深图标），与 r20 相反
-        getWindow().getDecorView().setSystemUiVisibility(
-            sflags | android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        // r79：状态栏/导航栏配色统一走 applyPalette()（浅底→深图标，深底→浅图标）。
+        //原来这里写死 INK_50 + LIGHT_STATUS_BAR，深色系统下会出现"浅状态栏 + 深页面"割裂。
+        applyPalette();
 
         // 品牌渐显：标题从 0.3alpha 淡入到 1（设计稿「品牌渐显」）
         title.setAlpha(0.3f);
@@ -371,7 +420,7 @@ public class MainActivity extends Activity {
         box.addView(retry, rLp);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(INK_50);
+        scroll.setBackgroundColor(DshPalette.bg(this));
         scroll.addView(box);
         setContentView(scroll);
     }
@@ -403,10 +452,12 @@ public class MainActivity extends Activity {
         // （dshmarket 要落盘到 $HOME/.dsh/profiles/web/，WebView 里的 JS 没有文件系统权限）
         try {
             webView.addJavascriptInterface(new DshBridge(this), "dshNative");
+            // 方案 C：文件导出桥（dshSaf）。单独一个对象名，避免和插件市场逻辑混在一起。
+            webView.addJavascriptInterface(new DshSafBridge(this), "dshSaf");
         } catch (Exception e) {
             Log.e("MainActivity", "注册 JS bridge 失败", e);
         }
-        webView.setBackgroundColor(INK_50);
+        webView.setBackgroundColor(DshPalette.bg(this));
         webView.loadUrl("about:blank");   // 仅预热，不显示
         Log.i("MainActivity", "WebView 已预热");
     }
@@ -429,7 +480,11 @@ public class MainActivity extends Activity {
             String state = s.optString("state", "");
             String msg = s.optString("msg", "");
             int progress = s.optInt("progress", -1);
-            if ("error".equals(state)) {
+            // r73（A2）：crashed 与 error 同属「启动链断了」，但语义不同——
+            //   error 是我们自己判定的不可恢复错误，crashed 是 node 进程意外退出。
+            //   两者都要在 WebView 未进入时弹诊断页，否则用户只看到一句文案、
+            //   不知道该去看什么日志。
+            if ("error".equals(state) || "crashed".equals(state)) {
                 String code = s.optString("code", "UNKNOWN");
                 setStatus("启动错误 [" + code + "]: " + msg);
                 if (!webShown) {
@@ -447,9 +502,42 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+ * 按 dsh 页面的真实主题刷新**系统栏**（状态栏 + 导航栏）。
+ *
+     * <p>r79 真机发现：进入 dsh 后状态栏一直沿用启动页的浅色，而页面已是深色，
+     * 顶部一条白边。因为 dsh 页面自己不管理系统栏（mobile.js 无相关逻辑），
+     * Java 侧就必须在拿到页面主题后补这一刀。
+     *
+     * <p>只改系统栏，**不动页面视图** —— 此时 setContentView 已是 WebView。
+     */
+    public void refreshSystemBarsForTheme() {
+        try {
+            // ⚠️ 这里必须用 systemBar()（与 dsh 首页背景对齐），
+            //   不能用 bg()（我们自己的启动页底色，偏蓝）——
+            //   两者相邻会出现可见色差：深色下状态栏"发蓝"（用户 2026-10-13 反馈）。
+            int sb = DshPalette.systemBar(this);
+            getWindow().setStatusBarColor(sb);
+            getWindow().setNavigationBarColor(sb);
+            getWindow().getDecorView().setSystemUiVisibility(
+                    DshPalette.systemUiFlags(this,
+                            getWindow().getDecorView().getSystemUiVisibility()));
+            Log.i("MainActivity", "[dsh] 系统栏已按页面主题刷新 #"
+                    + String.format("%06X", 0xFFFFFF & sb));
+        } catch (Throwable t) {
+            Log.w("MainActivity", "刷新系统栏失败: " + t.getMessage());
+        }
+    }
+
     private void showWebView(String url) {
         if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
         setContentView(webView);
+        // r79 真机发现：进入 dsh 后**状态栏仍是启动页的浅色**，
+        //   而页面已经是深色 → 顶部一条白边，深色下非常刺眼（真机截图确认）。
+        //   原因：dsh 页面自己不管系统栏（mobile.js 里没有 statusBar 相关逻辑），
+        //   而 showWebView() 也没有重新下发配色，于是沿用了 applyPalette() 当时的值。
+        // 这里用**当前页面的实际主题**重刷一次系统栏。
+        applyPalette();
         webView.loadUrl(url);
         webShown = true;
         Log.i("MainActivity", "已进入 dsh：loadUrl " + url);
@@ -457,10 +545,60 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // r79：系统深浅色变了 → 之前缓存的 dsh 主题判断立刻作废。
+        //   dsh 的深色默认跟随系统，用户中途改系统设置时缓存就成了过期值，
+        //   而 isDark() 优先用它 → 启动页会继续按旧主题画。
+        DshPalette.invalidateCacheOnSystemThemeChange(this);
+        // r79：系统深浅色切换时重刷启动页配色。
+        // 当前 manifest 的 configChanges 没含 uiMode，所以正常路径是重建 Activity
+        // （onCreate 会重跑，同样拿到正确配色）；这个回调是为将来加了 uiMode 之后准备的，
+        // 也覆盖「WebView 在屏上、状态栏需要立刻跟上」的情况。
+        // ⚠️ 只有在启动页可见时刷新：已进入 dsh 后界面由 WebView 负责，
+        //    强改状态栏反而会与页面主题打架。
+        if (splashRoot != null && webShown != true) {
+            applyPalette();
+        }
+    }
+
+    @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         // 附件选择结果必须先回灌给 WebView，否则页面拿不到文件
         if (chromeClient != null && chromeClient.deliver(requestCode, resultCode, data)) return;
+
+        // 方案 C：「另存为」——把私有文件写到用户选的位置（主线程）
+        if (requestCode == REQ_SAVE_AS) {
+            File src = pendingSaveSrc;
+            pendingSaveSrc = null;      // 一次性，先清，防止重复消费
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                Log.i("MainActivity", "用户取消了另存为");
+                return;
+            }
+            final boolean ok = DshSafBridge.completeSave(this, src, data.getData());
+            setStatus(ok ? "已导出 " + src.getName() : "导出失败：" + src.getName());
+            return;
+        }
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    /**
+     * 发起「另存为」（方案 C）。由 {@link DshSafBridge#saveAs} 在主线程调用。
+     *
+     * <p>只接受白名单内的文件——即使调用方忘了校验，这里再挡一道。
+     */
+    void startSaveAs(File src, Intent createDocIntent) {
+        if (src == null || !DshExporter.isExportable(this, src)) {
+            Log.w("MainActivity", "startSaveAs 拒绝（白名单外）: " + src);
+            return;
+        }
+        pendingSaveSrc = src;
+        try {
+            startActivityForResult(createDocIntent, REQ_SAVE_AS);
+        } catch (Throwable e) {
+            pendingSaveSrc = null;
+            Log.w("MainActivity", "startActivityForResult 失败: " + e.getMessage());
+        }
     }
 
     @Override

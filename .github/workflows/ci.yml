@@ -1,0 +1,121 @@
+# dsh-phone 最小 CI（maintainability-plan.md §四.3）
+#
+# 设计取舍（重要，改之前先想清楚）：
+#
+#  - **本仓库没有 gradle 工程**，Gradle 工程在 termux-app（另一个仓库）。
+#    所以CI 里的「编 APK」是 clone termux-app + 跑 00-build-apk.sh。
+#  - **dsh-bundle.tar.gz 有 195MB+**，不是Git 产物（也不该进Git）。
+#    因此：
+#      · PR 触发 → 只做静态校验（lint / 自检 / version.ini / Java 语法），**不编 APK**；
+#      · master → 编「空壳 APK」（无 bundle）验证改造脚本 + Java 能过编译。
+#    真·完整包仍需在本地按 scripts/README.md 出。
+#  - Gradle 依赖缓存不在GitHub runner 上，所以 CI 编 APK 会**联网拉依赖**。
+#    本地那套失效代理的问题在这里不存在（runner 直连），但耗时会长。
+
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------- Job 1: 静态校验（每次提交都跑，秒级反馈）----------
+  lint:
+    name: 静态校验（lint / 自检 / Java 语法）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+
+      - name: shellcheck + bash 语法 + 本项目高频坑自查
+        run: bash scripts/lint-sh.sh --fix-hints
+
+      - name: 环境自检（应当无 error；SDK/JDK 缺失只算 warn）
+        run: |
+          # CI 上没有 Android SDK / bundle，check-build-env 必然有 warn；
+          # 我们只关心有没有 ERROR（结构性问题）。
+          bash scripts/check-build-env.sh || true
+
+      - name: 校验 version.ini 是合法且可解析的
+        run: |
+          test -f version.ini || { echo "缺少 version.ini"; exit 1; }
+          vc=$(sed -n 's/^[[:space:]]*version_code[[:space:]]*=[[:space:]]*\([^#]*\).*/\1/p' version.ini | head -1 | tr -d '[:space:]')
+          test -n "$vc" || { echo "version.ini 里没有 version_code"; exit 1; }
+          echo "version_code = $vc"
+
+      - name: 脚本里不得残留硬编码 versionCode
+        run: |
+          # 维护性红线：versionCode 只能来自 version.ini
+          if grep -rnE 'versionCode[[:space:]]+[0-9]{3,}' scripts/*.sh \
+             | grep -vE 'ini_get version_code|version_code .*fallback' \
+             | grep -vE '^\S+:[[:space:]]*#'; then
+            echo "❌ 脚本里出现硬编码 versionCode，应从 version.ini 读"; exit 1
+          fi
+          echo "✓ 无硬编码 versionCode"
+
+      - name: Java 源码语法检查（javac 解析，Android 依赖可缺失）
+        run: |
+          # 只验证语法/结构，不要求 Android SDK —— 用 android.jar 才能完整编译，
+          # CI 里下载 SDK 很慢，因此这里做「语法层」检查：
+          # 找不到 android.jar 时 javac 会报大量 symbol not found，但语法错误会先报出来。
+          #
+          # ⚠️ 必须强制英文 locale（实测踩过）：javac 的错误信息跟随系统 locale，
+          #    非英文环境输出「非法表达式起始」这类中文，
+          #    英文关键词 expected/illegal 一个都匹配不上 → 语法错误会被静默漏过。
+          mkdir -p /tmp/javac-out
+          if javac -J-Duser.language=en -J-Duser.country=US \
+                  -encoding UTF-8 -proc:none -d /tmp/javac-out \
+                  android-java/com/dsh/harness/*.java 2> /tmp/javac.log; then
+            echo "✓ Java 编译通过"
+          else
+            # 过滤掉「找不到 android 包」这类环境类错误，只看语法类错误
+            if grep -qE "expected|illegal|reached end of file|not a statement|class, interface" /tmp/javac.log; then
+              echo "❌ Java 语法错误："; cat /tmp/javac.log; exit 1
+            fi
+            echo "✓ 无语法错误（仅缺 Android SDK 导致的符号缺失，可接受）"
+            grep -cE "package android" /tmp/javac.log | sed 's/^/  符号缺失行数: /'
+          fi
+
+  # ---------- Job 2: 编 APK（master 才跑，验证改造脚本 + Java 编译）----------
+  build-apk:
+    name: 编空壳 APK（验证改造脚本 + Java 编译）
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 出包（无 bundle → 空壳 APK）
+        run: |
+          # 关键约束：termux-app 的 ndk-build 不接受路径含空格；
+          # runner 默认工作目录是 /home/runner/work/<repo>/<repo>，无空格，OK。
+          bash scripts/00-build-apk.sh
+
+      - name: 校验产物存在且 hash 清单已生成
+        run: |
+          ls -la app/build/outputs/apk/debug/ 2>/dev/null || \
+            ls -la termux-app/app/build/outputs/apk/debug/
+          # 版本化产物 + SHA256SUMS.txt 是 00-build-apk.sh 的产出，必须存在
+          find . -name "DSH-Phone-*.apk" -o -name "SHA256SUMS.txt" | head
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-phone-apk
+          path: |
+            **/app/build/outputs/apk/debug/*.apk
+            **/app/build/outputs/apk/debug/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7

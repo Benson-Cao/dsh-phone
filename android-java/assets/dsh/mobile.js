@@ -5,6 +5,11 @@
   function detectDark(){
     var b=document.body;
     if(!b){return;}
+    // ⚠️ `data-ds-dark-theme` 是**「dsh 深色主题已启用」**标记，不是"强制浅色"。
+    //   证据：mobile.css 第 2 行 `body[data-ds-dark-theme]{--surface-fb:#141b23;...}`
+    //   配的全是深色变量。名字容易看反，这里写明以免再次误读。
+    //   移除 `dsh-dark` 只是**避免双重应用**（页面已用 data-* 上过深色），
+    //   语义上仍然是**深色**。
     if(b.hasAttribute('data-ds-dark-theme')){
       document.documentElement.classList.remove('dsh-dark');
       return;
@@ -655,6 +660,18 @@ window.addEventListener('popstate',function(ev){
       // 修法：找不到原生项时**由我们注入一个同格式的列表项**（图标 + 标题 + 右侧徽标）。
       //   一旦 dshmarket 装好、dsh 渲染出原生项，我们的注入项自动退场。
       var MKT_MINE='dsh-mine-mkt';
+      // r94 · 「插件市场」图标 —— 原生项与注入项**共用同一个 SVG**。
+      // 为什么需要它：dshmarket 装好之后，设置列表里的「插件市场」是它自己渲染的
+      // 原生 navCell，而这个 cell **不带 `_navIcon` 子元素**（dsh 原生四项都有）。
+      // 于是图标位空着、文字直接贴到 22px 图标该在的位置上，列表右边三行有图标、
+      // 第四行没有 —— 看着像"这一项坏了"。ensureMktIcon() 给原生项补上同一枚图标，
+      // 两条路径视觉就一致了。
+      // 图形：四宫格（2×2 方块），与设计稿里「插件」的滑杆图标同一套线宽语言
+      //（stroke 1.4 / round 端点），不抢标题的视觉重量。
+      var MKT_ICON_SVG='<svg class="dshmine_navIcon" width="16" height="16" viewBox="0 0 16 16"'
+        +' fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"'
+        +' stroke-linejoin="round" aria-hidden="true">'
+        +'<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z"/></svg>';
       function mineCell(){
         var c=document.getElementById(MKT_MINE);
         if(!c||!c.parentNode){return null;}
@@ -678,10 +695,7 @@ window.addEventListener('popstate',function(ev){
         c.id=MKT_MINE;
         c.className='dshmine_navCell';
         c.setAttribute('data-dsh-mine','1');
-        c.innerHTML='<svg class="dshmine_navIcon" width="16" height="16" viewBox="0 0 16 16"'
-          +' fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"'
-          +' stroke-linejoin="round" aria-hidden="true">'
-          +'<path d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z"/></svg>'
+        c.innerHTML='<span class="dshmine_navIconWrap">'+MKT_ICON_SVG+'</span>'
           +'<span class="dshmine_navLabel">插件市场</span>';
         list.appendChild(c);
         ensureArrow(c);          // r67：右侧 chevron（设计稿图 2）
@@ -746,12 +760,69 @@ window.addEventListener('popstate',function(ev){
         if(ar&&ar.parentNode===cell){ cell.insertBefore(bd,ar); }
         else{ cell.appendChild(bd); }
       }
+      // r94 · 给原生「插件市场」cell 补图标（幂等、append-only）。
+      // 幂等标记 data-dsh-mkt-ic 挂在**我们插入的 wrap 节点**上，而不是 cell 上 ——
+      //   dsh 是 React 管的，重渲染会把我们插的节点冲掉；标记随节点一起消失，
+      //   下一轮 sync() 就能补回来。挂在 cell 上会退化成"标记还在、图标没了"的死状态
+      //   （与 ensureArrow 的 data-dsh-arrow 同一套理由，r67 的教训）。
+      // append-only：只 insertBefore 到标题之前，绝不移动/删除 dsh 的节点（r38 铁律）。
+      // 已有 [class*="_navIcon"] 就直接返回 —— 哪天 dshmarket 自己补上图标，我们让位。
+      function ensureMktIcon(cell){
+        if(!cell||!cell.querySelector){return null;}
+        //r78 修复（真机："添加完工作目录后插件市场图标又消失"）：
+        //   r77 为了对齐 label.left，把 SVG 填进了 **dsh 自己的空 _navIcon 元素**，
+        //   并把幂等标记 data-dsh-mkt-ic 打在它上面。
+        //   这违背了 r67 定下的原则「幂等标记要挂在**我们自己创建的**节点上，
+        //   随节点一起被 React 冲掉才能自愈」—— 因为：
+        //   ① React 重渲染（切换工作目录等状态变化就会触发）会**清空该元素的子节点**
+        //      （React 不认识我们塞进去的 SVG），SVG 消失；
+        //   ② 但 data-dsh-mkt-ic 属性**不会消失**（React 不管它不认识的属性）。
+        //   于是下次进来"标记还在" → 早退 → 图标永远补不回来。
+        //
+        //   修法：幂等检查必须**同时验证内容是否还在**，不能只看标记。
+        //   这样无论节点被清空、被重建还是标记残留，都能重新补上。
+        var mark=cell.querySelector('[data-dsh-mkt-ic]');
+        if(mark){
+          var still=(mark.querySelector&&mark.querySelector('svg'))!==null
+              ||(mark.textContent||'').trim().length>0;
+          if(still){return mark;}          // 图标确实还在 → 真幂等
+          // 标记在但内容没了 → 落到下面重新填充
+        }
+        // r77 修复（真机截图暴露）：原来只判断 `[class*="_navIcon"]` **是否存在**就退出，
+        //   但 dshmarket 渲染出来的原生项里有个**空的** _navIcon 占位元素，
+        //   于是这里永远提前 return → 插件市场那行**有 chevron 却没有图标**，
+        //   与上方四项（通用设置/模型/插件/Agent预设）不齐。
+        // 改为「必须真的有内容才算原生自带」：有 svg/图片/非空文本才算。
+        var own=cell.querySelector('[class*="_navIcon"]');
+        if(own){
+          var hasContent=(own.querySelector&&own.querySelector('svg,img'))||(own.textContent||'').trim().length>0;
+          if(hasContent){return null;}   // 原生真的画了图标 → 让位
+          // 空占位：直接**复用**它（把 SVG 填进去），而不是另插一个。
+          // ⚠️ 另插会出现**两个图标位** —— 实测 label.left 变成 100（其余项是 64），
+          //   文字整体右移 36px，一眼可见地不齐。复用是唯一正解。
+          own.innerHTML=MKT_ICON_SVG;
+          own.setAttribute('data-dsh-mkt-ic','1');
+          own.setAttribute('aria-hidden','true');
+          return own;
+        }
+        var wrap=document.createElement('span');
+        wrap.className='dshmine_navIconWrap';
+        wrap.setAttribute('data-dsh-mkt-ic','1');
+        wrap.setAttribute('aria-hidden','true');                   // 纯装饰，不进无障碍树
+        wrap.innerHTML=MKT_ICON_SVG;
+        // 位置：紧挨 cell 的第一个子节点之前 → 与 dsh 原生四项的「图标 → 标题」同序。
+        //   cell.firstChild 可能是空白文本节点，insertBefore 仍能把它排到图标后面，
+        //   视觉上无副作用（flex 布局忽略纯文本节点里的空白）。
+        cell.insertBefore(wrap,cell.firstChild);
+        return wrap;
+      }
       function marketEntry(){
         var n=marketCell();
         if(n){
           removeMineCell();      // dsh 自己画了原生项 → 我们的注入项退出
           n.setAttribute('data-dsh-mkt','1');
           decorateEntry(n);
+          ensureMktIcon(n);       // r94：原生项没有 _navIcon → 补一枚同款图标
           ensureArrow(n);        // r67：原生市场项也要有 chevron（append-only）
           return;
         }
@@ -784,8 +855,14 @@ window.addEventListener('popstate',function(ev){
         for(i=0;i<cells.length;i++){
           if(cells[i].getAttribute('data-dsh-mine')){continue;}
           al=((cells[i].getAttribute('aria-label')||'')+' '+(cells[i].getAttribute('title')||'')).toLowerCase();
-          if(al.indexOf('插件')>=0||al.indexOf('市场')>=0
-             ||al.indexOf('plugin')>=0||al.indexOf('market')>=0){return cells[i];}
+          // r77 修复（真机截图暴露）：原来只要含「插件」或「市场」任一就返回。
+          //   但设置列表里本来还有一项就叫「插件」—— 它的 aria-label 只含「插件」，
+          //   于是 marketCell() 会**先把「插件」那一项误认成市场项**返回，
+          //   导致：① 图标补到「插件」上；② 市场项反而拿不到图标；
+          //   ③ data-dsh-mkt 标记打错位置。
+          //   现在要求**「市场」语义成立**（中英任一），「插件」单独出现不再算数。
+          var hasMarket=(al.indexOf('市场')>=0||al.indexOf('market')>=0);
+          if(hasMarket){return cells[i];}
         }
         for(i=0;i<cells.length;i++){
           if(cells[i].getAttribute('data-dsh-mine')){continue;}
@@ -1756,6 +1833,324 @@ else{
       dlog('[dsh] drawer plugin row injected');
     }
     try{ ensureDrawerPluginRow(); }catch(ePlug){ derr('[dsh] plugin row init:',ePlug); }
+
+    // ============================================================
+    // r75 · NAS 同步（把会话/工作区数据同步到飞牛 NAS）
+    //
+    // ⚠️ r76 已从「导出数据」面板**移入设置列表**（用户拍板）。
+    //   理由是信息层级不对等：
+    //   -导出是一次性动作（选个文件、分享出去，完事）；
+    //   - 同步是**长期配置**（设一次、定时跑、偶尔查看状态）。
+    //   把持续性的开关藏在一次性动作里，用户会以为"配一次就结束"，
+    //   也找不到入口去改间隔或排查同步失败。设置列表才是配置类功能的归宿。
+    //
+    // 同步只覆盖 .dsh/storages（会话/工作区），
+    // **不含** node_modules 等平台相关文件 —— 见 DshSync.java 顶部说明。
+    // ============================================================
+    function syncPanelHtml(){
+      return '<div class="dsh-syc-hd"><span>NAS 同步</span>'
+        +'<span class="dsh-syc-dev" id="dsh-syc-dev"></span></div>'
+        +'<div class="dsh-syc-tip">把会话与工作区数据同步到 NAS（建议飞牛 WebDAV）。'
+        +'不同步插件与运行环境 —— 那些是平台相关的。</div>'
+        +'<label class="dsh-syc-f">WebDAV 地址'
+        +'<input id="dsh-syc-url" type="url" inputmode="url" placeholder="http://192.168.1.10:5005" /></label>'
+        +'<label class="dsh-syc-f">账号<input id="dsh-syc-user" type="text" autocomplete="off" /></label>'
+        +'<label class="dsh-syc-f">密码（留空表示不修改）'
+        +'<input id="dsh-syc-pass" type="password" autocomplete="new-password" /></label>'
+        +'<label class="dsh-syc-f">间隔（秒）'
+        +'<input id="dsh-syc-int" type="number" inputmode="numeric" value="60" min="30" /></label>'
+        +'<div class="dsh-syc-a">'
+        +'<button id="dsh-syc-save" type="button">保存并同步</button>'
+        +'<button id="dsh-syc-now" type="button">立即同步</button>'
+        +'</div>'
+        +'<div class="dsh-syc-st" id="dsh-syc-st"></div>';
+    }
+    function loadSyncForm(){
+      var b=safBridge();
+      if(!b) return;
+      try{
+        var c=JSON.parse(b.syncConfig());
+        var dev=document.getElementById('dsh-syc-dev');
+        if(dev&&c.device){ dev.textContent='本机：'+c.device; }
+        if(c.configured){
+          var u=document.getElementById('dsh-syc-url'); if(u) u.value=c.url||'';
+          var us=document.getElementById('dsh-syc-user'); if(us) us.value=c.user||'';
+          var iv=document.getElementById('dsh-syc-int'); if(iv) iv.value=c.interval||60;
+        }
+      }catch(e){}
+    }
+    function setSyncStatus(t,isErr){
+      var el=document.getElementById('dsh-syc-st');
+      if(!el) return;
+      el.textContent=t||'';
+      el.className='dsh-syc-st'+(isErr?' dsh-syc-err':'');
+    }
+    function pollSyncResult(){
+      var b=safBridge();
+      if(!b) return;
+      // r76：同步有自己的浮层了，查它而不是导出面板
+      var panel=document.getElementById('dsh-syc-panel');
+      if(!panel) return;          // 面板关了就不 poll
+      try{
+        var r=JSON.parse(b.syncLastResult());
+        if(r&&r.ran&&r.at){
+          if(r.message==='ok'){
+            setSyncStatus('上次同步：上传 '+r.uploaded+' · 下载 '+r.downloaded
+              +(r.conflicts?(' · 冲突保留 '+r.conflicts+' 份'):''), false);
+          }else{
+            setSyncStatus('上次同步：'+r.message, true);
+          }
+        }
+      }catch(e){}
+    }
+    function bindSyncBlock(){
+      var b=safBridge();
+      if(!b) return;
+      var sv=document.getElementById('dsh-syc-save');
+      if(sv){
+        sv.addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          var url=(document.getElementById('dsh-syc-url')||{}).value||'';
+          var user=(document.getElementById('dsh-syc-user')||{}).value||'';
+          var pass=(document.getElementById('dsh-syc-pass')||{}).value||'';
+          var iv=parseInt((document.getElementById('dsh-syc-int')||{}).value||'60',10);
+          if(isNaN(iv)) iv=60;
+          setSyncStatus('正在保存…',false);
+          var r;
+          try{ r=b.saveSyncConfig(url.trim(),user.trim(),pass,iv); }
+          catch(err){ setSyncStatus('调用失败：'+(err&&err.message||err),true); return; }
+          if(r==='ok'){ setSyncStatus('已保存，正在首次同步…',false); }
+          else if(r==='badurl'){ setSyncStatus('地址需以 http:// 或 https:// 开头',true); }
+          else{ setSyncStatus('保存被拒绝（'+(r||'未知')+'）',true); }
+        });
+      }
+      var nw=document.getElementById('dsh-syc-now');
+      if(nw){
+        nw.addEventListener('click',function(e){
+          e.preventDefault();e.stopPropagation();
+          setSyncStatus('正在同步…',false);
+          var r;
+          try{ r=b.syncNow(); }catch(err){ setSyncStatus('调用失败',true); return; }
+          if(r==='unconfigured') setSyncStatus('尚未配置 NAS 地址',true);
+          else if(r!=='started') setSyncStatus('同步被拒绝（'+(r||'未知')+'）',true);
+        });
+      }
+    }
+    // ---- r76 · NAS 同步浮层（从设置列表打开）----
+    // 独立浮层而非内嵌卡片：设置列表是 L2，点进去应当是 L3 页面（有返回条），
+    // 与「插件」那一项的层级语义一致。混在导出面板里会让返回行为不对。
+    function openSyncPanel(){
+      var old=document.getElementById('dsh-syc-panel');
+      if(old){ old.remove(); }
+      if(window.__dshSyncPoll){ try{ clearInterval(window.__dshSyncPoll); }catch(e){} window.__dshSyncPoll=null; }
+      var p=document.createElement('div');
+      p.id='dsh-syc-panel';
+      p.setAttribute('role','dialog');
+      p.setAttribute('aria-label','NAS 同步');
+      p.innerHTML='<div class="dsh-syc-card">'
+        +'<div class="dsh-syc-bar"><button id="dsh-syc-back" type="button" aria-label="返回">'
+        +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+        +' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        +'<path d="M15 18l-6-6 6-6"/></svg><span>返回</span></button>'
+        +'<b>NAS 同步</b></div>'
+        +'<div class="dsh-syc-body">'+syncPanelHtml()+'</div></div>';
+      document.body.appendChild(p);
+      p.querySelector('#dsh-syc-back').addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        closeSyncPanel();
+      });
+      document.body.classList.remove('dsh-drawer-open');
+      loadSyncForm();
+      bindSyncBlock();
+      window.__dshSyncPoll=setInterval(pollSyncResult,1200);
+      pollSyncResult();
+    }
+    function closeSyncPanel(){
+      var p=document.getElementById('dsh-syc-panel');
+      if(p){ p.remove(); }
+      // 面板关了就停轮询：否则定时器一直持有 DOM 引用在后台刷桥调用
+      if(window.__dshSyncPoll){ try{ clearInterval(window.__dshSyncPoll); }catch(e){} window.__dshSyncPoll=null; }
+      // 返回设置列表（L2）：设置浮层此时还开着，只需把 L3 标记去掉
+      var b=document.body;
+      if(b&&b.classList.contains('dsh-s-l3')){
+        b.classList.remove('dsh-s-l3');
+      }
+    }
+    // ---- 设置列表里的「NAS 同步」项 ----
+    var SYNC_SVG='<svg width="18" height="18" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"'
+      +' aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.5-6"/>'
+      +'<path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.5 6"/><path d="M21 3v6h-6"/>'
+      +'<path d="M3 21v-6h6"/></svg>';
+    function ensureSyncCell(){
+      var b=safBridge();
+      if(!b){ return; }
+      var list=document.querySelector('.dsh-s-nav [class*="_navList"]');
+      if(!list){ return; }
+      if(document.getElementById('dsh-sync-cell')){ return; }   // 幂等
+      var c=document.createElement('button');
+      c.type='button';
+      c.id='dsh-sync-cell';
+      // 类名内含 _navCell/_navIcon/_navLabel 子串 → 天然沿用 mobile.css 里
+      // 按 [class*="_navCell"] 写的适配规则，外观与原生项自动一致（r94 同款做法）。
+      c.className='dshmine_navCell';
+      c.setAttribute('data-dsh-sync','1');
+      c.innerHTML='<span class="dshmine_navIconWrap">'+SYNC_SVG+'</span>'
+        +'<span class="dshmine_navLabel">NAS 同步</span>';
+      list.appendChild(c);
+      c.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        openSyncPanel();
+      });
+      // 右侧状态点：已配置且最近一次同步成功 → 绿点；未配置 → 不显示
+      try{
+        var cfg=JSON.parse(b.syncConfig());
+        if(!cfg.configured){ c.setAttribute('data-dsh-sync-off','1'); }
+      }catch(e){}
+    }
+    try{ ensureSyncCell(); }catch(eSync){ derr('[dsh] sync cell init:',eSync); }
+
+    // ============================================================
+    // r74 · 数据导出（方案 C：FileProvider，见 docs/saf-feasibility.md §6）
+    //
+    // 落点选在**抽屉**而不是市场页操作条，理由是语义：
+    // 导出的是「用户自己的数据」，跟「插件市场」是两件事，
+    // 挂在市场页里会让用户以为要先装市场才能导数据。
+    //
+    // 沿用本文件的三条铁律（见 marketPageBar 段顶部注释）：
+    //   ① 不搬、不删 dsh（React）的节点 —— 只插入**我们自己的**行；
+    //   ② 定位用稳定的结构特征（_newSession 按钮 / sidebarCol），不猜哈希类名；
+    //   ③ 幂等：每轮 sync 都可能重跑，重复调用无副作用。
+    // ============================================================
+    var EXPORT_SVG='<svg width="18" height="18" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="2" stroke-cap="round" stroke-join="round"'
+      +' aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+      +'<path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
+    // 原生桥是否可用。不可用时抽屉里不显示这行（别给点不动的死按钮）。
+    function safBridge(){
+      return (window.dshSaf && typeof window.dshSaf.listExportable==='function')
+        ? window.dshSaf : null;
+    }
+    function ensureDrawerExportRow(){
+      if(!mq.matches){return;}
+      var sb=safBridge();
+      if(!sb){return;}
+      var col=document.querySelector('div[class*="sidebarCol"]');
+      if(!col){return;}
+      if(document.getElementById('dsh-sb-export')){return;}
+      // 挂在「插件」行之后；插件行还没有就退化成挂在新会话按钮之后。
+      var anchor=document.getElementById('dsh-sb-plugin')
+        || col.querySelector('button[class*="_newSession"]:not([class*="Label"])');
+      if(!anchor){return;}
+      var row=document.createElement('button');
+      row.id='dsh-sb-export';
+      row.type='button';
+      row.setAttribute('aria-label','导出数据');
+      row.innerHTML='<span class="dshsb-ic">'+EXPORT_SVG+'</span>'
+        +'<span class="dshsb-label">导出数据</span>';
+      row.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        openExportPanel();
+      });
+      try{ anchor.insertAdjacentElement('afterend',row); }
+      catch(eIns){ if(anchor.parentNode){anchor.parentNode.insertBefore(row,anchor.nextSibling);} }
+      dlog('[dsh] drawer export row injected');
+    }
+    // ---- 导出面板 ----
+    // 用我们自己的浮层，不碰 dsh 的设置浮层（那是 React 拥有的）。
+    function fmtSize(n){
+      if(n<1024){return n+' B';}
+      if(n<1048576){return (n/1024).toFixed(1)+' KB';}
+      return (n/1048576).toFixed(1)+' MB';
+    }
+    function openExportPanel(){
+      var old=document.getElementById('dsh-exp-panel');
+      if(old){
+        // 用 closeExportPanel() 而非 old.remove()：后者绕过了轮询清理，
+        // 反复开关面板会叠加多个 setInterval。
+        closeExportPanel();
+      }
+      var p=document.createElement('div');
+      p.id='dsh-exp-panel';
+      p.setAttribute('role','dialog');
+      p.setAttribute('aria-label','导出数据');
+      p.innerHTML='<div class="dsh-exp-card">'
+        +'<div class="dsh-exp-hd"><b>导出数据</b>'
+        +'<button id="dsh-exp-x" type="button" aria-label="关闭">✕</button></div>'
+        +'<div id="dsh-exp-body" class="dsh-exp-body">正在读取…</div>'
+        +'<div class="dsh-exp-ft">'
+        +'<span class="dsh-exp-tip">选择文件后可「分享」或「另存为」到手机任意位置</span>'
+        +'</div></div>';
+      // r76：NAS 同步已移出本面板 → 设置列表（它是长期配置，不是一次性动作）。
+      // 导出面板现在只做「把某个文件弄出去」这一件事。
+      document.body.appendChild(p);
+      p.querySelector('#dsh-exp-x').addEventListener('click',function(){ closeExportPanel(); });
+      p.addEventListener('click',function(e){ if(e.target===p){ closeExportPanel(); } });
+      // 打开浮层时收起抽屉：直接摘 class，不调 close()——
+      //   ① close() 在 mount 闭包外，依赖它的内部实现；
+      //   ② 顺带避免和 syncBackMark() 的返回标记纠缠（本浮层不走设置页层级）。
+      document.body.classList.remove('dsh-drawer-open');
+      renderExportList();
+    }
+    function closeExportPanel(){
+      var p=document.getElementById('dsh-exp-panel');
+      if(p){p.remove();}
+    }
+    function renderExportList(){
+      var body=document.getElementById('dsh-exp-body');
+      if(!body){return;}
+      var sb=safBridge();
+      var list;
+      try{ list=JSON.parse(sb.listExportable()); }
+      catch(e){ body.textContent='读取失败：'+(e&&e.message||e); return; }
+      if(!list||!list.length){
+        body.innerHTML='<div class="dsh-exp-empty">暂无可导出的文件</div>';
+        return;
+      }
+      var html='<ul class="dsh-exp-list">';
+      for(var i=0;i<list.length;i++){
+        var it=list[i];
+        // 路径不进 DOM 属性（可能含用户目录名），只用序号索引回查，避免注入风险
+        html+='<li data-i="'+i+'"><span class="dsh-exp-n">'+escapeHtml(it.name)+'</span>'
+          +'<span class="dsh-exp-s">'+fmtSize(it.size)+'</span>'
+          +'<span class="dsh-exp-a">'
+          +'<button type="button" data-act="share">分享</button>'
+          +'<button type="button" data-act="save">另存为</button>'
+          +'</span></li>';
+      }
+      html+='</ul>';
+      body.innerHTML=html;
+      body.addEventListener('click',function(e){
+        var b=e.target;
+        if(!b||!b.getAttribute){return;}
+        var act=b.getAttribute('data-act');
+        if(!act){return;}
+        var li=b.closest?b.closest('li'):null;
+        if(!li){return;}
+        var idx=parseInt(li.getAttribute('data-i'),10);
+        var it=currentList[idx];
+        if(!it){return;}
+        e.preventDefault();e.stopPropagation();
+        if(act==='share'){
+          var r=sb.shareFile(it.path);
+          if(r!=='ok'){ alert('无法导出该文件'); }
+        }else{
+          sb.saveAs(it.path,'');
+          // 原生会弹系统保存界面；这里不阻塞，直接关掉面板
+          closeExportPanel();
+        }
+      });
+      currentList=list;
+    }
+    // renderExportList 的事件回调要用到列表内容，放在外层作用域避免闭包过期
+    var currentList=[];
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+      });
+    }
+    // 抽屉每次打开都要确保这行在（React 可能把sidebarCol 重排）
+    try{ ensureDrawerExportRow(); }catch(eExp){ derr('[dsh] export row init:',eExp); }
     // r93 · 抽屉开时把汉堡（▭ 收起形态）钉到 logo 行同一水平线（参考稿布局）。
     //   CSS 只能猜固定值，logo 行的实际 y 由 dsh 原生布局决定（真机与 fixture 差异大），
     //   所以量出来再写 style.top；抽屉关掉就清掉内联值，回落 CSS 默认（top:6px）。
@@ -1784,6 +2179,11 @@ else{
       if(document.hidden)return;
       tagHosts();syncOvFlag();detectDark();
       try{ ensureDrawerPluginRow(); }catch(ePlug2){}
+      // r74：导出数据行同样要每轮复查 —— React 重排 sidebarCol 会把注入行挪走/摘掉。
+      try{ ensureDrawerExportRow(); }catch(eExp2){}
+      // r76：设置列表里的「NAS 同步」项 —— React 重渲染 .dsh-s-nav 会把注入项冲掉，
+      // 与插件行同理必须每轮复查。
+      try{ ensureSyncCell(); }catch(eSync2){}
       try{ syncMenuBtnToLogo(); }catch(eM2L2){}
       // r69：设置页的层级/返回条自愈 —— 页面静止时也要有人复查（见 __dshSettingsSync 处注释）
       if(window.__dshSettingsSync){try{window.__dshSettingsSync();}catch(e){}}

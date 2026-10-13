@@ -45,6 +45,46 @@ public final class DshProcessManager {
     /** 停止增量扫描（进程停止时调用）。 */
     public static void stopStateScan() { scanning = false; }
 
+    /**
+     * Java 侧直接投递一条状态给观察者（**不经过日志文件**）。
+     *
+     * <p>用于 bootstrap 阶段的 {@code precheck} / {@code extracting}：
+     * 这两个状态由 Java 自己执行 {@link DshBootstrap} 时产生，日志只进 Logcat、
+     * 不进 {@code dsh-web.log}，所以不能走 {@code DSH_STATE:} 行扫描
+     * （见 contract.md §6.1「Java 自有bootstrap 状态不走 DSH_STATE」）。
+     *
+     * <p>此方法是进程内回调，与文件扫描那条路径共用同一个 {@link StateObserver}，
+     * 因此 UI 层无需为两套来源写两套处理逻辑。
+     *
+     * <p><b>线程安全</b>：内部统一切到主线程再回调，因此调用方可以在任意线程
+     * 调用（bootstrap 在后台线程、restart 在保活线程，都不需要自己post）。
+     *
+     * @param state    状态枚举，见 contract.md §3
+     * @param msg      人类可读提示
+     * @param progress 0~100，可为 -1 表示不带该字段
+     */
+    public static void emitState(final String state, final String msg, final int progress) {
+        try {
+            android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+            h.post(new Runnable() {
+                @Override public void run() {
+                    try {
+                        JSONObject o = new JSONObject();
+                        o.put("state", state);
+                        o.put("msg", msg);
+                        if (progress >= 0) o.put("progress", progress);
+                        StateObserver ob = observer;
+                        if (ob != null) ob.onState(o);
+                    } catch (JSONException ignored) {
+                        // 状态上报失败绝不能影响启动主流程
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "emitState 失败: " + e.getMessage());
+        }
+    }
+
     private DshProcessManager() {}
 
     /**
@@ -106,6 +146,10 @@ public final class DshProcessManager {
     }
 
     public static boolean restart(Context ctx) {
+        // r73（A2）：上报 retrying —— 「服务异常，正在重试」是契约 §3 的既有枚举值，
+        // 但之前从没有生产者（见 docs/真机验证清单 §10）。
+        // ⚠️ emitState 内部已统一切主线程，这里直接调用即可。
+        emitState("retrying", "服务异常，正在重启…", -1);
         stop(ctx);
         try { Thread.sleep(500); } catch (InterruptedException ignored) { }
         return start(ctx);

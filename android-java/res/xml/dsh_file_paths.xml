@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  dsh 数据导出用的 FileProvider 路径映射（方案 C，见 docs/saf-feasibility.md）。
+
+  ⚠️ 安全红线：只暴露 **dsh 用户数据**（files/home/.dsh/），
+     绝不要用 <files-path name="root" path="." /> 把整个 filesDir 敞开——
+     那里面是 700MB 的 Termux 运行时、node 二进制、软链和插件，
+     导出等于把可执行文件交到任意第三方 App 手里。
+
+  术语：
+    <files-path>  → Context.getFilesDir()        = /data/data/<pkg>/files
+    <cache-path>  → Context.getCacheDir()
+    <external-path> → Environment.getExternalStorageDirectory()
+  授权方式：context-grantable / grantUriPermissions，走 Intent.FLAG_GRANT_READ_URI_PERMISSION，
+  不设android:exported="true"（默认 false，只有显式授权的 App 能访问）。
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- dsh 用户数据根：配置、会话、工作区等。这是方案 C 的主体。 -->
+    <files-path
+        name="dsh_data"
+        path="home/.dsh/" />
+
+    <!-- dsh home 下的非 .dsh 部分（.cache / .tmp 等）。
+         单独开放，因为用户偶尔要清缓存、导出崩溃日志。 -->
+    <files-path
+        name="dsh_home"
+        path="home/" />
+
+    <!-- 启动/运行日志：排障时需要让用户把日志发出来。
+         注意是 log/ 子目录，不是整个 home（home 里有 node_modules 软链）。 -->
+    <files-path
+        name="dsh_logs"
+        path="home/log/" />
+
+</paths>
