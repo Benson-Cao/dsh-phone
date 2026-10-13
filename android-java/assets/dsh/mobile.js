@@ -43,8 +43,23 @@
     var MENU_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none"'
       +' stroke="currentColor" stroke-width="2" stroke-linecap="round">'
       +'<path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+    // r93 · 抽屉打开时汉堡换成「收起侧栏」面板图标（参考稿《设置页（参考）.jpg》：
+    //   logo 行右端是一颗 ▭ 形态的收起按钮，不是 ☰）。与 MENU_SVG 同样必须在
+    //   mount() 最顶端赋值 —— r68 的 "undefined" 胶囊教训：任何被 ensureTopBar()
+    //   或更早的 IIFE 用到的常量，声明可以提升、赋值不会。
+    var PANEL_SVG='<svg width="20" height="20" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="2" stroke-linejoin="round">'
+      +'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>';
+    // r93 · 抽屉「插件」行图标（拼图块，与设置页插件项语义一致；纯装饰，颜色走 currentColor）
+    var PLUGIN_SVG='<svg width="18" height="18" viewBox="0 0 24 24" fill="none"'
+      +' stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      +'<path d="M9 3h6v3.2a1.8 1.8 0 1 0 3.6 0V6H21v6h-2.8a1.8 1.8 0 1 0 0 3.6H21V21h-6v-2.8'
+      +' a1.8 1.8 0 1 0-3.6 0V21H3v-6h2.8a1.8 1.8 0 1 0 0-3.6H3V3h6z"/></svg>';
     var mark=document.createElement('div');mark.id=SID;
     document.body.appendChild(mark);
+    // r74 [diag]：注入脚本统一日志出口（console -> DshChromeClient.onConsoleMessage -> logcat）
+    function dlog(){try{console.log.apply(console,arguments);}catch(e){}}
+    function derr(){try{console.error.apply(console,arguments);}catch(e){}}
     var live=document.createElement('div');
     live.id='dsh-live';
     live.setAttribute('role','status');
@@ -223,6 +238,97 @@ var ovCloseTried=false;
     //   根因：自愈与"反复强制关闭"在互相打架。放弃之后就**不再重复尝试**，
     //   改为：自愈保持 L2（界面连贯）+ 400ms 后干净地重载一次（把用户带出去）。
     var ovAbandoned=false;
+    // r80：记录最近一次"放弃关闭"的时间戳 —— abandonment 不再是终身流放：
+    //   冷却 2.5s 后新来的关闭请求重新武装重试。否则 ovReloadedOnce 用掉后
+    //   ovAbandoned 永久为 true ⇒ closeSettings 永久空操作 ⇒ L2 返回键彻底
+    //   没反应（r79 真机日志：连按 6 次返回 bodyClass 纹丝不动）。重试是安全的：
+    //   clearOvState() 强制收抽屉后面板视觉上必关，sync() 也会在浮层消失时复位全部标志。
+    var ovAbandonAt=0;
+      // r87 · 程序化点击在途标记：dshTap 派发的 click 会冒泡进捕获层，
+      //   捕获层的三级 ← 拦截必须跳过"自己人"（否则 closeSettingsPanel 的 ×
+      //   程序化点击会被拦成 setL2，面板永远真关不掉）。
+      var _dshTapAt=0;
+      // r84 · 程序化点击 dsh 控件的可靠方式：完整 pointer+mouse 事件序列（带坐标）。
+      //   为什么：CDP 直连真机实测 —— React 对裸 .click() 时灵时不灵（设置入口
+      //   triggerRow 完全忽略合成 click，必须真实输入事件才响应；r83 真机日志里
+      //   × 关闭键也出现过"点了没关"的僵尸面板）。带坐标的完整序列与真实手指等价。
+      //   ⚠️ 末尾的 click 用 dispatchEvent 派发；只有派发失败（旧桩环境没有
+      //   MouseEvent/dispatchEvent）才退回 el.click()，绝不能两者都发 —— 那会把
+      //   onClick 触发两次，手风琴 toggle 两次等于没按。
+      function dshTap(el){
+        if(!el){return false;}
+        var x=0,y=0;
+        try{
+          var r=el.getBoundingClientRect();
+          if(r){ x=r.left+(r.width||0)/2; y=r.top+(r.height||0)/2; }
+        }catch(eR){}
+        var opts={bubbles:true,cancelable:true,composed:true,view:window,
+                  clientX:x,clientY:y,screenX:x,screenY:y};
+        try{ _dshTapAt=(new Date()).getTime(); }catch(eT0){}   // r87：打点在途标记
+        var ok=false;
+        try{ el.dispatchEvent(new PointerEvent('pointerdown',opts)); }catch(e1){}
+        try{ el.dispatchEvent(new MouseEvent('mousedown',opts)); }catch(e2){}
+        try{ el.dispatchEvent(new PointerEvent('pointerup',opts)); }catch(e3){}
+        try{ el.dispatchEvent(new MouseEvent('mouseup',opts)); }catch(e4){}
+        try{ el.dispatchEvent(new MouseEvent('click',opts)); ok=true; }catch(e5){}
+        if(!ok){ try{ el.click(); }catch(e6){} }
+        // r85 [diag]：两种调用路径（CDP 直调 vs evaluateJavascript 按键）的差异
+        //   就在这里被钉死 —— 派发方式 + 坐标一目了然。
+        try{ dlog('[dsh] dshTap: dispatched='+ok+' x='+Math.round(x)+' y='+Math.round(y)
+          +' tag='+el.tagName+' cls='+String(el.className).slice(0,30)); }catch(eD){}
+        return true;
+      }
+      // r84 · 收起内容区展开的卡片（插件页的手风琴 = 用户的"三级页面"）。
+      //   真机 DOM 取证（CDP）：插件项展开 = li.YyYd_a_card.YyYd_a_cardOpen
+      //   （高 68→351，露出配置表单 + 放弃修改/保存），头部按钮 YyYd_a_header
+      //   是 toggle —— 点击即收起（真机实测验证）。
+      //   这就是"三级 → 二级"的正确返回动作；旧代码直接 setL2 会跳到设置列表
+      //   （跳过插件列表页）= 用户报的"三级页面按返回直接回上上级"。
+      //   ⚠️ 只认 cardOpen（展开态）；cardActive 是预设"选中态"（非展开，
+      //   点击 cardMain 也不收起，真机实测）不算一级深度。
+      function collapseExpandedCards(){
+        try{
+          var ov=document.querySelector('.dsh-s-ov');
+          if(!ov){
+            try{ dlog('[dsh] collapse: no .dsh-s-ov'); }catch(eD0){}
+            return false;
+          }
+          var cards=ov.querySelectorAll('[class*="_content"] [class*="cardOpen"]');
+          if(!cards||!cards.length){
+            // r85 [diag]：按键路径曾在这一步返回 false 而 CDP 直调命中 1 ——
+            //   把查询各环节的数据全部打出来，一次日志定位。
+            try{
+              var dC=ov.querySelectorAll('[class*="cardOpen"]').length;
+              var dCt=document.querySelectorAll('[class*="_content"]').length;
+              var dO=ov.querySelectorAll('[class*="_content"] [class*="_card"]').length;
+              dlog('[dsh] collapse: cards=0 [ov.cardOpen='+dC
+                +' doc._content='+dCt+' ov.content.card='+dO
+                +' body='+document.body.className+']');
+            }catch(eD1){}
+            return false;
+          }
+          var done=0;
+          for(var i=0;i<cards.length;i++){
+            var card=cards[i];
+            var btn=null;
+            for(var j=0;j<card.children.length;j++){
+              if(card.children[j]&&String(card.children[j].tagName||'').toUpperCase()==='BUTTON'){
+                btn=card.children[j];break;
+              }
+            }
+            if(!btn){ try{ btn=card.querySelector('button'); }catch(eB){ btn=null; } }
+            if(btn&&dshTap(btn)){done++;}
+          }
+          if(done>0){ dlog('[dsh] collapseExpandedCards: toggled '+done+' open card(s)'); }
+          else{
+            try{ dlog('[dsh] collapse: cards='+cards.length+' but done=0 (btn not found?)'); }catch(eD2){}
+          }
+          return done>0;
+        }catch(e){
+          try{ dlog('[dsh] collapse threw: '+(e&&e.message||e)); }catch(eD3){}
+          return false;
+        }
+      }
       // U18（r66）· 重载兜底必须**整个页面只允许一次**。
       //   r65 那版把"试过没有"记在 ovCloseTried 上，而它只在 `!ov` 时才复位 ——
       //   但 closeSettingsPanel() 只会在**有浮层时**被调用，于是第一次成功关闭之后
@@ -232,14 +338,42 @@ var ovCloseTried=false;
       // 关闭动作里我们自己那套布局状态的复位。
       //   l2/l3 决定「导航列表 / 内容」谁显示，ov-open 决定汉堡与遮罩显不显示。
       // 抽成函数是因为有三处退出路径都要复位（点 × / 点遮罩 / 侧滑与返回键）。
-      function clearOvState(){
+      // r87：keepDrawer 参数 —— "退出设置面板但停在设置页（抽屉保持展开）"的
+      //   新语义：二级页面按返回/点返回条 → 关面板保抽屉；只有"彻底退出"
+      //   （popstate 等全退场景）才连带收抽屉（r79 旧语义）。
+      function clearOvState(keepDrawer){
         var bd=document.body;
-        if(bd){bd.classList.remove('dsh-s-l2');bd.classList.remove('dsh-s-l3');bd.classList.remove('dsh-ov-open');}
-        // 顶栏若被 React 整体重渲染冲掉，这里立刻补回来（见 ensureTopBar 的注释）。
+        _lvl=0;   // r88：面板退出（无论哪种语义）层级记忆一并归零
+        if(bd){bd.classList.remove('dsh-s-l2');bd.classList.remove('dsh-s-l3');bd.classList.remove('dsh-ov-open');
+          // r87：keepDrawer=true（二级返回的"回设置页"语义）时**保住抽屉**；
+          //   默认 false = r79 的彻底退出语义（连带收抽屉）。
+          if(!keepDrawer){bd.classList.remove('dsh-drawer-open');}}
+        // r79（恢复 r77 的正确半边）：**彻底退出**时连带收抽屉 ——
+        //   面板住在 sidebarCol 里（默认 translate3d(-102%)），只删面板不删抽屉，
+        //   展开的侧栏会留在屏幕上；r78 曾把这里回退，这一轮已重新验证必要性。
         ensureTopBar();
       }
-      function closeSettingsPanel(){
-        if(ovAbandoned){return;}   // r69：已放弃就别再反复强制关闭（会把刚恢复的 L2 抹掉）
+      // r87 · **退出设置面板但停在设置页（抽屉保持展开）**。
+      //   用户语义（真机日志 21:39:55 实锤）：二级页面（设置列表）按返回/点
+      //   "← 设置"返回条 → 应回到**设置页（抽屉）**，而不是直接回首页。
+      //   旧 closeSettings()（= closeSettingsPanel()）连抽屉一起收 → 首页。
+      function closeSettingsToDrawer(){
+        closeSettingsPanel(true);
+        // 面板关闭后把抽屉展开补上（即便此前抽屉类丢失的幽灵态，也把用户
+        // 落在设置页，而不是裸首页）。
+        try{
+          var bd=document.body;
+          if(bd&&!bd.classList.contains('dsh-drawer-open')){bd.classList.add('dsh-drawer-open');}
+        }catch(e){}
+      }
+      function closeSettingsPanel(keepDrawer){
+        if(ovAbandoned){
+          // r80：冷却重武装 —— 2.5s 内不重复折腾，超过则允许再试一次完整关闭。
+          var _an=0;
+          try{ _an=(new Date()).getTime(); }catch(e){}
+          if(_an&&ovAbandonAt&&_an-ovAbandonAt<2500){return;}
+          ovAbandoned=false;
+        }
         // ⚠️ r69 计时起点只在**新的**关闭请求上打（浏览器取证：repro/debug4.js 时间线）。
         //   原来每次调用都刷新 ovCloseAt，而重试链每 350~510ms 就调一次 ⇒
         //   `now-ovCloseAt` 永远是零头 ⇒ 宽限期永远不过 ⇒ 永远不放弃、永远重试，
@@ -250,15 +384,34 @@ var ovCloseTried=false;
         var ov=settingsOverlay();
         if(!ov){
           ovCloseTried=false;
-          clearOvState();
+          clearOvState(keepDrawer);
           return;
         }
+        // r87：关闭目标选择 —— ①可见 × 直接点；②× 不可见（L2 下它藏在
+        //   display:none 的 _content 里）→ 改点**遮罩**（dsh React 自己的
+        //   关闭路径，面板会真正卸载）；③连遮罩都没有才用兜底 ×（仍验几何）。
+        //   r86 的 0×0 隐藏 × 绝不点依旧成立。
         var c=visibleClose(ov);
-        if(!c){ c=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]'); }
-        if(c){ try{ c.click(); }catch(e){} }
+        if(c){ dshTap(c); }
+        else{
+          var mask=null;
+          try{ mask=ov.querySelector('[class*="_mask"]'); }catch(eM){ mask=null; }
+          if(mask){
+            dshTap(mask);
+            try{ dlog('[dsh] closeSettingsPanel: × 不可见，改点遮罩'); }catch(eD){}
+          }else{
+            var c2=ov.querySelector('[class*="_close"],button[aria-label*="关闭"],button[aria-label*="Close"]');
+            if(c2){
+              var _cr=null;
+              try{ _cr=c2.getBoundingClientRect(); }catch(eR){ _cr=null; }
+              if(_cr&&_cr.width>1&&_cr.height>1){ dshTap(c2); }
+              else{ try{ dlog('[dsh] closeSettingsPanel: × 不可见(0x0)，跳过程序化点击'); }catch(eV){} }
+            }
+          }
+        }
         // 兜底：无论有没有点到 dsh 的出口，都把我们自己的布局状态复位，
         // 至少不能让用户卡在一个"既没有出口、返回键也没反应"的界面里。
-        clearOvState();
+        clearOvState(keepDrawer);
         // 点 × 之后同步就已经看不见浮层了 → 这就是正常路径，绝不重载页面。
         if(!settingsOverlay()){ ovCloseTried=false; return; }
         ovCloseFails++;   // r69：这次"请求关闭"没成功（dsh 的 × 没响应），记一笔
@@ -276,6 +429,7 @@ var ovCloseTried=false;
             // 宽限期已过 ⇒ 认定 dsh 这次关不掉：放弃反复尝试，交给一次性兜底重载。
             //   先留 400ms 让 sync() 把 L2 恢复好（万一重载被系统拦掉，界面也是连贯的）。
             ovAbandoned=true;
+            ovAbandonAt=(new Date()).getTime();   // r80：记下放弃时间，供冷却重武装判定
             ovCloseRequested=false;
             try{
               setTimeout(function(){
@@ -290,7 +444,7 @@ var ovCloseTried=false;
           //   保持 true，让下一次调用重新进来算 waited。
           try{
             setTimeout(function(){
-              if(settingsOverlay()){closeSettingsPanel();}
+              if(settingsOverlay()){closeSettingsPanel(keepDrawer);}
               else{ovCloseTried=false;}
             },Math.max(150,OV_CLOSE_GRACE-waited+60));
           }catch(e){}
@@ -299,7 +453,7 @@ var ovCloseTried=false;
         ovCloseTried=true;
         try{
           setTimeout(function(){
-            if(settingsOverlay()){closeSettingsPanel();}
+            if(settingsOverlay()){closeSettingsPanel(keepDrawer);}
             else{ovCloseTried=false;}   // 关成功了 → 复位，别把状态留给下一次
           },350);
         }catch(e){}
@@ -314,12 +468,13 @@ var ovCloseTried=false;
       var _backLastAt=0;
       function syncBackHandled(){
         var bd=document.body;
-        var v=!!(bd&&(bd.classList.contains('dsh-ov-open')||bd.classList.contains('dsh-drawer-open')));
-        if(v===_backHandled){return;}
-        _backHandled=v;
-        try{
-          if(window.dshNative&&window.dshNative.setBackHandled){window.dshNative.setBackHandled(v);}
-        }catch(e){}
+      var v=!!(bd&&(bd.classList.contains('dsh-ov-open')||bd.classList.contains('dsh-drawer-open')));
+      if(v===_backHandled){return;}
+      _backHandled=v;
+      dlog('[dsh] syncBackHandled -> '+v);
+      try{
+        if(window.dshNative&&window.dshNative.setBackHandled){window.dshNative.setBackHandled(v);}
+      }catch(e){}
       }
     // ===== 侧滑返回支持（r64）=====
       // 根因：设置面板是**覆盖层**，打开它**不改变 URL**，因此根本不产生 WebView 历史项。
@@ -338,6 +493,17 @@ var ovCloseTried=false;
       //   返回（系统手势/返回键）不设这个标记，行为不变；即便历史条目被错位消费，
       //   syncBackMark 的 push-on-need 也会在下一轮把缺的条目补回来。
       var popInFlightAt=0;
+      // r75 · 防退两级白屏：popPanelHistory() 会被 syncBackMark() 反复调用
+      //   （closeSettings 后 MutationObserver 60ms + 500ms 轮询都会再来一轮），
+      //   而 history.back() 是**异步**的 —— 第一次发出后 history.state 仍是
+      //   PANEL_MARK，第二次调用看到"有标记"就又发一次 back。WebView 连续退
+      //   两级：dsh 面板 → dsh(popstate) → **about:blank（白屏）**；白屏页上
+      //   再按返回 jsHandled=false 且 canGoBack=false → 直接退出 App。
+      //   真机证据（r74 logcat）：14:11:51.146 popstate 认领后仅 17ms，
+      //   14:11:51.163 就出现 path=blank 的新文档 —— 正是第二次 back 到达。
+      //   修法：发出 back 前打时间戳，1.2s 内不再发第二次（覆盖 popstate 认领
+      //   时延，远小于人手连退间隔；用户真实返回不设此标记，行为不变）。
+      var popReqAt=0;
       function pushPanelHistory(){
         try{
           if(history.state&&history.state[PANEL_MARK])return;   // 已压过，别重复压
@@ -347,10 +513,27 @@ var ovCloseTried=false;
       function popPanelHistory(){
         try{
           if(history.state&&history.state[PANEL_MARK]){
-            popInFlightAt=(new Date()).getTime();
+            var _now=0;
+            try{ _now=(new Date()).getTime(); }catch(e){ _now=0; }
+            if(_now&&popReqAt&&_now-popReqAt<1200){return;}   // r75：在途锁，防重复 back
+            popReqAt=_now;
+            popInFlightAt=_now;
             history.back();
           }
         }catch(e){}
+      }
+      // r86 · 自家 back 的统一在途窗口：发出 history.back() 后的 popstate
+      //   一律视为"自家清理的回响"，不得触发"关面板"逻辑。
+      //   根因（r85 用户真机日志 21:32:42~43 钉死）：
+      //     我们补压的 PANEL_MARK 条目被 popPanelHistory 弹掉后，迟到的 popstate
+      //     读 state 已无标记 → 被误判成"用户侧滑/按键退回" → closeSettingsPanel
+      //     → dshTap 点中 0×0 的隐藏 × → 面板+抽屉连坐全关 → 直接回首页。
+      //     这正是"二级页面按返回直接回首页"的完整链条。
+      //   修法：在途窗口从 popInFlightAt 单独计时改为与 popReqAt 对齐（取较大者），
+      //   窗口内一律消化；窗口外且面板开着且**不在关闭流程**的 popstate 才真关。
+      function selfBackInFlight(now){
+        var t=popInFlightAt>popReqAt?popInFlightAt:popReqAt;
+        return !!(t&&now&&now-t<1200);
       }
       // U17（r65）· P0 修复：这里原来写的是 `b.classList...`，而 `b` 只在
       //   mount() 里那个设置面板 IIFE 内定义（var b=document.body）。
@@ -360,12 +543,15 @@ var ovCloseTried=false;
       //   再滑一次就退出 App。**这才是「侧滑返回不能用」的真正根因**，
       //   跟 MainActivity 有没有 onBackPressed 无关。
       //   修法：处理器内部自取 body，并整体包 try/catch（监听器绝不能抛）。
-      window.addEventListener('popstate',function(ev){
+window.addEventListener('popstate',function(ev){
         try{
           var bd=document.body;
           if(!bd){return;}
+          dlog('[dsh] popstate: inflight='+(popInFlightAt?'yes':'no')
+            +' ovOpen='+bd.classList.contains('dsh-ov-open')
+            +' drawer='+bd.classList.contains('dsh-drawer-open'));
           // r73：自家清理 back 的 popstate 先到先认领 —— 跳过关闭逻辑，
-          //   否则会把"关闭后立刻重开"的新面板误杀（见 popInFlightAt 处注释）。
+          //   否则会会把"关闭后立刻重开"的新面板误杀（见 popInFlightAt 处注释）。
           var _pn=0;
           try{ _pn=(new Date()).getTime(); }catch(eP){ _pn=0; }
           if(popInFlightAt&&_pn&&_pn-popInFlightAt<1000){ popInFlightAt=0; return; }
@@ -373,7 +559,11 @@ var ovCloseTried=false;
           var st=null;
           try{ st=history.state; }catch(e){}
           if(st&&st[PANEL_MARK]){return;}
-          if(bd.classList.contains('dsh-ov-open')){
+          // r86：自家 back 的在途窗口内（含补压条目被弹后的回响）一律消化。
+          //   另外只在"面板真的开着且用户不在主动关闭流程"时才关面板 ——
+          //   dsh 路由产生的多余历史弹跳不再误杀整个设置面板。
+          if(selfBackInFlight(_pn)){ return; }
+          if(bd.classList.contains('dsh-ov-open')&&!ovCloseRequested){
             // 真的关，而不是"删掉我们的 class 假装关了"
             closeSettingsPanel();
           }
@@ -382,7 +572,7 @@ var ovCloseTried=false;
         }catch(e){}
         syncBackHandled();
       });
-      function syncOvFlag(){
+      function syncOvFlag(forceOpen){
         var b=document.body;
         if(!b){return;}
         // U18（r66）：顺手保证顶栏在树上。dsh 的 React 树整体替换 body 子节点时，
@@ -391,12 +581,18 @@ var ovCloseTried=false;
         //   这里幂等补回，配合 MutationObserver + 500ms 轮询构成自愈。
         ensureTopBar();
         var on=!!settingsOverlay();
+        // r82：几何判据抖动时，若面板**还在树上且用户没在关闭**（sync() 的 !ov
+        //   分支传 forceOpen），保持 ov-open —— 否则 ov-open 跟着几何一抖就掉，
+        //   汉堡被 CSS 复活、jsBackHandled 误报 false，就是 r81 日志里"幽灵开合"
+        //   的另一个来源。真关闭（卸载/残留）仍按几何判据收敛。
+        if(!on&&forceOpen){on=true;}
         if(on!==b.classList.contains('dsh-ov-open')){
           if(on){
             b.classList.add('dsh-ov-open');
           }else{
             b.classList.remove('dsh-ov-open');
           }
+          dlog('[dsh] syncOvFlag toggle ov-open -> '+on+' bodyClass='+b.className);
         }
         syncBackMark();
       }
@@ -406,16 +602,31 @@ var ovCloseTried=false;
       function syncBackMark(){
         var bd=document.body;
         if(!bd){return;}
-        var need=!!settingsOverlay()||bd.classList.contains('dsh-drawer-open');
+        // r82/r83：历史条目必须与**结构事实**同进同出（面板在不在 DOM），不能跟着
+        //   几何判据抖动 —— r81 真机日志的"幽灵开合"（覆盖层无声消失又自己弹回，
+        //   伴随 popstate inflight=yes、历史被消费）就是 need 在几何抖动时翻 false
+        //   → popPanelHistory() 提前消费了历史。
+        //   r83 修正：判据用 `_panel` 而不是 `_navList` —— r82 真机证明详情页下
+        //   navList 会被 React 卸载，若用 navList 判"在不在"，详情页会误判"面板没了"
+        //   → 历史照弹、ghost 关面板。面板容器 _panel 在详情页一定在树上。
+        var mounted=!!document.querySelector('[class*="_overlay"] [class*="_panel"]');
+        var need=mounted||bd.classList.contains('dsh-drawer-open');
         if(need){pushPanelHistory();}else{popPanelHistory();}
         syncBackHandled();
       }
     if(!inMarket){
     (function(){
+      try{
       if(!mq.matches){return;}
       var b=document.body;
-      function setL2(){b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}
-      function setL3(){b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}
+      dlog('[dsh] settings IIFE start: mq='+mq.matches+' path='+location.pathname+' inMarket='+inMarket);
+      // r88 · **层级记忆**：l2/l3 类会被 React 重挂面板的过渡窗口清掉（r87 真机
+      //   日志 22:03:48→50 实锤：点插件后 1.5s 内 l3 被清），而类一丢：← 拦截火不了、
+      //   自愈只能靠 navList 可见性猜（类丢了 navList 就亮 → 错猜成 l2 → 用户
+      //   被翻回设置列表）。JS 变量 _lvl 活在闭包里，React 怎么重挂都冲不掉。
+      var _lvl=0;
+      function setL2(){_lvl=2;b.classList.remove('dsh-s-l3');b.classList.add('dsh-s-l2');}
+      function setL3(){_lvl=3;b.classList.remove('dsh-s-l2');b.classList.add('dsh-s-l3');}
       // r58 · 按设计稿：插件市场入口是**纯标题列表项**（与模型/插件/Agent 预设同格式），
       // r39 那个大卡片（图标 + 副标题 + 两个按钮）到此为止。
       // ⚠️ marketState() / announce() / installPnpmNow() / installMarketNow() / marketPageBar()
@@ -674,7 +885,9 @@ var ovCloseTried=false;
       function ensureBackBar(){
         var ov=settingsOverlay();
         var bar=document.getElementById('dsh-back');
-        var onFirstPage=!b.classList.contains('dsh-s-l3');
+        // r88：加 _lvl!==3 —— 类丢失的过渡窗口里也不在详情页头上插返回条
+        //   （用户在插件页时多一根"← 设置"只会添乱）。
+        var onFirstPage=!b.classList.contains('dsh-s-l3')&&_lvl!==3;
         if(!onFirstPage){
           // L3：dsh 自己有 ×，刻意不给返回条（不是"判不准"，是设计决定）。
           if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}
@@ -714,7 +927,8 @@ var ovCloseTried=false;
         host.insertBefore(bar, host.firstChild);
         bar.querySelector('#dsh-back-btn').addEventListener('click',function(e){
           e.preventDefault();e.stopPropagation();
-          closeSettings();
+          // r87：返回条语义 = 回设置页（关面板、抽屉保持），不再直接回首页。
+          closeSettingsToDrawer();
         });
       }
       // 列表项点击：缺什么就先装什么。已装齐则返回 false，交给 dsh 原生逻辑
@@ -766,23 +980,85 @@ var ovCloseTried=false;
         t.textContent='提示：侧滑或按返回键可回到上一级页面（已在第一级时会退出应用）。';
         nav.appendChild(t);
       }
+// r83 · **列表可见性判据**（l2/l3 的权威来源）。
+      //   r82 真机日志（r82-back.log）证明：详情页(L3)下 dsh 的 React **会把
+      //   navList 卸载掉**（r75 记录的"结构 DOM 缺席"）——所以"navList 在不在
+      //   DOM"不能单独当证据；但"navList 是否**可见**"可以：
+      //     · navList 可见（在 DOM 且没被隐藏）→ 列表页（L2）
+      //     · navList 不可见（被卸载 / 被 l3 的 CSS display:none 藏掉）→ 详情页（L3）
+      //   这是与"类存不存在"无关的硬事实 —— 类丢了也能当场重建正确的层级。
+      function settingsListShown(){
+        try{
+          var ov=document.querySelector('.dsh-s-ov');
+          if(!ov){return false;}
+          var nl=ov.querySelector('[class*="_navList"]');
+          if(!nl){return false;}                 // navList 被 React 卸载 → 详情页
+          var cs=window.getComputedStyle(nl);
+          if(cs&&(cs.display==='none'||cs.visibility==='hidden'||cs.visibility==='collapse')){return false;}
+          try{var r=nl.getBoundingClientRect();
+            if(r&&(r.width<=0||r.height<=0)){return false;}}catch(eR){}
+          return true;
+        }catch(e){return false;}
+}
+      // r83 · healLevel：浮层可见（或结构在树上）⇒ body 必为 l2 或 l3 之一，
+      //   且与列表可见性一致。r82 之前只补 l2 —— 详情页的 l3 一旦被清就永久丢失
+      //   （l3 只能靠点 navCell 设置），返回时必然误判。r83 用 settingsListShown()
+      //   补回正确的层级：navList 可见 → l2；navList 不可见（卸载/隐藏）→ **l3**。
+      //   ⚠️ 必须在 **两条 sync 路径都跑**：详情页下 navList 被 React 卸载后
+      //   settingsOverlay()（依赖 navList 判存在）会返回 null，若只放在 ov 路径，
+      //   详情页的类丢了就永远没机会恢复（r82 真机日志实锤）。
+      function healLevel(){
+        try{
+          if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){
+            var overdue=ovCloseRequested&&((new Date()).getTime()-ovCloseAt)>OV_CLOSE_GRACE;
+            if(!ovCloseRequested||overdue){
+              // r88：**层级记忆优先** —— 类丢失多发生在 React 重挂面板的过渡窗口，
+              //   此刻 navList 会因为 l3 类不在而"亮出来"，按可见性猜必猜成 l2
+              //   （用户被翻回设置列表）。_lvl 活在闭包里不受重挂影响，先按它恢复；
+              //   _lvl=0（刚退出过面板/首次打开）才退回 DOM 启发式。
+              if(_lvl===3){setL3();}
+              else if(_lvl===2){setL2();}
+              else if(settingsListShown()){setL2();}else{setL3();}
+              if(overdue){ovCloseRequested=false;}
+            }else{
+              // r81 [diag]：浮层可见但 l2/l3 全缺，且处于"请求关闭"宽限期内 →
+              // 本轮不恢复层级。若此日志在面板长时间打开时持续出现（800ms 宽限期
+              // 早该过期），说明 ovCloseRequested 被卡死。
+              try{
+                dlog('[dsh] sync: L2/L3 restore suppressed by ovCloseRequested'
+                  +' ovCloseAge='+((new Date()).getTime()-ovCloseAt)
+                  +' body='+b.className);
+              }catch(eD){}
+            }
+          }
+        }catch(eH){}
+      }
       function sync(){
         var ov=settingsOverlay();
         if(!ov){
           // r69：先记下"这一轮是不是**关闭流程**走出来的"。两种"看不见"要分开：
-          //   ① 没人要求关闭，只是几何判据在过渡动画里看不准 → 保持层级（否则图3）；
+          //   ① 没人要求关闭，只是几何判据在过渡动画里看不准 → **保留层级**；
           //   ② 关闭流程已经走完、dsh 留了个不可见的残影 → 按 r66 的结论处理，
           //      **不复活面板**（否则用户在聊天页被莫名其妙弹回设置界面）。
           var wasClosing=ovCloseRequested;
-          ovCloseRequested=false;   // 浮层真没了 → 清掉"用户要求关闭"的标记
+          ovCloseRequested=false;   // 浮层判定不可见 → 清掉"用户要求关闭"的标记
           ovCloseFails=0;           // r69：关闭成功过，失败计数归零
           ovAbandoned=false;        // r69：真关掉了 ⇒ 下次关闭请求重新从零开始
-          b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
-          // 不变量（半边）：DOM 里浮层还在 ⇒ l2/l3 不能都缺，否则内容区与导航列表
-          // 同时显示 = 图3。保留 l2 没有副作用：dsh-s-l2 的规则全挂在 `.dsh-s-ov`
-          // 下面，浮层真不可见时不影响任何可见元素。
-          if(!wasClosing&&document.querySelector('[class*="_overlay"] [class*="_navList"]')){setL2();}
-          syncOvFlag();
+          // r82/r83：以**结构证据**决定清不清层级（r82 真机日志修正）：
+          //   r82 用 navList 判 mounted 是错的 —— 详情页下 navList 被 React 卸载，
+          //   mounted 恒为 false，l3 照样被清。r83 改用 **面板容器 _panel**
+          //   （详情页里 _panel 一定在），并且无论清没清，下一轮都会按列表
+          //   可见性把正确的层级补回来（见 healLevel）。
+          var mounted=!!document.querySelector('[class*="_overlay"] [class*="_panel"]');
+          if(!mounted||wasClosing){
+            b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+          }
+          // r82：面板还在树上且没在关 → ov-open 也保持（forceOpen），
+          // 避免几何抖动把"开着"翻成"关了"（幽灵开合的另一半）。
+          syncOvFlag(mounted&&!wasClosing);
+          // r83：详情页 navList 被卸载 → settingsOverlay 恒 null → 只有在这里
+          // 才能触达 healLevel（面板还在树上、没在关闭时）。
+          if(mounted&&!wasClosing){healLevel();}
           if(panelOpen){panelOpen=false;leaveFocus();}
           return;
         }
@@ -805,26 +1081,8 @@ var ovCloseTried=false;
           // 可能命中 dsh 别的面板，焦点会进错容器。
           enterFocus(document.querySelector('.dsh-s-ov'));
         }
-        // r69 · 不变量：浮层可见 ⇒ body 必为 l2 或 l3 之一（否则内容区与导航列表同时显示 = 图3）。
-        //   原来只有 `&&!ovCloseRequested` 一个排除条件 —— 只要 dsh 有一次没响应关闭，
-        //   ovCloseRequested 永久为 true，L2 再也回不来。现在给"请求关闭"加宽限期：
-        //   超过 800ms 浮层还在 ⇒ 认定关闭失败 ⇒ 撤销请求 + 恢复 L2（把界面救回来）；
-        //   连续失败两次才走一次整页重载（ovReloadedOnce 保证不会反复重载）。
-        if(!b.classList.contains('dsh-s-l2')&&!b.classList.contains('dsh-s-l3')){
-          var overdue=ovCloseRequested&&((new Date()).getTime()-ovCloseAt)>OV_CLOSE_GRACE;
-          if(!ovCloseRequested||overdue){
-            if(overdue){
-              ovCloseRequested=false;
-              setL2();
-              // ⚠️ 这里**不再**额外 reload：dsh 的出口不响应时，closeSettingsPanel()
-              //   自己的重试链（350ms 一次、两次不成）已经会重载一次，且有
-              //   ovReloadedOnce 兜底。两处都重载 = 用户点一次返回可能连刷两下，
-              //   正是 r65「每次返回都重载」那类事故。这里只把界面救回来。
-            }else{
-              setL2();
-            }
-          }
-        }
+        // r83：healLevel 抽成函数（见上方定义），ov 路径与 !ov 路径共用
+        healLevel();
       }
       // r72（P3-1）：原这里的空 syncBack 函数与它的 7 处调用已全部删除 ——
       //   它是历史上的占位（真正干活的是 mount 作用域的 syncBackMark，
@@ -847,13 +1105,78 @@ var ovCloseTried=false;
           //   ⚠️ 桩里 Date 是可控虚拟时钟（win.advance），所以本闸在冒烟测试里可断言。
           try{ _now=(new Date()).getTime(); }catch(e0){ _now=0; }
           if(_now&&_backLastAt&&_now-_backLastAt<220){return true;}
+          // r81：按下瞬间的**前置状态**快照（分支执行后会改写 body class，
+          //   诊断日志必须用按下前的值才能还原决策现场）。
+          var pre=null;
+          try{
+            if(b){
+              pre={drawer:b.classList.contains('dsh-drawer-open'),
+                   l2:b.classList.contains('dsh-s-l2'),
+                   l3:b.classList.contains('dsh-s-l3'),
+                   cls:b.className};
+            }
+          }catch(eP){}
           if(b){
-            if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();handled=true;}
-            else if(settingsOverlay()){
-              if(b.classList.contains('dsh-s-l3')){setL2();}
-              else{closeSettings();}
+            // r79：**优先级对调 —— 设置面板优先，抽屉其后**。
+            //   r78 及之前抽屉分支排第一，而设置面板就住在抽屉（sidebarCol）里：
+            //   开设置时 dsh-drawer-open 留在 body 上，按返回先命中抽屉分支 →
+            //   只删 drawer class → 侧栏滑出屏幕 → 住在里面的整张设置面板
+            //   跟着消失（r78 真机日志：backOneLevel l3=true 后 200ms
+            //   ov-open 翻 false，截图直接落到聊天页 = "返回上上级"）。
+            //   正确序：面板可见时它就是最顶层，返回先退面板层级；
+            //   抽屉分支只服务"纯抽屉"（无面板）状态。
+            // r83：闸门从 `settingsOverlay()`（几何判据）放宽为
+            //   `几何判据 || 面板结构存在` —— r82 真机日志显示返回瞬间
+            //   ov=0 但用户明明在详情页（面板在树上）：几何抖动一次就让它
+            //   掉进抽屉分支关抽屉 → 聊天页（"返回上上级"再现）。只要
+            //   .dsh-s-ov（我们打的指纹）还在树上，就按设置面板处理。
+            var ovGate=settingsOverlay();
+            if(!ovGate){
+              try{ ovGate=document.querySelector('.dsh-s-ov'); }catch(eG){ ovGate=null; }
+            }
+            if(ovGate){
+              // r88：l3 判定 = 类 || 层级记忆（类会被 React 重挂的过渡窗口清掉，
+              //   记忆不会；详见 _lvl 声明处注释）。
+              if(b.classList.contains('dsh-s-l3')||(_lvl===3&&!b.classList.contains('dsh-s-l2'))){
+                // r84 · l3 分两档（真机 CDP 取证修正）：
+                //   ① 内容区有**展开的卡片**（插件页手风琴：li.YyYd_a_cardOpen，
+                //      展开 68→351px 露出配置表单）= 用户的"三级页面" →
+                //      **收起卡片**（点击其头部 toggle，真机实测有效），停在 l3；
+                //      旧代码直接 setL2 会跳到设置列表，跳过插件列表页 ——
+                //      这正是"三级页面按返回直接回上上级"的根因。
+                //   ② 无展开卡片（普通详情/表单页 = 二级）→ 纯 CSS 翻转回
+                //      设置列表（r78 语义不变）。
+                // r85 [diag]：collapse 返回值进日志 —— 按键路径 vs CDP 直调的
+                //   差异（r84 真机验证暴露）一眼可见。
+                var coll=collapseExpandedCards();
+                try{ dlog('[dsh] backOneLevel l3: collapse='+coll); }catch(eC){}
+                if(!coll){
+                  setL2();
+                }
+              }
+              else if(b.classList.contains('dsh-s-l2')){
+                // r87：列表页（二级页面）按返回 → **退出设置面板、抽屉保持展开**
+                //   （= 回到设置页），不再直接回首页。
+                closeSettingsToDrawer();
+              }
+else{
+                // r81 · **状态丢失兜底**（r80 真机日志钉死根因）：
+                //   backOneLevel: handled=true ov=1 l3=false bodyClass=(空)
+                //   —— 面板明明可见（ov=1），但 l2/l3 一个都不在 body 上。
+                //   此时用户在二级详情页按返回，被当成"列表页"执行了 closeSettings()，
+                //   整张面板被关掉，直接落到聊天页 = "返回上上级"。
+                // r83 · 缺类时：
+                //   · ovCloseRequested 为真（用户**主动要求过关闭**，如 r73 去重闸
+                //     场景里关过又重开）→ 按列表页语义退到设置页；
+                //   · 否则一律 **setL2 回列表**（详情页返回必到列表页，绝不跳聊天；
+                //     就算真在列表页也只是多按一次才退出到设置页）。
+                //   ⚠️ 不能反过来：缺类一律关闭就是 r80 的"上上级"。
+                if(ovCloseRequested){closeSettingsToDrawer();}
+                else{setL2();}
+              }
               handled=true;
             }
+            else if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();handled=true;}
           }
         }catch(e){}
         if(handled){
@@ -867,13 +1190,21 @@ var ovCloseTried=false;
         }
         if(!handled){
           // 自愈：走到这里说明原生侧的上报已经过期（例如浮层被 dsh 自己关掉、
-          // 而我们还没跑下一轮 sync）。若不立刻纠正，原生会继续以为"该由 JS 处理"，
+          // 而我们还没跑下一轮 sync）。若不立刻纠正，原生侧会继续以为"已恢复"，
           // 表现就是**返回键彻底没反应** —— 比退出 App 更难排查。
           _backHandled=false;
           try{
             if(window.dshNative&&window.dshNative.setBackHandled){window.dshNative.setBackHandled(false);}
           }catch(e){}
         }
+        try{ dlog('[dsh] backOneLevel: handled='+handled
+          +' pre[drawer='+(pre?pre.drawer:'n/a')+' l2='+(pre?pre.l2:'n/a')+' l3='+(pre?pre.l3:'n/a')+' cls='+(pre?pre.cls:'(none)')+']'
+          +' post[drawer='+(b?b.classList.contains('dsh-drawer-open'):'n/a')
+          +' ov='+(settingsOverlay()?'1':'0')
+          +' l2='+(b?b.classList.contains('dsh-s-l2'):'n/a')
+          +' l3='+(b?b.classList.contains('dsh-s-l3'):'n/a')
+          +' navList='+(document.querySelector('[class*="_overlay"] [class*="_navList"]')?'1':'0')
+          +' cls='+(b?b.className:'(none)')+']'); }catch(e){}
         return handled;
       }
       try{ window.__dshBack=backOneLevel; }catch(e){}
@@ -899,18 +1230,41 @@ var ovCloseTried=false;
           var shell=!!(ovC&&ovC.contains(closer)
             &&ovC===closer.closest('[role="dialog"],[class*="_overlay"],[class*="_dialog"],[class*="_modal"],[data-dsh-market-crashed]'));
           if(shell){
-            if(b.classList.contains('dsh-s-l3')){
-              e.preventDefault();e.stopPropagation();setL2();
-            }else{
-              b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');
+            // r87：三级页面点壳层 ←（arrowizeClose 把 × 画成了返回箭头）=
+            //   **返回二级页面（设置列表）**，不再放行给 React 整关面板。
+            //   用户实测（r86 真机日志 21:40:27）：放行 → dsh 卸载整个面板 →
+            //   落在设置页，跳过了二级 —— 与硬件返回键语义（三级→二级）不一致。
+            //   拦截只限 body 是 dsh-s-l3 时；捕获层 stopPropagation 掐断
+            //   React 的根监听，嵌套弹窗不受影响（shell 判据照旧，r72 验证过）。
+            //   与硬件键一致：先收起展开的手风琴卡片，没有才翻回列表。
+            //   ⚠️ 只拦**真实用户点击**：dshTap 程序化派的 × 点击（closeSettingsPanel
+            //   的关闭路径）带在途标记，跳过拦截让 React 真关面板。
+            // r88：拦截条件从"body 有 l3 类"改为"**← 按钮看得见**"——
+            //   r87 真机日志实锤（22:03:50 l3 被过渡窗口清掉 → 22:04:06 点 ←
+            //   没拦住 → React 整关面板 → 跳过二级直接到设置页）。而 l2（设置列表）
+            //   下 × 藏在 display:none 的 _content 里**不可见**——所以**看得见的 ←
+            //   一定意味着用户在详情页**，与类是否丢过无关。
+            var _tn=0; try{ _tn=(new Date()).getTime(); }catch(eN){ _tn=0; }
+            var _br=null; try{ _br=closer.getBoundingClientRect(); }catch(eG){ _br=null; }
+            var _vis=!!(_br&&_br.width>1&&_br.height>1);
+            var _prog=!!(_tn&&_dshTapAt&&_tn-_dshTapAt<80);
+            if(_vis&&!_prog&&(b.classList.contains('dsh-s-l3')||_lvl===3)){
+              e.preventDefault();e.stopPropagation();
+              var coll2=collapseExpandedCards();
+              try{ dlog('[dsh] shell← on l3: collapse='+coll2
+                +' (btn '+Math.round(_br.width)+'x'+Math.round(_br.height)+' lvl='+_lvl+')'); }catch(eS){}
+              if(!coll2){ setL2(); }
+              return;
             }
+            // r78：其余场景壳层 × 原样放行，连 class 也不动 ——
+            //   React 负责真关，sync() 的不变量自愈负责把 class 校正回来。
             return;
           }
           // 非 shell 关闭键：不拦，继续走下面的通用逻辑（弹窗自己处理点击）
         }
         var ov=settingsOverlay();
         var onMask=ov&&(t===ov||(t.className&&String(t.className).indexOf('_mask')>=0));
-        if(onMask){b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');return;}
+        if(onMask){_lvl=0;b.classList.remove('dsh-s-l2');b.classList.remove('dsh-s-l3');return;}
         // r60 曾在这里加过 `if(t.closest('[role="tab"]')){ setL3(); }`，**r61 已移除**。
         //   当时的判断是「tab 的内容在 [class*="_content"] 里，被 l2 的 display:none 藏住了」。
         //   真因查清了：dsh 的 tab 面板 class 是 CSS-module 哈希名（不含 _content），
@@ -945,6 +1299,17 @@ var ovCloseTried=false;
       window.addEventListener('resize',function(){sched();});
       window.addEventListener('orientationchange',function(){sched();});
       sync();
+      dlog('[dsh] settings IIFE done: __dshBack='+(typeof window.__dshBack));
+      }catch(e){
+        derr('[dsh] settings IIFE threw:',e);
+        try{
+          var _bd=document.body;
+          derr('[dsh] state@throw: bodyClass='+(_bd?_bd.className:'(none)')
+            +' overlay='+(settingsOverlay()?'yes':'no')
+            +' drawer='+(_bd?_bd.classList.contains('dsh-drawer-open'):'n/a')
+            +' ovOpen='+(_bd?_bd.classList.contains('dsh-ov-open'):'n/a'));
+        }catch(e2){}
+      }
     })();
     }
     // ===== r73 · 安卓侧滑返回上一级（WebView 页面内手势）=====
@@ -967,8 +1332,14 @@ var ovCloseTried=false;
     //      收到即放弃，返回交给系统走 handleBack()（同一条状态机），不会双重返回；
     //      backOneLevel() 里另有 220ms 去重闸兜底（见该函数注释）。
     var SWIPE_EDGE=42;        // 起手判定区：左右边缘各 42px（三键导航全靠它；比系统 ~24px 稍宽）
-    var SWIPE_CLAIM=14;       // 横向位移 ≥14px 且大于纵向 → 接管手势
-    var SWIPE_ARM=96;         // 松手时累计拖动 ≥96px（约屏宽 1/4）→ 触发返回
+    var SWIPE_CLAIM=12;       // 横向位移 ≥12px 且大于纵向 → 接管手势
+    // r78：96px 太苛刻 —— r76/r77 两轮真机日志里 swipe fire 一次都没出现过
+    //   （快甩通常 50~70px 就松手）。降到 52px（约屏宽 1/8）；误触由
+    //   "横移明显大于纵移 + 边缘起手 + 壁垒区放行"三道闸挡住。
+    // r82：r81 真机日志 5 次 touchstart（x=26~42）0 次触发 —— 用户"轻扫"习惯
+    //   往往只有 30~45px。降到 40px；三道闸照旧，且加了 claimed/touchend 的
+    //   位移埋点，下轮日志直接看到用户到底滑了多少、卡在哪一档。
+    var SWIPE_ARM=40;         // 松手时累计拖动 ≥40px → 触发返回
     var SWIPE_IND_MAX=72;     // 指示器最大跟随距离（px）
     var swT=null;             // 进行中的手势 {side:'l'|'r', x0, y0, claimed, armed}
     function swipeTargetAvailable(){
@@ -1031,6 +1402,7 @@ var ovCloseTried=false;
       if(ind){ try{ ind.style.display='none'; ind.classList.remove('dsh-swipe-armed'); }catch(e){} }
     }
     function swipeFire(){
+      dlog('[dsh] swipe fire: __dshBack='+(typeof window.__dshBack));
       swipeIndicatorHide();
       // 到达触发阈值的轻震动反馈（manifest 已有 VIBRATE 权限；不支持则静默跳过）
       try{ if(navigator.vibrate){navigator.vibrate(10);} }catch(e){}
@@ -1039,6 +1411,65 @@ var ovCloseTried=false;
       }catch(e2){}
     }
     function swipeReset(){ swT=null; swipeIndicatorHide(); }
+    // ===== r89 · ← 按钮手势层接管（"三级页面点 ← 仍回设置页"的最终修法）=====
+    //   r88 真机日志钉死：点击拦截此路不通 —— 用户点壳层 ← 时 click 事件
+    //   被 React 在更内层消化（touchstart 留痕 x=328、click 无记录），我们的
+    //   document 捕获层从未看到。修法换到**手势层**：touchstart/touchend
+    //   这两个事件我们**收到了**（侧滑日志即证）——
+    //   ① touchstart 落点在「可见的壳层关闭按钮（←）」矩形内 → 记 tapBack；
+    //   ② touchend 位移 <12px（是 tap 不是滑）→ 直接执行 backOneLevel()
+    //   （与硬件返回键同一条状态机：先收手风琴卡片、否则回二级列表），
+    //   并 preventDefault 掐断 React 的后续 click 派发。
+    //   ⚠️ 只认「按钮可见」（r88 的可见性判定）：l2 列表页 × 藏在
+    //   display:none 的 _content 里，rect 为 0×0，天然不命中 ——
+    //   l2 的"← 设置"返回条是我们自己的按钮（dshTapAt 在途标记之外的
+    //   真实点击），不受影响。
+    var tapBack=null;
+    function shellCloseRect(){
+      try{
+        var ov=document.querySelector('.dsh-s-ov');
+        if(!ov){return null;}
+        var c=ov.querySelector('[class*="_content"] [class*="_header"] [class*="_close"]');
+        if(!c){return null;}
+        var r=c.getBoundingClientRect();
+        if(!r||r.width<2||r.height<2){return null;}   // 不可见（l2 或被藏）不接管
+        // 放宽 12px 热区：圆按钮小（34×34），手指中心常落在边缘外
+        return {x:r.left-12,y:r.top-12,w:r.width+24,h:r.height+24,node:c};
+      }catch(e){return null;}
+    }
+    document.addEventListener('touchstart',function(e){
+      try{
+        tapBack=null;
+        if(!mq.matches){return;}
+        if(!e||!e.touches||e.touches.length!==1){return;}
+        var bd=document.body;
+        if(!bd||!(bd.classList.contains('dsh-ov-open')||bd.classList.contains('dsh-s-l3'))){return;}
+        var t=e.touches[0];
+        if(!t){return;}
+        var hr=shellCloseRect();
+        if(!hr){return;}
+        if(t.clientX>=hr.x&&t.clientX<=hr.x+hr.w&&t.clientY>=hr.y&&t.clientY<=hr.y+hr.h){
+          tapBack={x:t.clientX,y:t.clientY};
+          try{ dlog('[dsh] tapBack armed: x='+Math.round(t.clientX)+' y='+Math.round(t.clientY)); }catch(eD){}
+        }
+      }catch(e2){ tapBack=null; }
+    },{passive:true,capture:true});
+    document.addEventListener('touchend',function(e){
+      try{
+        if(!tapBack){return;}
+        var tb=tapBack; tapBack=null;
+        var ct=null;
+        try{ ct=e&&e.changedTouches&&e.changedTouches[0]; }catch(eC){ ct=null; }
+        if(!ct){return;}
+        var dx=ct.clientX-tb.x,dy=ct.clientY-tb.y;
+        if(dx*dx+dy*dy>16*16){return;}   // 位移>16px = 在滑动，不是 tap → 不接管
+        if(e&&e.cancelable){e.preventDefault();}   // 掐断 React 的 click 派发
+        try{ dlog('[dsh] tapBack fire: 走 backOneLevel（绕过 React）'); }catch(eD2){}
+        try{
+          if(typeof window.__dshBack==='function'){ window.__dshBack(); }
+        }catch(e3){}
+      }catch(e2){ tapBack=null; }
+    },{passive:false,capture:true});
     try{
       document.addEventListener('touchstart',function(e){
         try{
@@ -1060,6 +1491,8 @@ var ovCloseTried=false;
           if(swipeInReserved(e.target)){return;}         // 横滑另有语义的地方 → 放行
           swT={side:(t.clientX<vw/2)?'l':'r',x0:t.clientX,y0:t.clientY,
                claimed:false,armed:false};
+          dlog('[dsh] swipe touchstart: side='+swT.side+' x='+Math.round(t.clientX)
+            +' avail='+(swipeTargetAvailable()?'1':'0'));
         }catch(e2){ swT=null; }
       },{passive:true});
       document.addEventListener('touchmove',function(e){
@@ -1076,6 +1509,9 @@ var ovCloseTried=false;
           if(!swT.claimed){
             if(adx>=SWIPE_CLAIM&&adx>ady){
               swT.claimed=true;
+              // r82：claimed 时记录位移，真机日志可核对用户滑动距离（排查"滑了没触发"）
+              dlog('[dsh] swipe claimed: side='+swT.side+' dx='+Math.round(adx)
+                +' dy='+Math.round(ady));
               swipeIndicatorShow(swT.x0,swT.y0);
             }else if(ady>adx+16&&ady>24){
               swipeReset();                              // 明显在竖向滚动 → 归还触摸
@@ -1102,14 +1538,24 @@ var ovCloseTried=false;
         try{
           if(!swT){return;}
           var wasArmed=swT.armed;
+          var eDx=0,eDy=0;
+          try{ if(e&&e.changedTouches&&e.changedTouches.length){
+            eDx=Math.round(e.changedTouches[0].clientX-swT.x0);
+            eDy=Math.round(e.changedTouches[0].clientY-swT.y0);
+          } }catch(eT){}
           swT=null;
           swipeIndicatorHide();
           if(wasArmed){ swipeFire(); }
+          else{
+            // r82：松手未达阈值也留痕 —— 下轮真机日志直接看到"滑了多远没触发"
+            dlog('[dsh] swipe end: not-armed dx='+eDx+' dy='+eDy);
+          }
         }catch(e2){ swipeReset(); }
       },{passive:true});
       document.addEventListener('touchcancel',function(){
         // 系统返回手势认领了这次触摸（手势导航机型）→ 立即放弃；
         // 返回由系统走 handleBack()（同一条 backOneLevel 状态机），不会双重返回。
+        if(swT){ dlog('[dsh] swipe cancelled (system claimed?)'); }
         swipeReset();
       },{passive:true});
     }catch(eSwipe){}
@@ -1129,6 +1575,10 @@ var ovCloseTried=false;
       if(b.classList.contains('dsh-drawer-open')){close();syncBackMark();return;}
       try{expandSidebarOnce();}catch(err){}
       b.classList.add('dsh-drawer-open');
+      // r93：抽屉滑入的三拍里同步 ▭ 到 logo 行（500ms 轮询太慢，会看到位置跳变）
+      try{syncMenuBtnToLogo();}catch(eS0){}
+      setTimeout(function(){try{syncMenuBtnToLogo();}catch(eS1){}},150);
+      setTimeout(function(){try{syncMenuBtnToLogo();}catch(eS2){}},380);
       // 抽屉也是覆盖层：同样要压一条历史，否则侧滑/返回键只能退出 App
       // （U17：r64 只给设置面板压了历史，抽屉漏了）
       syncBackMark();
@@ -1140,8 +1590,14 @@ var ovCloseTried=false;
     }
     function onScrimClick(){close();syncBackMark();}
     // 顶栏内容只有一处定义，避免三处手抄（r67 就是抄出了两份、其中一份拼错）。
+    // r93：汉堡里放两颗图标 —— ☰（抽屉关）与 ▭（抽屉开，即参考稿的「收起侧栏」形态），
+    //   显隐由 mobile.css 按 body.dsh-drawer-open 切换。两个 <svg> 都在 innerHTML 里，
+    //   ensureTopBar() 的 '<svg' 内容校验不受影响。
     function topBarHtml(){
-      return '<button id="dsh-mbtn" type="button" aria-label="菜单">'+MENU_SVG+'</button>';
+      return '<button id="dsh-mbtn" type="button" aria-label="菜单">'
+        +'<span class="dsh-ic-menu">'+MENU_SVG+'</span>'
+        +'<span class="dsh-ic-panel">'+PANEL_SVG+'</span>'
+        +'</button>';
     }
     function ensureTopBar(){
       var b=document.body;
@@ -1181,9 +1637,154 @@ var ovCloseTried=false;
       return bar;
     }
     ensureTopBar();
+    // ===== r93 · 抽屉「插件」行（参考稿《设置页（参考）.jpg》：新会话下方有 插件 项）=====
+    //   现装 dsh 前端版本的侧栏没有插件入口，设置页里才有 —— 参考稿明确它该在抽屉里。
+    //   实现与 ensureTopBar 同一套幂等自愈模式：React 冲掉就补，绝不重复插。
+    //   点击语义 = 深链到设置页插件列表：先程序化点侧栏底部「设置」入口（与用户手点
+    //   同一条原生路径），面板浮出后再程序化点导航里的「插件」cell。两跳之间轮询等
+    //   DOM 就位；任何一跳失败都停在「设置列表页」—— 比注入死链诚实，且不产生新的
+    //   状态机分支（L2/L3 归现有的 backOneLevel 管）。
+    //   ⚠️ sbTap 是 dshTap（设置 IIFE 内）的山寨版：dshTap 是函数声明、出不了那个
+    //   IIFE 作用域，而本行注入必须活在 mount 主体（500ms 轮询在市场页/宽屏也要跑）。
+    //   r59 的教训反过来读：跨作用域共用的函数要么上移、要么复制，绝不能隔空引用。
+    var pluginNavBusy=false;
+    function sbTap(el){
+      if(!el){return false;}
+      var x=0,y=0;
+      try{
+        var r=el.getBoundingClientRect();
+        if(r){ x=r.left+(r.width||0)/2; y=r.top+(r.height||0)/2; }
+      }catch(eR){}
+      var opts={bubbles:true,cancelable:true,composed:true,view:window,
+                clientX:x,clientY:y,screenX:x,screenY:y};
+      var ok=false;
+      try{ el.dispatchEvent(new PointerEvent('pointerdown',opts)); }catch(e1){}
+      try{ el.dispatchEvent(new MouseEvent('mousedown',opts)); }catch(e2){}
+      try{ el.dispatchEvent(new PointerEvent('pointerup',opts)); }catch(e3){}
+      try{ el.dispatchEvent(new MouseEvent('mouseup',opts)); }catch(e4){}
+      try{ el.dispatchEvent(new MouseEvent('click',opts)); ok=true; }catch(e5){}
+      if(!ok){ try{ el.click(); }catch(e6){} }
+      try{ dlog('[dsh] sbTap: ok='+ok+' tag='+el.tagName+' txt='
+        +String(el.textContent||'').trim().slice(0,12)); }catch(eD){}
+      return true;
+    }
+    function findSidebarSettingsTrigger(sb){
+      // 优先：文本恰为「设置」的按钮/行（真机底部行是 图标+文字，textContent 含图标
+      // 字符/空白，所以用 includes + 长度上限，不匹配「通用设置」等长文案）。
+      // querySelectorAll 按文档序返回 —— 外层容器会排在真正可点的 button 前面，
+      // 所以「最后的命中」才是最内层；可点的优先（BUTTON/[role=button]）。
+      var cands=sb.querySelectorAll('button, [role="button"], div, span');
+      var el=null, elClickable=null;
+      for(var i=0;i<cands.length;i++){
+        var t=String(cands[i].textContent||'').replace(/\s+/g,'');
+        if(t&&t.indexOf('设置')>=0&&t.length<=4){
+          el=cands[i];
+          var tag=cands[i].tagName;
+          if(tag==='BUTTON'||(cands[i].getAttribute&&cands[i].getAttribute('role')==='button')){
+            elClickable=cands[i];
+          }
+        }
+      }
+      return elClickable||el;
+    }
+    function findPluginCell(){
+      var cells=document.querySelectorAll('.dsh-s-nav [class*="_navCell"]');
+      for(var i=0;i<cells.length;i++){
+        var t=String(cells[i].textContent||'').replace(/\s+/g,'');
+        if(t==='插件'){return cells[i];}
+      }
+      return null;
+    }
+    function openSettingsToPlugins(){
+      if(pluginNavBusy){return;}
+      var sb=document.querySelector('div[class*="sidebarCol"]');
+      if(!sb){return;}
+      // 面板已开：直接点「插件」cell（L2 态由现有捕获层转 L3）
+      var b=document.body;
+      if(b&&(b.classList.contains('dsh-s-l2')||b.classList.contains('dsh-s-l3'))){
+        var cell0=findPluginCell();
+        if(cell0){sbTap(cell0);}
+        return;
+      }
+      var trig=findSidebarSettingsTrigger(sb);
+      if(!trig){ dlog('[dsh] plugin row: settings trigger not found'); return; }
+      pluginNavBusy=true;
+      sbTap(trig);
+      var waited=0;
+      var iv=setInterval(function(){
+        waited+=140;
+        var bb=document.body;
+        var panel=bb&&bb.classList.contains('dsh-s-l2');
+        if(panel){
+          var cell=findPluginCell();
+          if(cell){
+            clearInterval(iv);
+            pluginNavBusy=false;
+            sbTap(cell);
+            return;
+          }
+        }
+        if(waited>=4200){
+          clearInterval(iv);
+          pluginNavBusy=false;
+          dlog('[dsh] plugin row: deep-link timeout (stopped at settings list)');
+        }
+      },140);
+    }
+    function ensureDrawerPluginRow(){
+      if(!mq.matches){return;}
+      var sb=document.querySelector('div[class*="sidebarCol"]');
+      if(!sb){return;}
+      if(document.getElementById('dsh-sb-plugin')){
+        // 在树上但可能被 React 挪走：挂回 sidebarCol 直系（幂等）
+        return;
+      }
+      var ns=sb.querySelector('button[class*="_newSession"]:not([class*="Label"])');
+      if(!ns){return;}   // 没有新会话按钮 = 侧栏还没渲染好，等下一轮
+      var row=document.createElement('button');
+      row.id='dsh-sb-plugin';
+      row.type='button';
+      row.setAttribute('aria-label','插件');
+      row.innerHTML='<span class="dshsb-ic">'+PLUGIN_SVG+'</span>'
+        +'<span class="dshsb-label">插件</span>';
+      row.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        openSettingsToPlugins();
+      });
+      try{ ns.insertAdjacentElement('afterend',row); }
+      catch(eIns){ if(ns.parentNode){ns.parentNode.insertBefore(row,ns.nextSibling);} }
+      dlog('[dsh] drawer plugin row injected');
+    }
+    try{ ensureDrawerPluginRow(); }catch(ePlug){ derr('[dsh] plugin row init:',ePlug); }
+    // r93 · 抽屉开时把汉堡（▭ 收起形态）钉到 logo 行同一水平线（参考稿布局）。
+    //   CSS 只能猜固定值，logo 行的实际 y 由 dsh 原生布局决定（真机与 fixture 差异大），
+    //   所以量出来再写 style.top；抽屉关掉就清掉内联值，回落 CSS 默认（top:6px）。
+    //   幂等：每轮只做一次几何读写，logo 行找不到就保持现状（绝不清成 0）。
+    function syncMenuBtnToLogo(){
+      var b=document.body;
+      var mb=document.getElementById('dsh-mbtn');
+      if(!b||!mb){return;}
+      if(!b.classList.contains('dsh-drawer-open')){
+        if(mb.style.top){mb.style.top='';}
+        return;
+      }
+      var sb=document.querySelector('div[class*="sidebarCol"]');
+      if(!sb){return;}
+      var logo=sb.querySelector('[class*="logoRow"],[class*="_brand"]');
+      if(!logo){return;}
+      var r=logo.getBoundingClientRect();
+      if(!r||r.height<=0){return;}   // 过渡态（透明度动画中）不动
+      var top=Math.max(6,Math.round(r.top+r.height/2-22));
+      if(String(mb.style.top)!==top+'px'){mb.style.top=top+'px';}
+    }
+    try{ syncMenuBtnToLogo(); }catch(eM2L){}
+    dlog('[dsh] mount shell done: bridge='+(window.dshNative?'yes':'no')
+      +' __dshBack='+(typeof window.__dshBack));
     setInterval(function(){
       if(document.hidden)return;
       tagHosts();syncOvFlag();detectDark();
+      try{ ensureDrawerPluginRow(); }catch(ePlug2){}
+      try{ syncMenuBtnToLogo(); }catch(eM2L2){}
       // r69：设置页的层级/返回条自愈 —— 页面静止时也要有人复查（见 __dshSettingsSync 处注释）
       if(window.__dshSettingsSync){try{window.__dshSettingsSync();}catch(e){}}
       // 市场页：dshmarket 是独立 bundle，可能在我们注入之后才渲染完 —— 反复尝试

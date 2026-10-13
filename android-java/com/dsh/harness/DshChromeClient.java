@@ -5,6 +5,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
+import android.webkit.ConsoleMessage;
 import android.webkit.JsResult;
 import android.webkit.JsPromptResult;
 import android.webkit.ValueCallback;
@@ -107,6 +108,28 @@ public class DshChromeClient extends WebChromeClient {
             try { result.cancel(); } catch (Throwable ignored) { }   // 绝不能把 JS 挂死在等回执
             return false;
         }
+    }
+
+    /**
+     * r74 [diag]：把页面 console 消息转发到 logcat，供真机定位注入脚本异常。
+     *
+     * <p>默认情况下 WebView 的 {@code console.log/error} 不落 logcat，注入脚本里
+     * 的 {@code [dsh]} 日志全部看不到。这里转发：错误级全量打，其余只打带
+     * {@code [dsh} 前缀的（避免被 dsh 业务脚本的噪音刷屏）。
+     */
+    @Override
+    public boolean onConsoleMessage(ConsoleMessage cm) {
+        if (cm == null) return false;
+        String msg = cm.message();
+        String loc = cm.sourceId() + ":" + cm.lineNumber();
+        try {
+            if (cm.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                Log.e(TAG, "[console] " + msg + " @" + loc);
+            } else if (msg != null && msg.contains("[dsh")) {
+                Log.i(TAG, "[console] " + msg + " @" + loc);
+            }
+        } catch (Throwable ignored) { }
+        return true;
     }
 
     @Override

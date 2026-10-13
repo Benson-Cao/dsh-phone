@@ -2,12 +2,55 @@ body{--ds-ink-fb-900:#0d1b2e;--ds-ink-fb-700:#1e3450;--ds-ink-fb-500:#5a6d84;--d
   body[data-ds-dark-theme],html.dsh-dark,html.dsh-dark body{--ds-brand-500:#5aa9f5;--ds-brand-600:#8cc2f9;    --ds-brand-50:#143253;--ds-brand-100:#1d4a7a;    --ds-ink-fb-900:#e6edf5;--ds-ink-fb-700:#c8d4e2;--ds-ink-fb-500:#a3b3c6;    --ds-ink-fb-400:#8296ab;--ds-ink-fb-200:#3c4d61;--ds-ink-fb-100:#26313f;    --ds-ink-fb-50:#1c242f;--ds-surface-fb:#141b23;}
 #dsh-mtop{position:fixed;top:0;left:0;right:0;z-index:61;display:none;align-items:flex-start;justify-content:flex-start;gap:8px;padding:8px 8px 0 6px;box-sizing:border-box;background:transparent;pointer-events:none;}
 #dsh-mtop>*{pointer-events:auto;}
-  body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;z-index:65 !important;}
-  /* U11：抽屉打开时汉堡被移到右上角（z-index:65），会压住侧栏右上角自己的元素
-     （关闭按钮 / 账号区）。给侧栏补一段与顶栏等高的 padding-top，
-     把那些元素顶到汉堡下方。选择器比上面那条 sidebarCol 的 padding:0 更特异，
-     所以不必依赖声明顺序。 */
-  body.dsh-drawer-open div[class*="sidebarCol"]{padding-top:56px !important;}
+  /* r91b：抽屉开时汉堡落在**抽屉面板内右上角**（参考稿《设置页（参考）.jpg》：
+     收起按钮与品牌行同一水平线、距抽屉右内缘 20~24px），不再是屏幕右上角。
+     抽屉 80% 宽（max 320px）→ 汉堡 left = min(80vw,320px) - 44(按钮) - 20(右边距)。
+     用 min() 直接换算，无需 JS。z-index:65 保持在侧栏(62)之上。 */
+  body.dsh-drawer-open #dsh-mtop{justify-content:flex-end !important;z-index:65 !important;justify-content:flex-end !important;}
+  body.dsh-drawer-open #dsh-mbtn{position:fixed !important;top:6px !important;
+    left:calc(min(80vw,320px) - 44px - 20px) !important;right:auto !important;margin:0 !important;}
+  /* 抽屉里的收起按钮 dsh 自己渲染（aria=收起侧边栏）已被隐藏（mobile.css:29），
+     汉堡就是唯一的收起入口，放参考稿位置。 */
+  /* U11（r91b）→ r93 改版：抽屉开时不再给侧栏压 56px padding-top（那会把 logo 行
+     顶到收起按钮**下方**，参考稿里 ▭ 与 logo 是同一行）。改为 mobile.js 的
+     syncMenuBtnToLogo() 量出 logo 行的实际 y，把 #dsh-mbtn 钉到同一水平线 ——
+     无论 dsh 原生顶部留白是多少（真机 ≈124px，本地 fixture ≈6px），都对齐参考稿。
+     侧栏原生右上角的收起按钮已被 mobile.css:45 隐藏（aria=收起/打开侧边栏），
+     汉堡不会压住任何可见元素。 */
+  /* ===== r93 · 汉堡形态对齐参考稿 =====
+     参考稿《设置页（参考）.jpg》：logo 行右端是 ▭ 收起图标、无底色胶囊；
+     参考稿《首页（参考）.jpg》：左上 ☰ 同样是纯图标。
+     ① 抽屉开：☰ 隐、▭ 显（双 span 由 topBarHtml 同时注入，CSS 切显隐）；
+     ② 抽屉开 / 首页（composerHero 在树上）：按钮底色与阴影去掉，纯图标；
+        :has() 需 Chromium 105+，老 WebView 不支持时只是保留胶囊 —— 安全降级；
+     ③ 聊天页仍保留胶囊（滚动态下保证可点目标可见性，参考稿未覆盖该态）。 */
+  #dsh-mbtn .dsh-ic-menu,#dsh-mbtn .dsh-ic-panel{display:flex;align-items:center;justify-content:center;}
+  #dsh-mbtn .dsh-ic-panel{display:none;}
+  body.dsh-drawer-open #dsh-mbtn .dsh-ic-menu{display:none;}
+  body.dsh-drawer-open #dsh-mbtn .dsh-ic-panel{display:flex;}
+  body.dsh-drawer-open #dsh-mbtn,
+  body:has(div[class*="composerHero"]) #dsh-mbtn{background:transparent !important;box-shadow:none !important;}
+  body.dsh-drawer-open #dsh-mbtn:active,
+  body:has(div[class*="composerHero"]) #dsh-mbtn:active{background:transparent !important;}
+  #dsh-mbtn:hover{background:var(--ds-ink-100,#eef2f6) !important;}
+  body.dsh-drawer-open #dsh-mbtn:hover,
+  body:has(div[class*="composerHero"]) #dsh-mbtn:hover{background:transparent !important;}
+  /* ===== r93 · 抽屉「插件」行（mobile.js ensureDrawerPluginRow 注入，id 前缀 dsh-）=====
+     位置：新会话按钮正下方（参考稿顺序：新会话 → 插件 → 工作区）。
+     样式对齐抽屉里 _panelRow 的节奏：40px 高、8px 圆角、icon+label 左对齐。 */
+  #dsh-sb-plugin{display:flex !important;align-items:center !important;gap:10px !important;
+    width:100% !important;min-height:40px !important;margin:2px 0 6px !important;
+    padding:0 10px !important;border:0 !important;border-radius:8px !important;
+    background:transparent !important;color:var(--ds-ink-700,#1e3450) !important;
+    font-size:14px !important;font-weight:500 !important;text-align:left !important;
+    cursor:pointer !important;-webkit-tap-highlight-color:transparent !important;}
+  #dsh-sb-plugin .dshsb-ic{display:flex !important;align-items:center !important;justify-content:center !important;
+    flex:0 0 auto !important;width:18px !important;height:18px !important;
+    color:var(--ds-ink-500,#5a6d84) !important;}
+  #dsh-sb-plugin .dshsb-ic svg{display:block !important;width:18px !important;height:18px !important;}
+  #dsh-sb-plugin .dshsb-label{flex:1 1 auto !important;min-width:0 !important;
+    white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;}
+  #dsh-sb-plugin:active{background:var(--ds-ink-100,#eef2f6) !important;}
 #dsh-mbtn{width:44px;height:44px;border:0;border-radius:13px;background:var(--ds-surface,rgba(247,249,252,.86));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1px 3px rgba(13,27,46,.10);color:var(--ds-ink-900);display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent;cursor:pointer;}
 #dsh-mbtn:active{background:var(--ds-ink-200,#d8e1ea);}
 #dsh-scrim{position:fixed;inset:0;z-index:60;background:rgba(13,27,46,.42);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;}
@@ -16,7 +59,17 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
 @media (max-width:1023px){
   #dsh-mtop{display:flex;align-items:center;}
   div[class*="frame"]{grid-template-columns:minmax(0,1fr) auto !important;padding-top:0 !important;box-sizing:border-box !important;}
-  div[class*="sidebarCol"]{position:absolute !important;top:0 !important;bottom:0 !important;left:0 !important;right:0 !important;width:100% !important;max-width:none !important;margin:0 !important;padding:0 !important;box-sizing:border-box !important;z-index:62 !important;transform:translate3d(-102%,0,0);transition:transform .22s cubic-bezier(.4,0,.2,1);box-shadow:0 8px 40px rgba(0,0,0,.55);will-change:transform;}
+  div[class*="sidebarCol"]{position:absolute !important;top:0 !important;bottom:0 !important;left:0 !important;right:auto !important;width:80% !important;max-width:320px !important;margin:0 !important;padding:0 !important;box-sizing:border-box !important;z-index:62 !important;transform:translate3d(-102%,0,0);transition:transform .22s cubic-bezier(.4,0,.2,1);box-shadow:0 8px 40px rgba(0,0,0,.55);will-change:transform;border-right:1px solid rgba(120,120,125,.18) !important;}
+  /* r90 · 侧栏宽度 80%（参考稿《设置页（参考）.jpg》：抽屉占 80%、右侧露出 20%
+     主内容区背景）。旧规则是 width:100% 全屏盖满 —— 参考稿明确不是。
+     ⚠️ 仅"纯抽屉"状态收窄；设置面板（.dsh-s-ov）打开时必须回到全屏 ——
+     面板 DOM 住在 sidebarCol 里，收窄会连坐把面板压成 80%，所以面板开着时
+     覆盖回 100%（l2/l3/ov-open 任一存在即视为面板态）。
+     遮罩 #dsh-scrim 仍全屏（z-index:60 低于侧栏 62），露出区可点 → onScrimClick
+     关抽屉（行为与参考稿一致）。 */
+  body.dsh-ov-open div[class*="sidebarCol"],
+  body.dsh-s-l2 div[class*="sidebarCol"],
+  body.dsh-s-l3 div[class*="sidebarCol"]{width:100% !important;max-width:none !important;border-right:0 !important;}
   div[class*="sidebarCol"]{overflow-y:auto !important;-webkit-overflow-scrolling:touch !important;overscroll-behavior:contain !important;}
   body.dsh-drawer-open div[class*="sidebarCol"]  {transform:translate3d(0,0,0) !important;display:block !important;visibility:visible !important;opacity:1 !important;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#fff)) !important;}
   body.dsh-drawer-open div[class*="sidebarCol"] [class*="_collapsed"]  {padding:6px 12px !important;}
@@ -209,6 +262,39 @@ body.dsh-ov-open #dsh-mtop,body.dsh-ov-open #dsh-scrim{display:none !important;}
   div[class*="composerHero"] > div[class*="root"]{padding-bottom:0 !important;margin-top:0 !important;}
   div[class*="heroWorkspaceRow"]{margin-top:0 !important;padding:0 12px 0 16px !important;min-height:0 !important;}
   div[class*="heroWorkspaceRow"] > *{margin:0 !important;min-height:0 !important;}
+
+  /* ===== r90 · 首页按参考稿微调（用户 6 图：首页（参考）.jpg）=====
+     真机现状 vs 参考稿（CDP computed style 取证 22:47）：
+       标题 26px/500 → 32px/600；下拉间距 gap:2 → 12px 且整行居中；
+       输入卡 bg#2c2c2e/r22 → #33353A/r24；占位 14px#818590 → 16px#9499A3。
+     ⚠️ 全部哈希无关子串选择器（r38 铁律）；仅深色主题生效（浅色走 dsh 原生）；
+     发送按钮灰底是"未选工作区=禁用"的正确状态，不动。 */
+  html.dsh-dark div[class*="composerHero"] [class*="pXSMma_titleGroup"] > span:first-child,
+  body[data-ds-dark-theme] div[class*="composerHero"] span[class*="pXSMma_titleGroup"] span:not([class*="previewBadge"]),
+  html.dsh-dark div[class*="composerHero"] div[class*="pXSMma_titleGroup"] > span{font-size:32px !important;font-weight:600 !important;letter-spacing:.3px !important;}
+  div[class*="heroWorkspaceRow"]{display:flex !important;justify-content:center !important;gap:12px !important;}
+  html.dsh-dark div[class*="heroWorkspaceRow"] button[class*="pXSMma_workspace"],
+  body[data-ds-dark-theme] div[class*="heroWorkspaceRow"] button[class*="pXSMma_workspace"]{color:#e2e4e9 !important;font-size:16px !important;}
+  html.dsh-dark div[class*="uV2eYG_card"],
+  body[data-ds-dark-theme] div[class*="uV2eYG_card"]{background:#33353a !important;border-radius:24px !important;border:none !important;}
+  html.dsh-dark div[class*="uV2eYG_placeholder"],
+  body[data-ds-dark-theme] div[class*="uV2eYG_placeholder"]{color:#9499a3 !important;font-size:16px !important;line-height:1.5 !important;}
+  html.dsh-dark button[class*="uV2eYG_add"],
+  body[data-ds-dark-theme] button[class*="uV2eYG_add"]{background:#3c3f44 !important;}
+
+  /* ===== r90 · 设置页（抽屉侧栏）按参考稿微调 =====
+     现状已高度接近（bg#1b1b1c vs #1f1f23、新会话#43454a vs #47474a、r12 一致），
+     只做三处收敛：侧栏底色、顶部新会话底色、工作区标题行距。 */
+  html.dsh-dark div[class*="sidebarCol"],
+  body[data-ds-dark-theme] div[class*="sidebarCol"]{background:#1f1f23 !important;}
+  html.dsh-dark div[class*="sidebarCol"] [class*="hHd-Xa_root"],
+  body[data-ds-dark-theme] div[class*="sidebarCol"] [class*="hHd-Xa_root"]{background:transparent !important;}
+  html.dsh-dark div[class*="sidebarCol"] button[class*="hHd-Xa_newSession"],
+  body[data-ds-dark-theme] div[class*="sidebarCol"] button[class*="hHd-Xa_newSession"]{background:#47474a !important;}
+  html.dsh-dark div[class*="sidebarCol"] [class*="bhn1Oq_sectionHeader"],
+  body[data-ds-dark-theme] div[class*="sidebarCol"] [class*="bhn1Oq_sectionHeader"]{padding:14px 20px !important;}
+  html.dsh-dark div[class*="sidebarCol"] span[class*="bhn1Oq_sectionLabel"],
+  body[data-ds-dark-theme] div[class*="sidebarCol"] span[class*="bhn1Oq_sectionLabel"]{color:#9e9ea3 !important;font-size:14px !important;}
 
   /* ===== 设计稿图 4「外观设置」：外观选项卡片缩小成整宽竖排行 =====
      原生（dsh-client-ui-theme）是 ._cubeRow{flex-wrap:wrap} + ._themeCube{flex-direction:column;

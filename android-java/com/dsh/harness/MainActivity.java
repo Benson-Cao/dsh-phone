@@ -414,6 +414,8 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            Log.i("MainActivity", "[dsh] BACK from onKeyDown repeat=" + event.getRepeatCount()
+                + " action=" + event.getAction());
             handleBack();
             return true;
         }
@@ -435,6 +437,7 @@ public class MainActivity extends Activity {
      */
     @Override
     public void onBackPressed() {
+        Log.i("MainActivity", "[dsh] BACK from onBackPressed");
         handleBack();
     }
 
@@ -462,17 +465,24 @@ public class MainActivity extends Activity {
         if (now - mLastBackAt < 200L) return;
         mLastBackAt = now;
 
+        // r74 [diag]：返回决策记录 —— 退出 App 只可能发生在 jsHandled=false 且 canGoBack=false
+        Log.i("MainActivity", "[dsh] handleBack: jsHandled=" + mJsBackHandled
+            + " canGoBack=" + (webView != null && webView.canGoBack()));
+
         if (webView == null) { super.onBackPressed(); return; }
         if (mJsBackHandled) {
             // 面板/抽屉开着：交给注入脚本的返回状态机（闸门 / L3→L2 / 退出设置）
+            Log.i("MainActivity", "[dsh] handleBack: -> window.__dshBack()");
             webView.evaluateJavascript(
                 "try{window.__dshBack&&window.__dshBack()}catch(e){}", null);
             return;
         }
         if (webView.canGoBack()) {
+            Log.i("MainActivity", "[dsh] handleBack: -> window.history.back()");
             webView.evaluateJavascript("window.history.back();", null);
             return;
         }
+        Log.w("MainActivity", "[dsh] handleBack: 无可退路径 -> 退出 App");
         super.onBackPressed();
     }
 
@@ -482,6 +492,7 @@ public class MainActivity extends Activity {
      */
     void setJsBackHandled(boolean handled) {
         mJsBackHandled = handled;
+        Log.i("MainActivity", "[dsh] setJsBackHandled -> " + handled);
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.dsh.harness;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.util.Log;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -169,9 +170,28 @@ public class DshWebViewClient extends WebViewClient {
         }
     }
 
+    /** r80（P0）：首一次 dsh 页面加载完成后清过历史了没有（每个进程一次）。 */
+    private static boolean sHistoryBased = false;
+
     @Override
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
+        // r80（P0）：首次 dsh 页面加载完成后，立刻清掉 WebView 历史的"栈底" ——
+        //   预热阶段的 about:blank 条目。原 onResume 的 clearHistory() 在
+        //   loadUrl(dsh) **之前**执行，只清掉当时的 [blank]，随后 loadUrl 又把
+        //   blank 压回栈底：[blank, dsh]。于是只要面板的历史标记全被消费掉，
+        //   canGoBack() 依旧为 true，再多退一步就是白屏 about：blank
+        //   （真机日志：32.235 jsHandled=false canGoBack=true → history.back()
+        //   → 32.246 path=blank → 33.420 退出 App）。
+        //   在这里清发生在 dsh 文档**已经落顶**之后，一刀剪掉底部 blank；
+        //   SPA 自己的 pushState 条目是之后才压的，不受影响。
+        if (!sHistoryBased && url != null && DshOrigin.isLocalUrl(url)) {
+            sHistoryBased = true;
+            try {
+                view.clearHistory();
+                Log.i("DshWebViewClient", "[dsh] clearHistory @ first dsh load: " + url);
+            } catch (Throwable ignored) { }
+        }
         // dsh 的 UI 是桌面优先布局，手机上必须先补一刀（限宽侧栏 + 自动折叠）
         MobileTuning.apply(view);
     }
