@@ -97,8 +97,9 @@ final class DshPalette {
     /** 深色底的正文 —— 取自 mobile.css 暗色段的--ds-ink-fb-900，真值 14.70:1 PASS
      *  （注释里的 6.41:1 是旧公式算的错值，见 {@link #lum}） */
     static final int D_TEXT    = 0xFFE6EDF5;
-    /** 深色底的弱化文案 —— #9AAABB 真值 7.30:1 PASS，仍弱于正文 14.70:1 */
-    static final int D_MUTED   = 0xFF9AAABB;
+    /** 深色底的弱化文案 —— r108 统一为 Web 层 --ds-ink-fb-500 同值 #A3B3C6：
+     *  真值 8.11:1 PASS，仍弱于正文 14.70:1（原 #9AAABB 与 Web 层不一致，已弃用） */
+    static final int D_MUTED   = 0xFFA3B3C6;
 
     /**
      * 品牌色 --brand-500。
