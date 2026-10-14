@@ -2191,9 +2191,10 @@ else{
     // ============================================================
     // 方案 A · 存储目录（把用户授权的外部目录挂到 $HOME/saf）
     //
-    // 与上面「导出数据」的分工：导出是**一次性把文件交出去**，
-    // 存储目录是**长期配置**（挂上之后 dsh 读写该目录走 SAF 代理）。
-    // 两者都在抽屉里，因为都是「用户自己的数据」语义，不进插件市场。
+    // 与「导出数据」的分工：导出是**一次性把文件交出去**（留在抽屉，语义是
+    // 「用户自己的数据」动作）；存储目录是**长期配置**（挂上之后 dsh 读写该目录
+    // 走 SAF 代理），与「NAS 同步」同属「设备/存储配置」，故放进**设置列表**、
+    // 紧挨 NAS 同步，而不是抽屉。
     //
     // 沿用同一套注入铁律（见 marketPageBar 段顶部注释）：
     //   ① 只插我们自己的行；② 按结构特征定位；③ 幂等，每轮重跑无副作用。
@@ -2208,30 +2209,31 @@ else{
       return (window.dshSaf && typeof window.dshSaf.safStatus==='function')
         ? window.dshSaf : null;
     }
-    function ensureDrawerSafRow(){
-      if(!mq.matches){return;}
+    // 落点在**设置列表**（与 NAS 同步相邻），不再进抽屉。
+    function ensureSettingsSafRow(){
       if(!safNative()){return;}
-      var col=document.querySelector('div[class*="sidebarCol"]');
-      if(!col){return;}
+      var list=document.querySelector('.dsh-s-nav [class*="_navList"]');
+      if(!list){return;}
       if(document.getElementById('dsh-sb-safdir')){return;}   // 幂等
-      // 挂在「导出数据」之后；它还没有就退化成「插件」行之后。
-      var anchor=document.getElementById('dsh-sb-export')
-        || document.getElementById('dsh-sb-plugin')
-        || col.querySelector('button[class*="_newSession"]:not([class*="Label"])');
-      if(!anchor){return;}
+      // 紧挨「NAS 同步」之后；它还没有就退化成挂到列表末尾。
+      var anchor=document.getElementById('dsh-sync-cell');
       var row=document.createElement('button');
       row.id='dsh-sb-safdir';
       row.type='button';
+      row.className='dshmine_navCell';
+      row.setAttribute('data-dsh-safdir','1');
       row.setAttribute('aria-label','存储目录');
-      row.innerHTML='<span class="dshsb-ic">'+SAFDIR_SVG+'</span>'
-        +'<span class="dshsb-label">存储目录</span>';
+      row.innerHTML='<span class="dshmine_navIconWrap">'+SAFDIR_SVG+'</span>'
+        +'<span class="dshmine_navLabel">存储目录</span>';
       row.addEventListener('click',function(e){
         e.preventDefault();e.stopPropagation();
         openSafPanel();
       });
-      try{ anchor.insertAdjacentElement('afterend',row); }
-      catch(eIns){ if(anchor.parentNode){anchor.parentNode.insertBefore(row,anchor.nextSibling);} }
-      dlog('[dsh] drawer saf row injected');
+      try{
+        if(anchor&&anchor.parentNode){ anchor.insertAdjacentElement('afterend',row); }
+        else { list.appendChild(row); }
+      }catch(eIns){ if(list){list.appendChild(row);} }
+      dlog('[dsh] settings saf row injected');
     }
     function openSafPanel(){
       var old=document.getElementById('dsh-safst-panel');
@@ -2308,7 +2310,7 @@ else{
         }catch(e){ if(stEl){stEl.textContent='自检异常：'+(e&&e.message||e);} }
       }); }
     }
-    try{ ensureDrawerSafRow(); }catch(eSaf){ derr('[dsh] saf row init:',eSaf); }
+    try{ ensureSettingsSafRow(); }catch(eSaf){ derr('[dsh] saf row init:',eSaf); }
     // r93 · 抽屉开时把汉堡（▭ 收起形态）钉到 logo 行同一水平线（参考稿布局）。
     //   CSS 只能猜固定值，logo 行的实际 y 由 dsh 原生布局决定（真机与 fixture 差异大），
     //   所以量出来再写 style.top；抽屉关掉就清掉内联值，回落 CSS 默认（top:6px）。
@@ -2339,11 +2341,11 @@ else{
       try{ ensureDrawerPluginRow(); }catch(ePlug2){}
       // r74：导出数据行同样要每轮复查 —— React 重排 sidebarCol 会把注入行挪走/摘掉。
       try{ ensureDrawerExportRow(); }catch(eExp2){}
-      // 方案 A：存储目录行同理（且目录挂载状态会变，行本身也要在）
-      try{ ensureDrawerSafRow(); }catch(eSaf2){}
       // r76：设置列表里的「NAS 同步」项 —— React 重渲染 .dsh-s-nav 会把注入项冲掉，
       // 与插件行同理必须每轮复查。
       try{ ensureSyncCell(); }catch(eSync2){}
+      // 方案 A：存储目录行落在设置列表（紧挨 NAS 同步），同理每轮复查
+      try{ ensureSettingsSafRow(); }catch(eSaf2){}
       try{ syncMenuBtnToLogo(); }catch(eM2L2){}
       // r69：设置页的层级/返回条自愈 —— 页面静止时也要有人复查（见 __dshSettingsSync 处注释）
       if(window.__dshSettingsSync){try{window.__dshSettingsSync();}catch(e){}}

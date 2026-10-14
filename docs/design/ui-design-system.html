@@ -599,7 +599,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
   <div class="card">
     <p style="font-size:13.5px;color:var(--ink-700);margin:0">
       当前产品 = <b>原生启动页</b>（DshPalette 取色，两段式主题）+ <b>dsh SPA</b>（首页 / 对话页 / 设置一级与子页——通用设置 / 模型 / 插件（配置·列表·市场）/ 主题设置，全部由 dsh 渲染）
-      + <b>注入层</b>（汉堡与抽屉、抽屉三行、设置列表 NAS 同步项、市场徽标、三个浮层——导出 / 存储目录 / NAS 同步、Toast、空状态）。
+      + <b>注入层</b>（汉堡与抽屉、抽屉两行（插件/导出）、设置列表的 NAS 同步与存储目录项、市场徽标、三个浮层——导出 / 存储目录 / NAS 同步、Toast、空状态）。
       本章之后的所有规格，均以这个真实结构为基准，不再描述理想态。
     </p>
   </div>
@@ -637,7 +637,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <tr><td>汉堡按钮</td><td class="mono">#dsh-mbtn</td><td>#dsh-mtop</td><td>r79</td><td><b>44×44</b> · 圆角 13 · 毛玻璃底 · 开合抽屉</td></tr>
         <tr><td>抽屉行·插件</td><td class="mono">#dsh-sb-plugin</td><td>sidebarCol</td><td>r93</td><td>40px 高 · 圆角 8 · 图标 18</td></tr>
         <tr><td>抽屉行·导出数据</td><td class="mono">#dsh-sb-export</td><td>sidebarCol</td><td>r74</td><td>同上 · 打开导出浮层</td></tr>
-        <tr><td>抽屉行·存储目录</td><td class="mono">#dsh-sb-safdir</td><td>sidebarCol</td><td>r106</td><td>同上 · 打开存储目录浮层（SAF）</td></tr>
+        <tr><td>设置·存储目录</td><td class="mono">#dsh-sb-safdir</td><td>设置列表</td><td>r106</td><td>dshmine_navCell · 紧挨 NAS 同步 · 打开存储目录浮层（SAF）</td></tr>
         <tr><td>设置·NAS 同步</td><td class="mono">#dsh-sync-cell</td><td>设置列表</td><td>r76</td><td>dshmine_navCell · data-dsh-sync / data-dsh-sync-off（未配置）</td></tr>
         <tr><td>市场徽标</td><td class="mono">.dsh-mkt-flag</td><td>市场/设置列表项</td><td>r67</td><td>data-dsh-mkt-need=market｜pnpm · 排在 chevron 左侧</td></tr>
         <tr><td>市场页图标</td><td class="mono">dshmine_navIconWrap</td><td>原生市场 cell</td><td>r94</td><td>幂等标记挂我们插入的 wrap，不挂 cell</td></tr>
@@ -828,8 +828,8 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
     <table>
       <thead><tr><th>对象</th><th>规格</th><th>来源 / 说明</th></tr></thead>
       <tbody>
-        <tr><td>列表行 <span class="mono">navCell</span></td><td class="num">高 54px · 圆角 14 · 字 15.5/600</td><td>与 dsh 原生项同款；图标 18px，标题左边距 <b>64px</b>，右侧 chevron 16px</td></tr>
-        <tr><td>抽屉行</td><td class="num">高 40px · 圆角 8 · gap 10</td><td><span class="mono">#dsh-sb-plugin</span> / <span class="mono">#dsh-sb-export</span> / <span class="mono">#dsh-sb-safdir</span>；整行可点</td></tr>
+        <tr><td>列表行 <span class="mono">navCell</span></td><td class="num">高 54px · 圆角 14 · 字 15.5/600</td><td>与 dsh 原生项同款；图标 18px，标题左边距 <b>10px</b>，右侧 chevron 16px</td></tr>
+        <tr><td>抽屉行</td><td class="num">高 40px · 圆角 8 · gap 10</td><td><span class="mono">#dsh-sb-plugin</span> / <span class="mono">#dsh-sb-export</span>；整行可点</td></tr>
         <tr><td>汉堡 <span class="mono">#dsh-mbtn</span></td><td class="num">44×44 触控 · 圆角 13</td><td>抽屉打开时切"收起"图标并钉进抽屉内右上角（left = min(80vw,320px) − 44 − 20）</td></tr>
         <tr><td>按钮 / 输入框</td><td class="num">min-height 44 · 圆角 9</td><td><span class="mono">--dsh-touch:44px</span> / <span class="mono">--dsh-radius-ctrl:9px</span>；小按钮 36px（市场"安装"）</td></tr>
         <tr><td>浮层卡片</td><td class="num">max-width 520 · max-height 78vh · 圆角 16</td><td>遮罩 <span class="mono">rgba(13,27,46,.42)</span>；阴影 <span class="mono">0 8px 28px rgba(13,27,46,.22)</span></td></tr>
@@ -932,7 +932,6 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>新会话</button>
         <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></span>插件</button>
         <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h12"/></svg></span>导出数据</button>
-        <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span>存储目录</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
         <span style="font-size:13.5px;font-weight:600;flex:1">自动同步</span>
@@ -1105,7 +1104,6 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
               <button class="newbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>新会话</button>
               <button class="row"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>插件</button>
               <button class="row"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M6 9l6 6 6-6"/><path d="M4 21h16"/></svg>导出数据</button>
-              <button class="row hl"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M7 12h10"/></svg>存储目录</button>
               <div class="sect">工作区<span class="ops"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M7 12h10M10 17h4"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M12 12v6M9 15h6"/></svg></span></div>
               <div class="wsrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" fill="currentColor" fill-opacity=".15"/></svg>test</div>
               <div class="sess2">新会话</div>
@@ -1116,7 +1114,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>抽屉</b>（实测）· 80% 宽（max 320）· 顶部品牌行（deepseek + HARNESS 白边徽标）· 新会话胶囊 · 三行注入（插件/导出/存储目录高亮钮）· 工作区区头（搜索/筛选/新建）· 会话列表 · 底部设置行</div>
+      <div class="cap"><b>抽屉</b>（实测·修订）· 80% 宽（max 320）· 顶部品牌行（deepseek + HARNESS 白边徽标）· 新会话胶囊 · 两行注入（插件/导出；<b>存储目录已移入设置列表</b>）· 工作区区头（搜索/筛选/新建）· 会话列表 · 底部设置行</div>
     </div>
 
     <!-- 设置页 -->
@@ -1136,12 +1134,13 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
               <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 7.5l3 8M16.5 7.5l-3 8"/></svg></span><span class="lb">Agent 预设</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
               <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="lb">插件市场</span><span class="flag need">装 pnpm</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
               <div class="inj"><button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.5-6"/><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.5 6"/><path d="M21 3v6h-6"/><path d="M3 21v-6h6"/></svg></span><span class="lb">NAS 同步</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button></div>
+              <div class="inj"><button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.6.8l1.2 1.6H19a2 2 0 0 1 2 2v7.6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M8 13h8"/><path d="M12 10v6"/></svg></span><span class="lb">存储目录</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button></div>
             </div>
             <div class="tipcard">提示：侧滑或按返回键可回到上一级页面（已在第一级时会退出应用）。</div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>设置一级页</b>（实测）· 顶栏 44×44 圆返回钮 + 居中标题 · 行序：通用设置/模型/插件/Agent 预设/插件市场（「装 pnpm」琥珀徽标）/NAS 同步（<b>注入项</b>，未配置时不带徽标挂 data-dsh-sync-off）· 底部导航提示卡</div>
+      <div class="cap"><b>设置一级页</b>（实测·修订）· 顶栏 44×44 圆返回钮 + 居中标题 · 行序：通用设置/模型/插件/Agent 预设/插件市场（「装 pnpm」琥珀徽标）/NAS 同步（<b>注入项</b>，未配置时不带徽标挂 data-dsh-sync-off）/存储目录（注入项，由抽屉移入）· 底部导航提示卡</div>
     </div>
 
     <!-- 通用设置（r108 截图二批新增稿） -->
@@ -1367,7 +1366,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>存储目录浮层</b> · z-index 81 · r106 SAF 方案 A · 行内信息用次级面圆角 9 · 主按钮「更换目录」转反色白底（决策 E）</div>
+      <div class="cap"><b>存储目录浮层</b> · z-index 81 · 入口已从抽屉迁入<b>设置列表</b> · r106 SAF 方案 A · 行内信息用次级面圆角 9 · 主按钮「更换目录」转反色白底（决策 E）</div>
     </div>
 
   </div>
@@ -1418,7 +1417,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <tr><td class="num">5</td><td>市场搜索框</td><td>mockup 画 38px（违反自家 44 规则）</td><td>44px</td><td>稿改</td></tr>
         <tr><td class="num">6</td><td>同步状态行</td><td>只有 err 态，mockup 中性色</td><td>ok/warn/err 三态 + 冲突加粗（r108）</td><td>稿改</td></tr>
         <tr><td class="num">7</td><td>L_MUTED / lum()</td><td>列为"待办两项"</td><td>r105 已修（#5A6D84 + 伽马校正）</td><td>稿改：移入"已修复记录"</td></tr>
-        <tr><td class="num">8</td><td>SAF 存储目录</td><td><b>完全不知道</b></td><td>抽屉行 + safst 浮层（z-81）</td><td>稿补：普查 + 组件 + 页面稿</td></tr>
+        <tr><td class="num">8</td><td>SAF 存储目录</td><td><b>完全不知道</b></td><td>设置列表项 + safst 浮层（z-81）</td><td>稿补：普查 + 组件 + 页面稿；r109 入口由抽屉迁入设置列表</td></tr>
         <tr><td class="num">9</td><td>圆角刻度</td><td>只承认 8/12/16/22</td><td>实际 13 种值（见 02 章）</td><td>稿改：全量清点 + 六刻度</td></tr>
         <tr><td class="num">10</td><td>对比度表工具</td><td>装饰分隔线行被当正文测 → 假 FAIL</td><td>—</td><td><b>稿修 bug</b>：按角色定标准</td></tr>
       </tbody>
@@ -1546,7 +1545,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <span class="pill info">导出数据浮层</span>
         <span class="pill info">存储目录浮层</span>
         <span class="pill info">设置列表注入项</span>
-        <span class="pill info">抽屉三行</span>
+        <span class="pill info">抽屉两行（插件/导出）</span>
         <span class="pill info">市场图标与徽标</span>
         <span class="pill info">顶栏汉堡</span>
         <span class="pill info">启动页/系统栏</span>
