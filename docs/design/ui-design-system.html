@@ -430,6 +430,38 @@ tbody tr:hover{background:var(--surface-2)}
 .enb.on{color:var(--ok)}
 .enb.off{color:var(--ink-500)}
 
+/* r108 截图三批：插件市场页 / 指令面板（2026-10-14） */
+.mkt2{flex:1; display:flex; flex-direction:column; padding:4px 16px 12px; overflow:hidden}
+.mkthead{display:flex; align-items:center; gap:12px; padding:8px 0 6px}
+.mkthead .mico{width:52px; height:52px; border-radius:14px; background:var(--surface-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex:0 0 auto}
+.mkthead .mt{font-size:19px; font-weight:800}
+.mkthead .ms{font-size:12px; color:var(--ink-500); margin-top:2px}
+.mtabs{display:flex; gap:16px; font-size:13.5px; font-weight:600; border-bottom:1px solid var(--line); margin:4px 0 12px; overflow:hidden; white-space:nowrap}
+.mtabs .on{color:var(--ink-900); box-shadow:inset 0 -2px 0 var(--ink-900); padding-bottom:7px}
+.mtabs .off{color:var(--ink-500); padding-bottom:7px}
+.mtabs .cut{color:var(--ink-500); padding-bottom:7px; opacity:.35}
+.pillbtn{display:inline-flex; align-items:center; gap:7px; background:var(--ink-900); color:var(--bg); border-radius:999px; padding:10px 16px; font-size:13px; font-weight:700}
+.filtrow{display:flex; align-items:center; gap:8px; margin:10px 0}
+.selchip{background:var(--surface-2); border:1px solid var(--line-strong); border-radius:12px; padding:9px 13px; font-size:13px; font-weight:700}
+.fchip{font-size:13px; color:var(--ink-700); padding:9px 8px}
+.fdd{margin-left:auto; display:flex; align-items:center; gap:6px; background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:9px 13px; font-size:13px; font-weight:600}
+.mcard{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:13px 14px; margin-bottom:10px}
+.mcard .mhead{display:flex; justify-content:space-between; align-items:flex-start; gap:10px}
+.mcard .mname{font-size:15.5px; font-weight:800; display:flex; align-items:center; gap:6px}
+.mcard .mauthor{font-size:11.5px; color:var(--ink-500); margin-top:3px}
+.mcard .mstats{font-size:11.5px; color:var(--ink-500); margin-top:7px}
+.mcard .mdesc{font-size:12.5px; line-height:1.55; color:var(--ink-700); margin-top:8px}
+.tagchip{display:inline-block; font-size:11px; color:var(--ink-500); background:var(--surface-2); border:1px solid var(--line); border-radius:7px; padding:3px 8px; margin:8px 6px 0 0}
+.mfoot{display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:12px; color:var(--ink-500)}
+.cmdwrap{flex:1; display:flex; flex-direction:column; padding:4px 14px 12px; position:relative; overflow:hidden}
+.cmdmenu{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:4px 6px 10px; margin-bottom:-14px; position:relative; z-index:2; box-shadow:var(--shadow-2)}
+.cmdmenu .ch{font-size:11.5px; font-weight:700; color:var(--ink-500); padding:6px 10px 4px}
+.cmdrow{display:flex; gap:10px; align-items:baseline; padding:10px; border-radius:9px; font-size:13px; color:var(--ink-700)}
+.cmdrow.sel{background:var(--surface-2)}
+.cmdrow .cn{font-family:var(--font-mono); font-size:12.5px; font-weight:700; color:var(--ink-900)}
+.cmdwrap .bigcard{position:relative; z-index:3; margin-top:auto}
+.ovchip{position:absolute; top:-11px; left:10px; z-index:4; background:var(--surface-2); border:1px solid var(--line-strong); border-radius:7px; padding:3px 9px; font-size:11px; font-weight:600; color:var(--ink-700)}
+
 /* 设置页 */
 .set{padding:8px 16px 16px; flex:1; display:flex; flex-direction:column; gap:6px}
 .set h4{font-size:19px; font-weight:700; margin:6px 0 10px}
@@ -658,6 +690,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
   </div>
   <div class="note">取样误差：JPEG 压缩 + 截图缩放带来 ±几个百分点的偏移，以上数值用于<b>方向判断与一致性核对</b>，不必逐位对齐。截图存档于 <span class="mono">D:\work\dsh-shot-tmp\</span>（取样脚本 <span class="mono">sample_colors.py</span>）。</div>
   <div class="note"><b>截图二批（设置子页 5 张，同日）补充实测：</b>dsh 原生<b>主按钮 / 分段控件选中段 = 反色白底</b>（模型页「保存」#F3F4F6、插件市场 segmented 选中段 #FFF，深色主题下）——与我们注入浮层的品牌蓝主按钮并存 → <b>决策项 E</b>；外观选中卡 = 蓝边 <span class="mono">#62A7F2</span> + 蓝灰 tint <span class="mono">#1F3251</span>；「已启用」绿点 = <span class="mono">#54C95E</span>；插件页 tab 下划线为<b>白色</b>而对话页 tab 为<b>蓝色</b> → <b>决策项 F</b>；子页行/卡底色阶梯 #2C2C2E~#373739，与一级设置页 #282828 同族。取样脚本 <span class="mono">sample_colors2.py</span>。</div>
+  <div class="note"><b>截图三批（市场页 / NAS 浮层 / 指令面板，同日）补充实测：</b>市场页 tab 下划线亦为<b>白色 #FFF</b>——三处 tab 两白一蓝，<b>对话页蓝下划线是异类</b>（决策 F 表述已更新）；市场反色钮（导出日志/更新/安装）实拍近白 #E4E5E7~#F0；选中筛选胶囊底 #57585D；插件卡底 #383A3A；<b>NAS 同步浮层主按钮实拍 = 品牌蓝 #62AAFF</b>（决策 E 的实拍佐证：注入蓝 vs dsh 反色白同屏并存）；指令菜单浮层底 #464749（比页面亮一级的悬浮层）。脚本 <span class="mono">D:\work\dsh-shot-tmp\</span>。</div>
 </section>
 
 <!-- ============ 03 色彩 ============ -->
@@ -965,7 +998,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
 <!-- ============ 06 页面稿 ============ -->
 <section id="screens">
   <h2><span class="idx">06</span>页面设计稿</h2>
-  <p class="lead">十二张关键页面稿（390×844 等比缩至 300×640），<b>r108 起按真机截图逐张校准</b>（2026-10-14 两批共 10 张实测画面：启动页 / 对话页 / 新会话首页 / 抽屉 / 设置一级页 / 通用设置 / 模型 / 插件三 tab）。切到深色主题可同时预览两套稿——注意<b>系统栏颜色随页面走</b>，这正是 r104 的修复点。标注"注入项"的为我们创建，其余由 dsh 渲染。</p>
+  <p class="lead">十三张关键页面稿（390×844 等比缩至 300×640），<b>r108 起按真机截图逐张校准</b>（2026-10-14 三批共 13 张实测画面：启动页 / 对话页 / 新会话首页 / 抽屉 / 设置一级与子页 / 插件市场 / 指令面板 / NAS 同步浮层）。切到深色主题可同时预览两套稿——注意<b>系统栏颜色随页面走</b>，这正是 r104 的修复点。标注"注入项"的为我们创建，其余由 dsh 渲染。</p>
 
   <div class="phones">
 
@@ -1187,26 +1220,74 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
       <div class="cap"><b>插件 · 列表</b>（实测）· 三 tab 选中为<b>白色下划线</b>（对话页 tab 为蓝色 → 决策项 F）· 已启用 = 绿点 #54C95E + 绿字 · 已停用灰字无点 · 包名 mono</div>
     </div>
 
-    <!-- 市场页 -->
+    <!-- 市场页（r108 截图三批按实测重画） -->
     <div class="shot">
       <div class="phone">
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
-          <div class="mkt">
-            <div class="mkt-bar">
-              <button class="bk" aria-label="返回"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-              <b>插件市场</b><span style="width:44px"></span>
+          <div class="rset">
+            <div class="topbar" style="justify-content:space-between"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><span class="topact">打开配置文件</span></div>
+          </div>
+          <div class="mkt2" style="margin-top:-8px">
+            <div class="mkthead">
+              <span class="mico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+              <div><div class="mt">插件市场</div><div class="ms">dsh-market</div></div>
             </div>
-            <input class="f-in" placeholder="搜索插件…" style="min-height:44px;font-size:13.5px">
-            <div class="chips"><span class="chip2">全部</span><span class="chip2">已安装</span><span class="chip2">工具</span></div>
-            <div class="pcards">
-              <div class="pcard"><span class="pi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></span><div><div class="pn">adapter-discord</div><div class="pd">接入 Discord 消息平台</div></div><button class="btn btn-p sm pb">安装</button></div>
-              <div class="pcard"><span class="pi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/></svg></span><div><div class="pn">plugin-schedule</div><div class="pd">定时触发任务</div></div><button class="btn btn-s sm pb">已安装</button></div>
+            <div class="mtabs"><span class="on">发现</span><span class="off">主题</span><span class="off">收藏</span><span class="off">已安装</span><span class="off">已屏蔽</span><span class="cut">高…</span></div>
+            <div style="display:flex; gap:10px; margin-bottom:10px"><span class="pillbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M6 9l6 6 6-6"/><path d="M4 21h16"/></svg>导出日志</span><span class="pillbtn">更新插件市场</span></div>
+            <div class="searchf" style="margin-bottom:2px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>搜索插件，例如：通知、终端…</div>
+            <div class="filtrow"><span class="selchip">全部（4.5k）</span><span class="fchip">AGI 架构探索</span><span class="fdd"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>筛选</span></div>
+            <div style="font-size:13px; color:var(--ink-700); display:flex; gap:6px; align-items:center; margin-bottom:8px">UI 增强<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div>
+            <div class="mcard">
+              <div class="mhead">
+                <div><span class="mname">billion-context<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg></span><div class="mauthor">ranxianglei · v0.1.195</div><div class="mstats">↓ 1182.6k / 近30天 · ★ 1.1k</div></div>
+                <span class="pillbtn">安装</span>
+              </div>
+              <div class="mdesc">billion-context 官方版：上下文压缩插件，兼顾小窗口（100k 上下文足矣）省 token（省 5 倍 token）和超长会话（数月级别几十亿 token 单会话）。</div>
+              <div><span class="tagchip">正在读取宿主要求…</span><span class="tagchip">会话与消息</span></div>
+              <div class="mfoot"><span></span><span style="display:flex; gap:14px; align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg>评论<span style="letter-spacing:2px">···</span></span></div>
+            </div>
+            <div class="mcard" style="padding-bottom:8px">
+              <div class="mhead">
+                <div><span class="mname">dsh-codex-ui<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg></span><div class="mauthor">MichengAI · v1.1.35</div><div class="mstats">↓ 263.4k / 近30天 · ★ 137</div></div>
+                <span class="pillbtn">安装</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>插件市场</b> · 返回钮 44×44（r106 上调）· 搜索框 44px · 原生 cell 补图标（r94）· 徽标三态</div>
+      <div class="cap"><b>插件市场</b>（实测重画）· 市场头（图标+dsh-market）· 5+ tab <b>横向溢出截断</b>（→ 观察 7）· 双反色钮 · 筛选行（选中胶囊 #57585D + 下拉）· 富插件卡（作者/下载数/★/标签/评论）· tab 下划线白色（→ 决策 F）</div>
+    </div>
+
+    <!-- 指令面板（r108 截图三批新增稿） -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="cmdwrap">
+            <div class="cmdmenu">
+              <div class="ch">指令</div>
+              <div class="cmdrow sel"><span class="cn">compact</span>压缩以上对话内容</div>
+              <div class="cmdrow"><span class="cn">export</span>将当前会话内容导出为 ZIP</div>
+              <div class="cmdrow"><span class="cn">feedback</span>发送关于当前会话的反馈</div>
+              <div class="cmdrow"><span class="cn">init</span>初始化项目说明文档</div>
+            </div>
+            <div class="bigcard">
+              <span class="ovchip">指令</span>
+              <div class="ph">描述你想要构建的内容，/ 调用指令，@ 文件或对话</div>
+              <div class="toolrow">
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="sp"></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="up" style="background:var(--brand); color:var(--on-brand); border-color:var(--brand)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>指令面板</b>（实测）· 输入 "/" 唤起，mono 命令名 + 说明 · 选中行次级面高亮 · <b>实测问题：菜单底部项被输入主卡盖住</b>（→ 观察 8）· 发送钮有文字时转品牌蓝</div>
     </div>
 
     <!-- 同步浮层 -->
@@ -1218,20 +1299,20 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
             <div class="ov-card">
               <div class="ov-bar"><button class="bk" aria-label="返回"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><b>NAS 同步</b><span class="sp"></span></div>
               <div class="ov-body">
-                <div class="ov-hd"><span>NAS 同步</span><span class="dev">本机：dsh-phone-a1b2</span></div>
+                <div class="ov-hd"><span>NAS 同步</span><span class="dev">本机：V2458A</span></div>
                 <div class="tip">把会话与工作区数据同步到 NAS（建议飞牛 WebDAV）。不同步插件与运行环境 —— 那些是平台相关的。</div>
                 <label class="f"><span class="f-lb">WebDAV 地址</span><input class="f-in" value="http://192.168.1.10:5005"></label>
                 <label class="f" style="margin-top:10px"><span class="f-lb">账号</span><input class="f-in" value="dsh"></label>
                 <label class="f" style="margin-top:10px"><span class="f-lb">密码（留空表示不修改）</span><input class="f-in" type="password" value="••••••"></label>
                 <label class="f" style="margin-top:10px"><span class="f-lb">间隔（秒）</span><input class="f-in" value="60"></label>
-                <div class="ov-acts"><button class="btn btn-p">保存并同步</button><button class="btn btn-s">立即同步</button></div>
+                <div class="ov-acts"><button class="btn btn-p" style="background:var(--ink-900);color:var(--bg)">保存并同步</button><button class="btn btn-s">立即同步</button></div>
                 <div class="st-line warn">上次同步：上传 1 · 下载 0 · <b>冲突保留 2 份</b>（两份都留着，需人工确认保留哪份）</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>NAS 同步浮层</b> · 整屏卡片 z-index 82 · 状态行三态（ok/warn/err）· 冲突段加粗</div>
+      <div class="cap"><b>NAS 同步浮层</b> · 整屏卡片 z-index 82 · 状态行三态（ok/warn/err）· 冲突段加粗 · 主按钮画为<b>反色白底</b>（决策 E 落地态；r108 实拍仍为品牌蓝 #62AAFF，见截图三批）</div>
     </div>
 
     <!-- 导出浮层 -->
@@ -1353,14 +1434,14 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <tr><td class="num">C</td><td>占位符颜色无定规（旧稿 demo 用 ink-400，2.89:1）</td><td>我们自己的输入框占位符统一 <b>ink-500</b></td><td>设计定规（本稿 05 章）</td></tr>
         <tr><td class="num">D</td><td>圆角跑飞值 10px / 13px</td><td><b>暂不改</b>——列入第 10 章清理清单，避免无谓视觉churn；下轮与真机走查一起做</td><td>待办</td></tr>
         <tr><td class="num">E</td><td>主按钮双色系（截图二批）：dsh 原生主按钮/分段选中段为<b>反色白底</b>（保存 #F3F4F6 / segmented #FFF），我们注入浮层主按钮为<b>品牌蓝底</b>（btn-p）——同一屏幕两种"主操作"语言</td><td>注入层跟随 dsh：<b>深色主题下 btn-p 改白底黑字</b>，浅色主题维持品牌蓝（浅底上白按钮无对比，无法照抄）</td><td>待办（mobile.css）</td></tr>
-        <tr><td class="num">F</td><td>tab 下划线两种选中语言（截图二批）：对话页<b>蓝色</b>下划线 vs 插件页<b>白色</b>下划线</td><td>dsh 原生不一致，注入侧无法只改一半；记录并向上游反馈，我们<b>不新增第三种样式</b></td><td>观察（dsh 上游）</td></tr>
+        <tr><td class="num">F</td><td>tab 下划线两种选中语言（截图二、三批）：市场页/插件页均为<b>白色</b>下划线，唯对话页为<b>蓝色</b>——三处两白一蓝，<b>对话页是异类</b></td><td>dsh 原生不一致，注入侧无法只改一半；记录并向上游反馈（建议对话页对齐白色），我们<b>不新增第三种样式</b></td><td>观察（dsh 上游）</td></tr>
       </tbody>
     </table>
   </div>
   <div class="note"><b>为什么 danger 不统一到 #B42318：</b>两者都过 AA（5.16 vs 6.23）。#C0392B 是 r105 有意的产品决策（"浅色保留 #C0392B"见 mobile.css 注释），深色已换 #FF7A70。<b>设计服从产品</b>，不为表格好看改线上色。若未来要提升余量，应是产品侧单独一次决议。</div>
 
   <h3>r108 截图二批：产品观察与微调建议<span class="tag new">2026-10-14</span></h3>
-  <p class="lead">对照第二批 5 张截图（通用设置 / 模型 / 插件三 tab）发现的实际产品问题与美化方向。这批页面全部由 dsh 渲染、注入层无触点——落地路径是<b>上游反馈 + 注入侧保持一致</b>。</p>
+  <p class="lead">对照第二、三批共 8 张截图（通用设置 / 模型 / 插件三 tab / 插件市场 / NAS 同步浮层 / 指令面板）发现的实际产品问题与美化方向。这些页面几乎全部由 dsh 渲染、注入层仅 NAS 浮层一个触点——落地路径是<b>上游反馈 + 注入侧保持一致</b>。</p>
   <div class="card" style="padding:0;overflow:hidden">
     <table>
       <thead><tr><th>#</th><th>观察（实际产品）</th><th>微调建议</th><th>归属</th></tr></thead>
@@ -1371,6 +1452,8 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <tr><td class="num">4</td><td>子页顶栏「打开配置文件」胶囊高约 40px，未达 44 触控标准</td><td>统一 44px（与 r106 返回钮上调同一理由）</td><td>dsh 上游（注入侧已合规）</td></tr>
         <tr><td class="num">5</td><td>外观选中卡圆角 ~12，与注入控件刻度 9 并存</td><td>dsh 原生值不动，已录入 02 章圆角清单（dsh 原生档）</td><td>记录</td></tr>
         <tr><td class="num">6</td><td>两套红并存：dsh 错误红 ≈#F9616E vs 我们 --dsh-danger 深 #FF7A70</td><td>语义色是我们自己的状态语言（同步/安装回执），保持独立；仅在<b>同一视图同时出现</b>两种红时再收敛</td><td>观察</td></tr>
+        <tr><td class="num">7</td><td>市场页 5+ 个 tab（发现/主题/收藏/已安装/已屏蔽/高…）<b>横向溢出，末位 tab 被截断成"高…"</b>（截图三批）</td><td>tab 收敛（次要项进"更多"）或改为可横滑 + 渐隐边缘提示；至少不应无截断痕迹地裁字</td><td>dsh 上游</td></tr>
+        <tr><td class="num">8</td><td>指令面板（输入 "/" 唤起）<b>菜单底部项被输入主卡盖住</b>，只能看到半行（截图三批）</td><td>菜单改为向上展开、或限制条数 + 底部渐隐；层叠关系应是菜单整体在输入卡之上</td><td>dsh 上游</td></tr>
       </tbody>
     </table>
   </div>
