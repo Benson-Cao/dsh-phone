@@ -319,7 +319,7 @@ tbody tr:hover{background:var(--surface-2)}
 
 /* 启动页 */
 .splash{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 32px; text-align:center; gap:0}
-.splash .logo{width:72px; height:72px; border-radius:18px; background:linear-gradient(135deg,var(--brand),var(--brand-600)); box-shadow:var(--shadow-2); display:flex; align-items:center; justify-content:center; color:var(--on-brand); font-size:30px; font-weight:800; margin-bottom:20px}
+.splash .logo{width:72px; height:72px; display:flex; align-items:center; justify-content:center; margin-bottom:20px}
 .splash .ti{font-size:26px; font-weight:700; letter-spacing:.3px; margin-bottom:10px}
 .splash .st{font-size:14px; color:var(--ink-500); font-weight:400}
 .splash .rule{width:120px; height:3px; border-radius:2px; background:linear-gradient(90deg,var(--brand),transparent); margin-top:22px}
@@ -340,6 +340,55 @@ tbody tr:hover{background:var(--surface-2)}
 .sess{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); padding:12px}
 .sess .n{font-size:14px; font-weight:600; margin-bottom:3px}
 .sess .m{font-size:11.5px; color:var(--ink-500)}
+
+/* r108 实测校准稿（2026-10-14 真机截图取样） */
+.pv{font-size:10.5px; font-weight:700; padding:2px 9px; border-radius:var(--r-full); background:var(--surface-2); border:1px solid var(--line); color:var(--ink-500); white-space:nowrap}
+.bigcard{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-xl); padding:14px 14px 10px; box-shadow:var(--shadow-1)}
+.bigcard .ph{font-size:13px; color:var(--ink-500); line-height:1.5; min-height:42px}
+.toolrow{display:flex; align-items:center; gap:10px; margin-top:10px}
+.toolrow .ti2{width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--ink-700); background:var(--surface-2); border:1px solid var(--line)}
+.toolrow .sp{flex:1}
+.toolrow .up{width:36px; height:36px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line-strong); display:flex; align-items:center; justify-content:center; color:var(--ink-500)}
+.rhome{padding:6px 16px 16px; display:flex; flex-direction:column; flex:1}
+.rhome .ttl{display:flex; align-items:center; justify-content:center; gap:10px; margin-top:150px}
+.rhome .ttl .wt{font-size:24px; font-weight:800; letter-spacing:.3px}
+.rhome .selrow{display:flex; justify-content:center; gap:24px; margin-top:12px; font-size:13px; font-weight:600; color:var(--ink-700)}
+.rhome .selrow span{display:flex; align-items:center; gap:5px}
+.rcv{padding:2px 14px 10px; flex:1; display:flex; flex-direction:column; gap:9px}
+.rcv .tabs{display:flex; gap:20px; font-size:14px; font-weight:600; border-bottom:1px solid var(--line)}
+.rcv .tabs .on{color:var(--brand); box-shadow:inset 0 -2px 0 var(--brand); padding-bottom:7px}
+.rcv .tabs .off{color:var(--ink-500); padding-bottom:7px}
+.rcv .chip1{align-self:flex-start; font-size:12px; font-weight:600; color:var(--ink-700); display:flex; gap:5px; align-items:center; margin-top:4px}
+.bub{align-self:flex-end; display:flex; flex-direction:column; align-items:flex-end; gap:5px; margin-top:4px}
+.bub .av{width:30px; height:30px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line-strong); display:flex; align-items:center; justify-content:center; font-size:12.5px; font-weight:700}
+.bub .tm{font-size:11px; color:var(--ink-500); display:flex; gap:7px; align-items:center}
+.ctx{font-size:12px; color:var(--ink-500); display:flex; gap:6px; align-items:center; margin-top:2px; overflow:hidden; white-space:nowrap}
+.errl{display:flex; gap:9px; align-items:flex-start; margin-top:4px}
+.errl .dot{width:8px; height:8px; border-radius:50%; background:var(--danger); margin-top:5px; flex:0 0 auto}
+.errl .et{font-size:13.5px; font-weight:700; color:var(--danger)}
+.errl .ec{font-size:11.5px; line-height:1.5; color:var(--ink-500); margin-top:2px}
+.errl .ec .code{font-family:var(--font-mono); font-size:11px; letter-spacing:.4px}
+.rcv .bigcard{margin-top:auto}
+.stbar{margin-top:8px; text-align:center; font-size:11.5px; color:var(--ink-500); display:flex; justify-content:center; gap:5px; align-items:center}
+.rdr{width:82%; max-width:250px; background:var(--surface); display:flex; flex-direction:column; border-right:1px solid var(--line); padding:12px 10px 10px}
+.rdr .brandrow{display:flex; align-items:center; gap:7px; padding:2px 4px 10px; font-weight:800; font-size:15px}
+.rdr .brandrow .hb{font-size:9px; font-weight:800; border:1.5px solid var(--ink-900); border-radius:4px; padding:1px 4px; letter-spacing:.5px}
+.rdr .newbtn{display:flex; align-items:center; gap:9px; background:var(--surface-2); border-radius:12px; padding:11px 12px; font-size:13.5px; font-weight:600; border:0; color:var(--ink-900)}
+.rdr .row{display:flex; align-items:center; gap:11px; padding:11px 12px; font-size:13.5px; color:var(--ink-900); background:transparent; border:0}
+.rdr .hl{background:var(--surface-2); border:1px solid var(--line-strong); border-radius:12px; justify-content:center; font-weight:700}
+.rdr .sect{display:flex; align-items:center; justify-content:space-between; padding:12px 12px 6px; font-size:12px; font-weight:700; color:var(--ink-500)}
+.rdr .sect .ops{display:flex; gap:12px; opacity:.85}
+.rdr .wsrow{display:flex; align-items:center; gap:9px; padding:8px 12px; font-size:13.5px; font-weight:600; color:var(--brand)}
+.rdr .sess2{background:var(--surface-2); border-radius:12px; padding:9px 12px; font-size:13.5px; font-weight:600; margin-top:2px}
+.rdr .s2{display:flex; justify-content:space-between; padding:9px 12px; font-size:13px; color:var(--ink-700)}
+.rdr .s2 .ago{font-size:11.5px; color:var(--ink-500)}
+.rdr .foot{margin-top:auto; border-top:1px solid var(--line); padding-top:6px}
+.rset{padding:4px 16px 14px; flex:1; display:flex; flex-direction:column}
+.rset .topbar{display:flex; align-items:center; gap:8px; padding:2px 0 10px}
+.rset .topbar b{flex:1; text-align:center; font-size:16.5px}
+.rset .bk2{width:44px; height:44px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:var(--ink-900); cursor:pointer}
+.rset .rows2 .navcell{border-radius:0; border:0; border-bottom:1px solid var(--line)}
+.rset .tipcard{margin-top:12px; background:var(--surface-2); border-radius:12px; padding:11px 13px; font-size:11.5px; line-height:1.55; color:var(--ink-500)}
 
 /* 设置页 */
 .set{padding:8px 16px 16px; flex:1; display:flex; flex-direction:column; gap:6px}
@@ -546,6 +595,28 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
     </table>
   </div>
   <div class="note"><b>结论：</b>注入侧应有<b>六个刻度</b>——8（行）/ 9（控件）/ 14（列表行）/ 16（卡片·浮层）/ 22（主卡）/ 999（胶囊）；dsh 原生 12/16/22/24 不动。10px 与 13px 是仅存的两个跑飞值，记入第 10 章清理清单，<b>不在本轮擅自改</b>（避免无谓的视觉churn）。</div>
+
+  <h3>r108 真机截图实测（2026-10-14 · vivo V2458A / Android 16）<span class="tag new">截图取样</span></h3>
+  <p class="lead">对 5 张 r108 真机截图（启动页 / 对话页 / 新会话首页 / 抽屉 / 设置一级页）逐区域取样（Pillow 均值/主簇/最饱和像素），补上了<b>代码普查看不到的 dsh 渲染层实测值</b>，并验证了既有令牌声明。</p>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>实测对象</th><th>实测值</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td>dsh 首页底（新会话）</td><td class="mono">#151517</td><td>与系统栏 <span class="mono">D_SYSTEM_BAR</span> 一致 ✓</td></tr>
+        <tr><td>dsh 对话页底</td><td class="mono">#1C1C1E</td><td>比首页亮一级 —— dsh 深色本身有<b>面层阶梯</b></td></tr>
+        <tr><td>dsh 设置页底</td><td class="mono">#282828~#2C2C2E</td><td>再亮一级；深色下共三级面层</td></tr>
+        <tr><td>抽屉底</td><td class="mono">#1F1E24</td><td>偏蓝调（dsh 面板色，非中性灰）</td></tr>
+        <tr><td>启动页底</td><td class="mono">#141B23</td><td>与 <span class="mono">DshPalette.D_BG</span> 完全一致 ✓</td></tr>
+        <tr><td>dsh 错误红（"本轮运行失败"）</td><td class="mono">≈#F9616E</td><td>dsh 渲染；比我们的 <span class="mono">--dsh-danger</span> 深 #FF7A70 更粉——两套红并存，记入第 8 章</td></tr>
+        <tr><td>「装 pnpm」徽标</td><td class="mono">字 ≈#EAC052 / 底 ≈#3E2E12</td><td>与 <span class="mono">--dsh-warn</span> 深配对 #F5B544/#3A2E14 吻合（JPEG 偏移内）✓</td></tr>
+        <tr><td>「预览版」徽标底</td><td class="mono">≈#3D4C5C</td><td>dsh 原生蓝灰胶囊</td></tr>
+        <tr><td>启动页进度线</td><td class="mono">≈#3B8BEC</td><td>渐变线中段实测偏亮（声明 BRAND_500 #1466B8）；待真机静置复测</td></tr>
+        <tr><td>占位符文字（深）</td><td class="mono">#B1B1B9</td><td>印证第 8 章 C 项"占位符对比度定规"的必要性</td></tr>
+        <tr><td>输入主卡底 / 发送钮（空态）</td><td class="mono">#383838 / #686E80</td><td>中性深灰阶，与三级面层自洽</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">取样误差：JPEG 压缩 + 截图缩放带来 ±几个百分点的偏移，以上数值用于<b>方向判断与一致性核对</b>，不必逐位对齐。截图存档于 <span class="mono">D:\work\dsh-shot-tmp\</span>（取样脚本 <span class="mono">sample_colors.py</span>）。</div>
 </section>
 
 <!-- ============ 03 色彩 ============ -->
@@ -603,6 +674,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
       </tbody>
     </table>
   </div>
+  <div class="note"><b>r108 截图实测补充：</b>dsh SPA 深色页面底<b>不是一个值</b>——首页 #151517、对话页 #1C1C1E、设置页 #282828，构成三级面层阶梯（详见第 2 章实测表）。系统栏 #151517 只与首页同色；启动页 #141B23 与三者都不同（偏蓝调）。这是 dsh 自身结构，不改变 D_SYSTEM_BAR 的取值决策，但解释了"切页时系统栏与新页面存在色差"的现象。</div>
   <div class="note">r108 修订：D_MUTED 原为 <span class="mono">#9AAABB</span>，与 Web 层深色 <span class="mono">--ds-ink-fb-500 #A3B3C6</span> 不一致 → 已统一为 <span class="mono">#A3B3C6</span>（8.11:1，两层同值）。浅色 L_MUTED 即 <span class="mono">L_MUTED_AA #5A6D84</span>（r105 由过黑的 #2C2D35 回调，恢复层级差）。</div>
 
   <h3>对比度实测（WCAG 2.1，含 sRGB 伽马线性化；装饰行按 ≥3 参考）</h3>
@@ -852,7 +924,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
 <!-- ============ 06 页面稿 ============ -->
 <section id="screens">
   <h2><span class="idx">06</span>页面设计稿</h2>
-  <p class="lead">八张关键页面稿，按真机结构还原（390×844 等比缩至 300×640）。切到深色主题可同时预览两套稿——注意<b>系统栏颜色随页面走</b>，这正是 r104 的修复点。标注"注入项"的为我们创建，其余由 dsh 渲染。</p>
+  <p class="lead">九张关键页面稿（390×844 等比缩至 300×640），<b>r108 起按真机截图逐张校准</b>（2026-10-14 取样 5 张实测画面：启动页 / 对话页 / 新会话首页 / 抽屉 / 设置一级页）。切到深色主题可同时预览两套稿——注意<b>系统栏颜色随页面走</b>，这正是 r104 的修复点。标注"注入项"的为我们创建，其余由 dsh 渲染。</p>
 
   <div class="phones">
 
@@ -862,14 +934,14 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
           <div class="splash">
-            <div class="logo">D</div>
-            <div class="ti">DSH Phone</div>
-            <div class="st">正在准备运行环境…</div>
+            <div class="logo"><svg width="60" height="60" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M6 33c0-10.5 9.2-19 20.5-19 9.4 0 16.6 5.6 19.2 12.6.9-2.9 3.6-5.9 8.3-6.6-1.9 2.9-2 5.8-.9 7.9 3.2 1.2 6 3.3 7.4 6.1-3.9.1-6.9 1.3-8.9 3.1-3 6.2-10.2 10.9-19.6 10.9C15.9 48 6 41.4 6 33z" fill="var(--brand)"/><circle cx="19.5" cy="29.5" r="2.2" fill="var(--bg)"/></svg></div>
+            <div class="ti">DeepSeek Harness</div>
+            <div class="st">正在启动 dsh 服务…</div>
             <div class="rule"></div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>启动页</b> · logo 72 / 标题 26 BOLD / 状态 14 / 渐变线 120×3</div>
+      <div class="cap"><b>启动页</b>（实测）· 鲸鱼标 72 / 标题 DeepSeek Harness 26 BOLD / 状态 14（初始"正在准备运行环境…"→"正在启动 dsh 服务…"）/ 渐变线 120×3</div>
     </div>
 
     <!-- 首页 -->
@@ -877,23 +949,74 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
       <div class="phone">
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
-          <div class="home">
-            <button class="ham" aria-label="打开侧边栏"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-            <div class="hero">
-              <div class="q">今天想做什么？</div>
-              <div class="inp">给 DSH 下达指令…</div>
-              <div class="acts">
-                <div class="chips"><span class="chip2">写代码</span><span class="chip2">查资料</span></div>
-                <div class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          <div class="rhome">
+            <button class="ham" aria-label="打开侧边栏" style="align-self:flex-start"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+            <div class="ttl"><span class="wt">探索未至之境</span><span class="pv">预览版</span></div>
+            <div class="selrow">
+              <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>test<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg>标准模式<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+            </div>
+            <div class="bigcard">
+              <div class="ph">描述你想构建的内容，/ 调用指令，@ 文件或对话</div>
+              <div class="toolrow">
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8L13 4.4a3.7 3.7 0 0 1 5.2 5.2L10 17.8"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="sp"></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="up"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
               </div>
             </div>
-            <div class="sec-t">最近会话</div>
-            <div class="sess"><div class="n">插件市场改造</div><div class="m">2 小时前 · 12 条消息</div></div>
-            <div class="sess"><div class="n">NAS 同步方案</div><div class="m">昨天 · 34 条消息</div></div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>首页</b> · 输入主卡圆角 22 · 汉堡 44×44 钉在左上（圆角 13）</div>
+      <div class="cap"><b>新会话首页</b>（实测）· 大标题 24/800 + 预览版徽标 · 工作区/模式选择行 · 输入主卡圆角 22，工具行 +/附件/防护/模型 + 圆形发送钮（空态灰）</div>
+    </div>
+
+    <!-- 对话页（r108 截图实测新增稿） -->
+    <div class="shot">
+      <div class="phone">
+        <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+        <div class="pbody">
+          <div class="rhome" style="padding-bottom:10px">
+            <div style="display:flex; align-items:center; gap:6px">
+              <button class="ham" aria-label="打开侧边栏" style="flex:0 0 auto"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+              <span style="flex:1; font-size:13px; font-weight:600; color:var(--ink-700); display:flex; align-items:center; gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg>标准模式</span>
+              <span style="font-size:15px; letter-spacing:1px; color:var(--ink-500); padding:0 6px">···</span>
+              <span style="color:var(--ink-700)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></span>
+            </div>
+          </div>
+          <div class="rcv" style="flex:1; margin-top:-26px">
+            <div class="tabs"><span class="on">对话</span><span class="off">轨迹</span></div>
+            <div class="chip1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6"/></svg>系统提示词</div>
+            <div class="bub">
+              <span class="av">1</span>
+              <span class="tm">09:21<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
+            </div>
+            <div class="ctx"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M6 9l6 6 6-6"/><path d="M5 21h14"/></svg>上下文注入 · <span class="mono" style="font-size:11px">@deepseek-ai/dsh-system-pro…</span></div>
+            <div class="errl">
+              <span class="dot"></span>
+              <div>
+                <div class="et">本轮运行失败</div>
+                <div class="ec"><span class="code">MISSING_CREDENTIAL</span> · llm-deepseek: no API key for provider route "deepseek-official"…</div>
+              </div>
+            </div>
+            <div class="bigcard">
+              <div class="ph">发消息或创建任务，/ 调用指令，@ 文件…</div>
+              <div class="toolrow">
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8L13 4.4a3.7 3.7 0 0 1 5.2 5.2L10 17.8"/></svg></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="sp"></span>
+                <span class="ti2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/></svg><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+                <span class="up"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+              </div>
+            </div>
+            <div class="stbar"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>1 轮 1 步</div>
+          </div>
+        </div>
+      </div>
+      <div class="cap"><b>对话页</b>（实测）· 对话/轨迹 tab + 蓝下划线 · 错误态：红点 + 红题 + mono 错误码（dsh 渲染红实测 ≈#F9616E）· 底部状态行"1 轮 1 步"</div>
     </div>
 
     <!-- 抽屉（r108 新增稿） -->
@@ -902,21 +1025,23 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody" style="background:var(--scrim)">
           <div style="display:flex;height:100%">
-            <div class="drawer" style="border-radius:0;height:100%;justify-content:flex-start;padding-top:52px">
-              <div style="font-size:12px;font-weight:700;color:var(--ink-500);padding:0 10px 4px">会话</div>
-              <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>新会话</button>
-              <div style="font-size:12px;font-weight:700;color:var(--ink-500);padding:12px 10px 4px">工具</div>
-              <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></span>插件</button>
-              <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h12"/></svg></span>导出数据</button>
-              <button class="drawer-row"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span>存储目录</button>
+            <div class="rdr">
+              <div class="brandrow"><svg width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M6 33c0-10.5 9.2-19 20.5-19 9.4 0 16.6 5.6 19.2 12.6.9-2.9 3.6-5.9 8.3-6.6-1.9 2.9-2 5.8-.9 7.9 3.2 1.2 6 3.3 7.4 6.1-3.9.1-6.9 1.3-8.9 3.1-3 6.2-10.2 10.9-19.6 10.9C15.9 48 6 41.4 6 33z" fill="var(--ink-900)"/></svg>deepseek<span class="hb">HARNESS</span><span style="flex:1"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></div>
+              <button class="newbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>新会话</button>
+              <button class="row"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>插件</button>
+              <button class="row"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M6 9l6 6 6-6"/><path d="M4 21h16"/></svg>导出数据</button>
+              <button class="row hl"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M7 12h10"/></svg>存储目录</button>
+              <div class="sect">工作区<span class="ops"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M7 12h10M10 17h4"/></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M12 12v6M9 15h6"/></svg></span></div>
+              <div class="wsrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" fill="currentColor" fill-opacity=".15"/></svg>test</div>
+              <div class="sess2">新会话</div>
+              <div class="s2"><span>1</span><span class="ago">6分钟</span></div>
+              <div class="foot"><button class="row"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>设置</button></div>
             </div>
-            <div style="flex:1;display:flex;align-items:flex-start;justify-content:flex-end;padding:10px">
-              <button class="ham" aria-label="收起侧边栏" style="background:var(--surface);box-shadow:var(--shadow-2)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-            </div>
+            <div style="flex:1"></div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>抽屉</b> · 80% 宽（max 320）· 三行注入（插件/导出/存储目录）· 收起钮钉进抽屉内右上角</div>
+      <div class="cap"><b>抽屉</b>（实测）· 80% 宽（max 320）· 顶部品牌行（deepseek + HARNESS 白边徽标）· 新会话胶囊 · 三行注入（插件/导出/存储目录高亮钮）· 工作区区头（搜索/筛选/新建）· 会话列表 · 底部设置行</div>
     </div>
 
     <!-- 设置页 -->
@@ -924,19 +1049,24 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
       <div class="phone">
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
-          <div class="set">
-            <h4>设置</h4>
-            <div class="navlist">
-              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="lb">插件市场</span><span class="flag">已就绪</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
-              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg></span><span class="lb">模型</span><span class="flag need">未配置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
-              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span><span class="lb">插件</span><span class="flag">12 个</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
-              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg></span><span class="lb">Agent 预设</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
-              <div class="inj"><button class="navcell"><span class="ic" style="color:var(--ok)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.5-6"/><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.5 6"/><path d="M21 3v6h-6"/><path d="M3 21v-6h6"/></svg></span><span class="lb">NAS 同步</span><span class="flag">已配置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button></div>
+          <div class="rset">
+            <div class="topbar">
+              <button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+              <b>设置</b><span style="width:44px"></span>
             </div>
+            <div class="navlist rows2">
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span><span class="lb">通用设置</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span><span class="lb">模型</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h8M16 6h4M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="lb">插件</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 7.5l3 8M16.5 7.5l-3 8"/></svg></span><span class="lb">Agent 预设</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span><span class="lb">插件市场</span><span class="flag need">装 pnpm</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>
+              <div class="inj"><button class="navcell"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.5-6"/><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.5 6"/><path d="M21 3v6h-6"/><path d="M3 21v-6h6"/></svg></span><span class="lb">NAS 同步</span><span class="ar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button></div>
+            </div>
+            <div class="tipcard">提示：侧滑或按返回键可回到上一级页面（已在第一级时会退出应用）。</div>
           </div>
         </div>
       </div>
-      <div class="cap"><b>设置列表</b> · 前四项为 dsh 原生，<b>NAS 同步为注入项</b>（r76：配置类功能的归宿是设置列表）。未配置时注入项不带 flag 且挂 data-dsh-sync-off</div>
+      <div class="cap"><b>设置一级页</b>（实测）· 顶栏 44×44 圆返回钮 + 居中标题 · 行序：通用设置/模型/插件/Agent 预设/插件市场（「装 pnpm」琥珀徽标）/NAS 同步（<b>注入项</b>，未配置时不带徽标挂 data-dsh-sync-off）· 底部导航提示卡</div>
     </div>
 
     <!-- 市场页 -->
