@@ -200,8 +200,8 @@ tbody tr:hover{background:var(--surface-2)}
 }
 .btn:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .btn:active{transform:translateY(1px)}
-.btn-p{background:var(--brand); color:var(--on-brand)}
-.btn-p:hover{background:var(--brand-600)}
+.btn-p{background:var(--ink-900); color:var(--bg)}   /* 决策 E 落地：注入主按钮统一反色白底 */
+.btn-p:hover{background:var(--ink-700)}
 .btn-s{background:var(--surface-2); color:var(--ink-900)}
 .btn-s:hover{background:var(--line)}
 .btn-g{background:transparent; color:var(--brand); padding:0 12px}
@@ -243,7 +243,7 @@ tbody tr:hover{background:var(--surface-2)}
 .navcell:active{background:var(--surface-2); transform:scale(.995)}
 .navcell:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 .navcell .ic{flex:0 0 auto; width:18px; height:18px; color:var(--ink-500); display:flex; align-items:center; justify-content:center}
-.navcell .lb{flex:1 1 auto; min-width:0; margin-left:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.navcell .lb{flex:1 1 auto; min-width:0; margin-left:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .navcell .flag{font-size:11px; font-weight:700; padding:3px 8px; border-radius:var(--r-full); background:var(--info-bg); color:var(--info); flex:0 0 auto}
 .navcell .flag.need{background:var(--warn-bg); color:var(--warn)}
 .navcell .ar{flex:0 0 auto; color:var(--ink-400); display:flex}
@@ -320,7 +320,7 @@ tbody tr:hover{background:var(--surface-2)}
 /* 启动页 */
 .splash{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 32px; text-align:center; gap:0}
 .splash .logo{width:72px; height:72px; display:flex; align-items:center; justify-content:center; margin-bottom:20px}
-.splash .ti{font-size:26px; font-weight:700; letter-spacing:.3px; margin-bottom:10px}
+.splash .ti{font-size:20px; font-weight:700; letter-spacing:.3px; white-space:nowrap; margin-bottom:10px}
 .splash .st{font-size:14px; color:var(--ink-500); font-weight:400}
 .splash .rule{width:120px; height:3px; border-radius:2px; background:linear-gradient(90deg,var(--brand),transparent); margin-top:22px}
 
@@ -352,11 +352,11 @@ tbody tr:hover{background:var(--surface-2)}
 .rhome{padding:6px 16px 16px; display:flex; flex-direction:column; flex:1}
 .rhome .ttl{display:flex; align-items:center; justify-content:center; gap:10px; margin-top:150px}
 .rhome .ttl .wt{font-size:24px; font-weight:800; letter-spacing:.3px}
-.rhome .selrow{display:flex; justify-content:center; gap:24px; margin-top:12px; font-size:13px; font-weight:600; color:var(--ink-700)}
+.rhome .selrow{display:flex; justify-content:flex-start; gap:24px; margin-top:12px; padding-left:2px; font-size:13px; font-weight:600; color:var(--ink-700)}
 .rhome .selrow span{display:flex; align-items:center; gap:5px}
 .rcv{padding:2px 14px 10px; flex:1; display:flex; flex-direction:column; gap:9px}
 .rcv .tabs{display:flex; gap:20px; font-size:14px; font-weight:600; border-bottom:1px solid var(--line)}
-.rcv .tabs .on{color:var(--brand); box-shadow:inset 0 -2px 0 var(--brand); padding-bottom:7px}
+.rcv .tabs .on{color:var(--ink-900); box-shadow:inset 0 -2px 0 var(--ink-900); padding-bottom:7px}   /* 决策 F 落地：三处 tab 下划线统一 */
 .rcv .tabs .off{color:var(--ink-500); padding-bottom:7px}
 .rcv .chip1{align-self:flex-start; font-size:12px; font-weight:600; color:var(--ink-700); display:flex; gap:5px; align-items:center; margin-top:4px}
 .bub{align-self:flex-end; display:flex; flex-direction:column; align-items:flex-end; gap:5px; margin-top:4px}
@@ -369,8 +369,8 @@ tbody tr:hover{background:var(--surface-2)}
 .errl .ec{font-size:11.5px; line-height:1.5; color:var(--ink-500); margin-top:2px}
 .errl .ec .code{font-family:var(--font-mono); font-size:11px; letter-spacing:.4px}
 .rcv .bigcard{margin-top:auto}
-.stbar{margin-top:8px; text-align:center; font-size:11.5px; color:var(--ink-500); display:flex; justify-content:center; gap:5px; align-items:center}
-.rdr{width:82%; max-width:250px; background:var(--surface); display:flex; flex-direction:column; border-right:1px solid var(--line); padding:12px 10px 10px}
+.stbar{margin-top:8px; padding-bottom:6px; text-align:center; font-size:11.5px; color:var(--ink-500); display:flex; justify-content:center; gap:5px; align-items:center}
+.rdr{width:82%; max-width:250px; background:var(--surface); display:flex; flex-direction:column; border-right:1px solid var(--line); padding:12px 10px 16px}
 .rdr .brandrow{display:flex; align-items:center; gap:7px; padding:2px 4px 10px; font-weight:800; font-size:15px}
 .rdr .brandrow .hb{font-size:9px; font-weight:800; border:1.5px solid var(--ink-900); border-radius:4px; padding:1px 4px; letter-spacing:.5px}
 .rdr .newbtn{display:flex; align-items:center; gap:9px; background:var(--surface-2); border-radius:12px; padding:11px 12px; font-size:13.5px; font-weight:600; border:0; color:var(--ink-900)}
@@ -436,15 +436,16 @@ tbody tr:hover{background:var(--surface-2)}
 .mkthead .mico{width:52px; height:52px; border-radius:14px; background:var(--surface-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex:0 0 auto}
 .mkthead .mt{font-size:19px; font-weight:800}
 .mkthead .ms{font-size:12px; color:var(--ink-500); margin-top:2px}
-.mtabs{display:flex; gap:16px; font-size:13.5px; font-weight:600; border-bottom:1px solid var(--line); margin:4px 0 12px; overflow:hidden; white-space:nowrap}
+.mtabs{display:flex; gap:16px; font-size:13.5px; font-weight:600; border-bottom:1px solid var(--line); margin:4px 0 12px; overflow-x:auto; white-space:nowrap}
+.mtabs span{flex:0 0 auto; white-space:nowrap}
 .mtabs .on{color:var(--ink-900); box-shadow:inset 0 -2px 0 var(--ink-900); padding-bottom:7px}
 .mtabs .off{color:var(--ink-500); padding-bottom:7px}
 .mtabs .cut{color:var(--ink-500); padding-bottom:7px; opacity:.35}
 .pillbtn{display:inline-flex; align-items:center; gap:7px; background:var(--ink-900); color:var(--bg); border-radius:999px; padding:10px 16px; font-size:13px; font-weight:700}
 .filtrow{display:flex; align-items:center; gap:8px; margin:10px 0}
 .selchip{background:var(--surface-2); border:1px solid var(--line-strong); border-radius:12px; padding:9px 13px; font-size:13px; font-weight:700}
-.fchip{font-size:13px; color:var(--ink-700); padding:9px 8px}
-.fdd{margin-left:auto; display:flex; align-items:center; gap:6px; background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:9px 13px; font-size:13px; font-weight:600}
+.fchip{font-size:13px; color:var(--ink-700); padding:9px 8px; white-space:nowrap; flex:0 0 auto}
+.fdd{margin-left:auto; display:flex; align-items:center; gap:6px; background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:9px 13px; font-size:13px; font-weight:600; white-space:nowrap; flex:0 0 auto}
 .mcard{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:13px 14px; margin-bottom:10px}
 .mcard .mhead{display:flex; justify-content:space-between; align-items:flex-start; gap:10px}
 .mcard .mname{font-size:15.5px; font-weight:800; display:flex; align-items:center; gap:6px}
@@ -454,7 +455,7 @@ tbody tr:hover{background:var(--surface-2)}
 .tagchip{display:inline-block; font-size:11px; color:var(--ink-500); background:var(--surface-2); border:1px solid var(--line); border-radius:7px; padding:3px 8px; margin:8px 6px 0 0}
 .mfoot{display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:12px; color:var(--ink-500)}
 .cmdwrap{flex:1; display:flex; flex-direction:column; padding:4px 14px 12px; position:relative; overflow:hidden}
-.cmdmenu{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:4px 6px 10px; margin-bottom:-14px; position:relative; z-index:2; box-shadow:var(--shadow-2)}
+.cmdmenu{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:4px 6px 10px; margin-bottom:10px; position:relative; z-index:2; box-shadow:var(--shadow-2)}
 .cmdmenu .ch{font-size:11.5px; font-weight:700; color:var(--ink-500); padding:6px 10px 4px}
 .cmdrow{display:flex; gap:10px; align-items:baseline; padding:10px; border-radius:9px; font-size:13px; color:var(--ink-700)}
 .cmdrow.sel{background:var(--surface-2)}
@@ -484,7 +485,7 @@ tbody tr:hover{background:var(--surface-2)}
 
 /* 浮层 */
 .ov{position:absolute; inset:0; background:var(--scrim); display:flex; align-items:flex-end; justify-content:center; padding:12px}
-.ov-card{width:100%; max-width:520px; max-height:78vh; background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--shadow-3); overflow:hidden; display:flex; flex-direction:column}
+.ov-card{width:100%; max-width:520px; max-height:100%; background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--shadow-3); overflow:hidden; display:flex; flex-direction:column}
 .ov-bar{display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line)}
 .ov-bar .bk{width:44px; height:44px; border-radius:10px; border:0; background:transparent; color:var(--ink-900); display:flex; align-items:center; justify-content:center; cursor:pointer}
 .ov-bar .bk:hover{background:var(--surface-2)}
@@ -1090,7 +1091,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>对话页</b>（实测）· 对话/轨迹 tab + 蓝下划线 · 错误态：红点 + 红题 + mono 错误码（dsh 渲染红实测 ≈#F9616E）· 底部状态行"1 轮 1 步"</div>
+      <div class="cap"><b>对话页</b>（实测·修订）· 对话/轨迹 tab + 下划线（<b>已统一为墨色 → 决策 F 落地</b>） · 错误态：红点 + 红题 + mono 错误码（dsh 渲染红实测 ≈#F9616E）· 底部状态行"1 轮 1 步"</div>
     </div>
 
     <!-- 抽屉（r108 新增稿） -->
@@ -1149,7 +1150,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
           <div class="rset">
-            <div class="topbar" style="justify-content:space-between"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><span class="topact">打开配置文件</span></div>
+            <div class="topbar"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><b>通用设置</b><span class="topact">打开配置文件</span></div>
           </div>
           <div class="rsd" style="flex:1; margin-top:-8px; padding:4px 16px 16px">
             <div class="rowline"><div><div class="lab">权限</div><div class="desc">选择新会话的默认权限模式</div></div><span class="dd">工作区内修改<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span></div>
@@ -1166,7 +1167,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>通用设置</b>（实测）· 子页顶栏 = 44×44 圆返回钮 + 右侧「打开配置文件」胶囊 · 行 = 标题+说明+右值控件 · 外观三选卡（选中蓝边 #62A7F2 + 蓝灰 tint #1F3251）</div>
+      <div class="cap"><b>通用设置</b>（实测·修订）· 子页顶栏 = 44×44 圆返回钮 + <b>居中标题</b> + 右侧「打开配置文件」胶囊 · 行 = 标题+说明+右值控件 · 外观三选卡（选中蓝边 #62A7F2 + 蓝灰 tint #1F3251）</div>
     </div>
 
     <!-- 模型（r108 截图二批新增稿） -->
@@ -1175,7 +1176,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
           <div class="rset">
-            <div class="topbar" style="justify-content:space-between"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><span class="topact">打开配置文件</span></div>
+            <div class="topbar"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><b>模型</b><span class="topact">打开配置文件</span></div>
           </div>
           <div class="rsd" style="flex:1; margin-top:-8px; padding:4px 16px 16px">
             <div class="h2t">模型</div>
@@ -1192,7 +1193,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>模型</b>（实测）· 提供方卡圆角 16 · 主按钮 = <b>反色白底</b>（深色实测 #F3F4F6；→ 决策项 E）· 添加类 = 虚线胶囊</div>
+      <div class="cap"><b>模型</b>（实测·修订）· 子页顶栏补居中标题 · 提供方卡圆角 16 · 主按钮 = <b>反色白底</b>（深色实测 #F3F4F6；→ 决策项 E）· 添加类 = 虚线胶囊</div>
     </div>
 
     <!-- 插件 · 列表（r108 截图二批新增稿） -->
@@ -1201,7 +1202,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
         <div class="pbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
         <div class="pbody">
           <div class="rset">
-            <div class="topbar" style="justify-content:space-between"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><span class="topact">打开配置文件</span></div>
+            <div class="topbar"><button class="bk2" aria-label="返回"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button><b>插件</b><span class="topact">打开配置文件</span></div>
           </div>
           <div class="rsd" style="flex:1; margin-top:-8px; padding:4px 16px 12px">
             <div class="h2t">插件</div>
@@ -1217,7 +1218,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>插件 · 列表</b>（实测）· 三 tab 选中为<b>白色下划线</b>（对话页 tab 为蓝色 → 决策项 F）· 已启用 = 绿点 #54C95E + 绿字 · 已停用灰字无点 · 包名 mono</div>
+      <div class="cap"><b>插件 · 列表</b>（实测·修订）· 子页顶栏补居中标题 · 三 tab 选中为<b>墨色下划线</b>（对话页 tab <b>已统一同色 → 决策项 F 已落地</b>）· 已启用 = 绿点 #54C95E + 绿字 · 已停用灰字无点 · 包名 mono</div>
     </div>
 
     <!-- 市场页（r108 截图三批按实测重画） -->
@@ -1256,7 +1257,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>插件市场</b>（实测重画）· 市场头（图标+dsh-market）· 5+ tab <b>横向溢出截断</b>（→ 观察 7）· 双反色钮 · 筛选行（选中胶囊 #57585D + 下拉）· 富插件卡（作者/下载数/★/标签/评论）· tab 下划线白色（→ 决策 F）</div>
+      <div class="cap"><b>插件市场</b>（实测·修订）· 市场头（图标+dsh-market）· tab <b>改为横向滚动、文字不再竖向折断</b>（→ 观察 7 已处理）· 双反色钮 · 筛选行（选中胶囊 #57585D + 下拉）· 富插件卡（作者/下载数/★/标签/评论）· tab 下划线墨色（三处已统一 → 决策 F 已落地）</div>
     </div>
 
     <!-- 指令面板（r108 截图三批新增稿） -->
@@ -1287,7 +1288,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>指令面板</b>（实测）· 输入 "/" 唤起，mono 命令名 + 说明 · 选中行次级面高亮 · <b>实测问题：菜单底部项被输入主卡盖住</b>（→ 观察 8）· 发送钮有文字时转品牌蓝</div>
+      <div class="cap"><b>指令面板</b>（实测·修订）· 输入 "/" 唤起，mono 命令名 + 说明 · 选中行次级面高亮 · <b>已修：菜单完整显示在输入卡之上，不再被盖</b>（→ 观察 8 已处理）· 发送钮有文字时转品牌蓝</div>
     </div>
 
     <!-- 同步浮层 -->
@@ -1312,7 +1313,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>NAS 同步浮层</b> · 整屏卡片 z-index 82 · 状态行三态（ok/warn/err）· 冲突段加粗 · 主按钮画为<b>反色白底</b>（决策 E 落地态；r108 实拍仍为品牌蓝 #62AAFF，见截图三批）</div>
+      <div class="cap"><b>NAS 同步浮层</b> · 整屏卡片 z-index 82 · 状态行三态（ok/warn/err）· 冲突段加粗 · 主按钮统一为<b>反色白底</b>（<b>决策 E 已全局落地</b>：导出/更换目录等注入主按钮一并转反色，与 dsh 原生对齐）</div>
     </div>
 
     <!-- 导出浮层 -->
@@ -1336,7 +1337,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>导出数据浮层</b> · z-index 80 · r76 后同步区块已移出，回到单卡结构</div>
+      <div class="cap"><b>导出数据浮层</b> · z-index 80 · 主按钮「导出到文件」已转反色白底（决策 E）· 行标题左对齐</div>
     </div>
 
     <!-- 存储目录浮层（r108 新增稿） -->
@@ -1366,7 +1367,7 @@ footer{max-width:var(--doc-max); margin:0 auto; padding:24px 20px 60px; color:va
           </div>
         </div>
       </div>
-      <div class="cap"><b>存储目录浮层</b> · z-index 81 · r106 SAF 方案 A · 行内信息用次级面圆角 9</div>
+      <div class="cap"><b>存储目录浮层</b> · z-index 81 · r106 SAF 方案 A · 行内信息用次级面圆角 9 · 主按钮「更换目录」转反色白底（决策 E）</div>
     </div>
 
   </div>
