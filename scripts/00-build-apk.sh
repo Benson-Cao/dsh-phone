@@ -80,10 +80,13 @@ bash "$HERE/01-modify-termux.sh" "$REPO"
 
 echo "########## STEP 4/7：拷贝 Java 源码 ##########"
 # ⚠️ 必须是 .java：Termux v0.118.0 没有 Kotlin 插件，.kt 会被完全忽略、不编进 dex
+# ⚠️ 必须整树拷：源码含子包 webview/（OfficialShell 注入 + DshWebBridge 消息通道），
+#    只拷 *.java 顶层会让这两个类缺失 → MainActivity 引用不到，编译失败。
 DST="$REPO/app/src/main/java/com/dsh/harness"
+rm -rf "$DST"
 mkdir -p "$DST"
-cp -f "$HERE/../android-java/com/dsh/harness/"*.java "$DST/"
-echo "  ✓ $(ls "$DST" | wc -l) 个源文件已就位"
+cp -rf "$HERE/../android-java/com/dsh/harness/." "$DST"/
+echo "  ✓ $(find "$DST" -name '*.java' | wc -l | tr -d ' ') 个源文件已就位（含子包）"
 
 echo "########## STEP 5/7：编译 ##########"
 export ANDROID_HOME="${ANDROID_HOME:-D:/AndroidSDK}"
