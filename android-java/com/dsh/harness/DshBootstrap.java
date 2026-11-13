@@ -33,8 +33,56 @@ public final class DshBootstrap {
     public static final int DSH_PORT = 3080;
     private static final String STAMP = ".dsh-installed";
 
-    /** bundle 修订号。仅当 bundle 布局/内容变化时才需要改（会触发重新解包）。 */
-    private static final String BUNDLE_REV = "v2-usr-home-symlinks";
+    /**
+     * bundle 修订号。仅当 bundle 布局/内容变化时才需要改（会触发重新解包）。
+     *  r150：升到 v3 强制重解包——上一版的 dsh HOME 里残留了一个指向
+     *  127.0.0.1:1080 的 socks5 出网代理配置（PC 构建环境遗留），普通「覆盖安装」
+     *  不会清掉旧 HOME（stamp 命中），导致自检一直卡在 socks5 账号对失败。
+     *  改 BUNDLE_REV 让所有升级用户首启都重解包，拿到干净的 dsh 运行环境。
+     *  r151：bundle 内 dsh 由 0.1.5-rc.1 升级到官方 0.2.1-rc.5（端口随之改回官方 3080），
+     *  并移除针对旧版 0.1.x 桌面优先布局的手机适配注入层（mobile.css/js/market.css 等）——
+     *  官方 0.2.x web 已自带移动端响应式布局。凡是带着旧 HOME 的升级安装都必须重解包，
+     *  否则会保留 0.1.5 的 node_modules 却跑新启动脚本（端口/注入全错配）。
+     *  r152：三个启动链修复——① flock.js 平台守卫放行 android（Termux node 报
+     *  platform='android'，原守卫直接抛 ERR_FLOCK_UNSUPPORTED_PLATFORM，会话写打开
+     *  必炸 → profile boot StartupError，服务起不来；现在 android 走 try/catch 降级
+     *  stub，并给 process.report.getReport() 加保护）；② 补齐缺失传递依赖
+     *  @sindresorhus/is@7 / @sindresorhus/merge-streams@4 / mime-types@3（本地
+     *  Windows 引导实测 otel/plugin-manager/session-controller 等 8 个插件降级的根因）；
+     *  ③ 补 fontkit/dist/module.mjs（fontkit 2.0.4 exports 指向未发布文件，
+     *  office-to-pdf 降级的根因）。本地引导已验证 8 降级 → 1（仅本地 profile 特有）。
+     *  r161（v30.42）：补 @mixmark-io/domino 整包（turndown 的 DOM 依赖；原 bundle 里
+     *  只有 7 个条目，源里 1023 个 → 启用 tool-web 后必报 Cannot find module）
+     *  + 补 @deepseek-ai/dsh-client-ui-settings-account（官方设置「账户」分区的实现，
+     *  原 bundle 里整包只有 LICENSE + lib/client.js，缺 package.json）
+     *  + 补 dsh-client-ui-sidebar-documentpreview / dsh-experimental-inspector 的
+     *  package.json 与 lib + 给 dsh-session-persistence-jsonl 打
+     *  「link() 失败降级 rename」补丁（Android 应用数据目录禁硬链接，否则每次
+     *  开新会话 EACCES）。重解包时由 cleanupExtracted 保留 home/.dsh 不丢用户数据。
+     */
+    private static final String BUNDLE_REV = "v5-dsh-0.2.1-rc.5-r199-headerv6";
+
+    /**
+     * 内置插件（assets/dsh-nas-sync）的内容版本戳。
+     *
+     * <p>为什么单独一个戳、不跟 {@link #BUNDLE_REV} 走：内置插件的 assets 落地原来只写在
+     * 「需要解包」分支里，于是每改一次插件面板（r172 白屏、r174 平铺按钮）都得推
+     * BUNDLE_REV —— 代价是 700MB 全量重解包 + patch.sh 重跑，用户等 1~3 分钟，
+     * 只为换一个 35KB 的 client.js。这个戳只覆盖插件目录本身，改它就够。</p>
+     */
+    // r231：内置 NAS 同步插件升到 0.6.0（事件驱动删除传播 / NSS2 / canonical rel
+    // 双读 / 插件 CAS / 扫描缓存）。必须推这个戳，否则 ensureBuiltinPlugin()
+    // 命中旧戳直接返回，装机后 files/dsh-nas-sync 与 files/home/wstest/dsh-nas-sync
+    // 仍是 0.5.8 的 65128B client.js，新端点一个都不会出现。
+    // 只覆盖插件目录本身，不推 BUNDLE_REV —— 避免 700MB 全量重解包。
+    private static final String PLUGIN_REV = "r231-nas060";
+
+    /** 内置插件在 assets 与 filesDir 下的目录名。 */
+    private static final String PLUGIN_ASSET = "dsh-nas-sync";
+
+    /** 落在插件目录里的版本戳文件名（`--` 开头是 patch.sh/README 里约定的影子文件命名习惯之外的自有文件）。 */
+    private static final String PLUGIN_STAMP = ".dsh-plugin-rev";
+
 
     /** AGP 会把 assets 里的 .tar.gz 重命名为 .tar，这里两种都试。 */
     private static final String[] BUNDLE_NAMES = {
@@ -255,6 +303,32 @@ public final class DshBootstrap {
         }
     }
 
+    /** r152（官方对齐）：是否已安装且 bundle 修订号一致（供运行底座选择器判重）。 */
+    public static boolean isInstalled(Context ctx) {
+        File stamp = new File(ctx.getFilesDir(), STAMP);
+        return stamp.exists() && BUNDLE_REV.equals(readStamp(stamp));
+    }
+
+    /**
+     * r152（官方对齐）：通用归档解包入口（PRoot 底座复用）。
+     * 自动按 gzip 魔数判断是否先 gunzip，再交给极简 tar 解包器（已含符号链接 /
+     * 校验和 / Zip-Slip 防护，与 Termux 派同一套硬化逻辑）。
+     */
+    public static void extractStream(InputStream in, File dest, ProgressListener listener)
+            throws Exception {
+        BufferedInputStream raw = new BufferedInputStream(in);
+        raw.mark(2);
+        int m1 = raw.read();
+        int m2 = raw.read();
+        raw.reset();
+        boolean isGzip = (m1 == 0x1f && m2 == 0x8b);
+        if (isGzip) {
+            TarGz.extract(new GZIPInputStream(raw), dest, listener);
+        } else {
+            TarGz.extract(raw, dest, listener);
+        }
+    }
+
     private static void setupLocked(Context ctx) {
         File stamp = new File(ctx.getFilesDir(), STAMP);
         boolean needExtract = !stamp.exists() || !BUNDLE_REV.equals(readStamp(stamp));
@@ -308,6 +382,8 @@ public final class DshBootstrap {
                 //   现在：解包时从 assets 无条件落地（以 assets 为准）→ 执行。
                 //   失败只告警不阻断：补丁是加固项，不能因为它卡死启动。
                 copyAssetToFile(ctx, PATCH_ASSET, new File(ctx.getFilesDir(), PATCH_ASSET));
+                // r165：内置插件 assets/dsh-nas-sync/ → files/dsh-nas-sync/（patch.sh 部署源）
+                copyAssetDir(ctx, "dsh-nas-sync", new File(ctx.getFilesDir(), "dsh-nas-sync"));
                 File patch = new File(ctx.getFilesDir(), PATCH_ASSET);
                 if (patch.exists()) {
                     patch.setExecutable(true);
@@ -325,6 +401,13 @@ public final class DshBootstrap {
             ensureIcuLinks(ctx);
             ensureKoffiNative(ctx);
             writeOpensslConf(ctx);
+            ensureProfilePatch(ctx);
+            // r172：对市场装的 dsh-web-mobile 打「抽屉不被『更多』误收」的补丁。
+            // 放在这里（而不是 patch.sh 里）是因为 patch.sh 只在重解包时跑，而插件
+            // 可能被市场更新覆盖 —— 每次启动补一次，用户无感；内部幂等，装了才动。
+            UiPatches.apply(ctx);
+            // r174：内置插件资产按 PLUGIN_REV 轻量同步（不触发 700MB 重解包）。
+            ensureBuiltinPlugin(ctx);
             createLauncher(ctx);
             Log.i(TAG, "bootstrap ready rev=" + BUNDLE_REV);
         } catch (Throwable e) {
@@ -431,6 +514,130 @@ public final class DshBootstrap {
         }
     }
 
+    /**
+     * 内置插件（assets/dsh-nas-sync → files/dsh-nas-sync）的轻量同步。
+     *
+     * <p>只在 {@link #PLUGIN_REV} 变化时整目录重拷一次（35KB 级），并把版本戳写进插件目录。
+     * 幂等：戳一致就一次 stat + 一次 read 就返回，启动开销可忽略。</p>
+     *
+     * <p>为什么不能只在解包分支里拷：assets 落地与 patch.sh 都挂在 needExtract 上，
+     * 改一次插件面板就得推 BUNDLE_REV（代价是 700MB 全量重解包）。这里补一条独立通道。</p>
+     *
+     * <p>安全边界：assets 里没有这个插件（老包 / 裁剪包）⇒ 直接跳过、不动用户目录；
+     * 任何异常只告警 —— 插件是可选功能，不能因为同步失败卡住启动。</p>
+     */
+    private static void ensureBuiltinPlugin(Context ctx) {
+        File dir = new File(ctx.getFilesDir(), PLUGIN_ASSET);
+        File stamp = new File(dir, PLUGIN_STAMP);
+        try {
+            if (stamp.isFile()) {
+                String cur = new String(IoUtil.readAllBytes(stamp), "UTF-8").trim();
+                if (PLUGIN_REV.equals(cur)) {
+                    return;                       // 已是最新，安静返回
+                }
+            }
+            // 先确认 assets 里真有这个插件再动目录（否则等于把用户已装的那份清空）
+            try {
+                ctx.getAssets().open(PLUGIN_ASSET + "/client.js").close();
+            } catch (Exception e) {
+                Log.i(TAG, "assets 里没有内置插件，跳过同步");
+                return;
+            }
+            copyAssetDir(ctx, PLUGIN_ASSET, dir);
+            // ⚠️ r176：引擎真正加载的不是 files/dsh-nas-sync，而是 patch.sh 部署过去的
+            // files/home/wstest/dsh-nas-sync（profile 的 node_modules 只是链到它）。
+            // r174 只更新了前者 ⇒ 装机后重启，面板依旧是旧 UI（用户实拍：自动同步还是
+            // 原生下拉、复选框还在中间）。这里把部署副本一起刷掉；patch.sh 里
+            // DST/node_modules/@deepseek-ai 那两条软链不在 assets 里，不会被覆盖。
+            File deployed = new File(home(ctx), "wstest/" + PLUGIN_ASSET);
+            if (deployed.isDirectory()) {
+                copyAssetDir(ctx, PLUGIN_ASSET, deployed);
+                Log.i(TAG, "内置插件已同步到部署副本 " + deployed);
+            } else {
+                Log.i(TAG, "部署副本不存在（patch.sh 未跑过），等下次解包部署");
+            }
+            IoUtil.writeAllBytes(stamp, (PLUGIN_REV + "\n").getBytes("UTF-8"));
+            Log.i(TAG, "内置插件已同步到 " + PLUGIN_REV);
+        } catch (Throwable t) {
+            Log.w(TAG, "内置插件同步失败：" + t);
+        }
+    }
+
+    /** 本 App 追加到 cordis.patch.yml 的那一段的起始标记（用来判重）。 */
+    private static final String PATCH_MARKER = "# dsh-phone-managed: v1";
+    /** r205：v2 段（关 HMR）。有它就不再追加，避免每次启动重复写。 */
+    private static final String PATCH_MARKER_V2 = "# dsh-phone-managed: v2";
+
+    /**
+     * v30.42：保证 profile 的 cordis.patch.yml 带上本 App 必需的补丁项。
+     *
+     * 为什么必须在运行时做：cordis.patch.yml 是 dsh 首次启动自己创建的
+     * （首行固定为 "Your patch layer for this dsh profile…"），打包时无法预置；
+     * 而缺了下面两项，全新安装 / 清数据后会立刻复现两个已修好的缺陷：
+     *   · tool-web 被 dsh-web-app 的 bundle patch 设成 disabled，而 standard 等
+     *     agent preset 又把它列为必备插件（它自身声明 ctx.web 为 required）
+     *     → 建会话报 agent-preset/invalid: tool-web ... never started
+     *     → 表现为「选完工作区目录点打开，工作区没设上」；
+     *   · experimental-inspector 用 node-addon-require-builtin 去 require Node 内部
+     *     模块 internal/modules/esm/loader，Termux 版 node 没导出 → 每次启动报
+     *     "1 entry did not activate"（手机上也用不到 DevTools 面板，直接禁用）。
+     *
+     * 只在文件存在且不含标记时**追加**一段，绝不覆盖用户自己写的条目。
+     */
+    private static void ensureProfilePatch(Context ctx) {
+        File f = new File(home(ctx), ".dsh/profiles/web/cordis.patch.yml");
+        if (!f.exists()) return; // 还没首启过，等 dsh 建好 profile 后下次启动再写
+        try {
+            String cur = new String(IoUtil.readAllBytes(f), "UTF-8");
+            // 已有 v2 → 全部写过，直接返回。只有 v1 时只追加 v2 新增段，不动用户已有内容。
+            if (cur.contains(PATCH_MARKER_V2)) return;
+            StringBuilder sb = new StringBuilder(cur);
+            if (!cur.endsWith("\n")) sb.append('\n');
+            if (!cur.contains(PATCH_MARKER)) {
+                sb.append('\n')
+                  .append("# ---------------------------------------------------------------\n")
+                  .append(PATCH_MARKER).append("   （本段由 DSH Phone 自动写入，勿删这行标记）\n")
+                  .append("#\n")
+                  .append("# tool-web：dsh-web-app 的 bundle patch 把它设成 disabled: true，而\n")
+                  .append("#   standard / cordis 等 agent preset 又把它列为必备插件（它自身声明\n")
+                  .append("#   ctx.web 为 required）→ 建会话必被 agent-preset 校验拦下：\n")
+                  .append("#     agent-preset/invalid: tool-web (@deepseek-ai/dsh-tool-web): never started\n")
+                  .append("#   表现就是「选完工作区目录点打开，工作区没设上」。\n")
+                  .append("# experimental-inspector：手机用不到 DevTools 面板，且它 require 了 Node\n")
+                  .append("#   内部模块 internal/modules/esm/loader（Termux node 未导出），每次启动\n")
+                  .append("#   都会多一条 did not activate 告警。\n")
+                  .append("# ---------------------------------------------------------------\n")
+                  .append("- id: tool-web\n")
+                  .append("  name: \"@deepseek-ai/dsh-tool-web\"\n")
+                  .append("  config:\n")
+                  .append("    fetch: true\n")
+                  .append("    searchTimeoutMs: 60000\n")
+                  .append("  disabled: false\n")
+                  .append("- id: experimental-inspector\n")
+                  .append("  name: \"@deepseek-ai/dsh-experimental-inspector\"\n")
+                  .append("  disabled: true\n");
+            }
+            // r205（v2）：关掉 HMR。它是给「改 dsh 源码热重载」用的，手机上不改 dsh
+            //   源码；代价却是启动时扫源码目录建文件监听，还强制带 --expose-internals。
+            //   与 experimental-inspector 同理（都是桌面开发工具）。
+            //   写在文件末尾 → 覆盖前面任何 `- id: hmr / disabled: false`。
+            sb.append('\n')
+              .append("# ---------------------------------------------------------------\n")
+              .append(PATCH_MARKER_V2).append("   （本段由 DSH Phone 自动写入，勿删这行标记）\n")
+              .append("#\n")
+              .append("# hmr：手机不改 dsh 源码，热重载无用；开着要建文件监听 + 强制\n")
+              .append("#   --expose-internals。写在本文件末尾以覆盖前面的 disabled: false。\n")
+              .append("# ---------------------------------------------------------------\n")
+              .append("- id: hmr\n")
+              .append("  name: \"@deepseek-ai/dsh-hmr\"\n")
+              .append("  disabled: true\n");
+            IoUtil.writeAllBytes(f, sb.toString().getBytes("UTF-8"));
+            Log.i(TAG, "已向 cordis.patch.yml 追加本机必需补丁（tool-web / inspector / hmr-off）");
+        } catch (Exception e) {
+            Log.w(TAG, "写 cordis.patch.yml 失败: " + e.getMessage() + "（继续启动）");
+        }
+    }
+
     private static String readStamp(File f) {
         try {
             return new String(IoUtil.readAllBytes(f), "UTF-8").trim();
@@ -469,13 +676,68 @@ public final class DshBootstrap {
         }
     }
 
+    /**
+     * r165：递归拷贝 assets 子目录到 filesDir（供 patch.sh 消费）。
+     * patch.sh 由 DshBootstrap 落地成单文件执行，拿不到 APK 内其他 assets ——
+     * 内置插件（assets/dsh-nas-sync/）必须先由这里拷到 files/，patch.sh 才能在
+     * 重解包（home 被清）后把插件重新部署回 files/home/wstest/。
+     * 目录不存在时静默跳过（旧 APK assets 没有该目录属正常）。
+     */
+    private static void copyAssetDir(Context ctx, String assetDir, File dstDir) {
+        try {
+            String[] children = ctx.getAssets().list(assetDir);
+            if (children == null || children.length == 0) return;
+            if (!dstDir.exists() && !dstDir.mkdirs()) {
+                Log.w(TAG, "创建 asset 目录失败: " + dstDir);
+                return;
+            }
+            for (String child : children) {
+                String src = assetDir + "/" + child;
+                File dst = new File(dstDir, child);
+                if (ctx.getAssets().list(src).length == 0) {
+                    copyAssetToFile(ctx, src, dst);
+                } else {
+                    copyAssetDir(ctx, src, dst);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "拷贝 asset 目录失败: " + assetDir + " (" + e.getMessage() + ")");
+        }
+    }
+
     /** 清理上一次解包产物（含扁平布局残留），确保重新解包是干净的。 */
     private static void cleanupExtracted(Context ctx) {
         File dir = ctx.getFilesDir();
         // r72：连带 patch.sh —— 旧补丁不应被拿来对新 bundle 误执行
         //（重解包后马上会从 assets 重新落地一份，见 copyAssetToFile）。
+        // v30.42：解包目录里混着**用户数据** —— home/.dsh 存着会话历史
+        //   （sessions/）、模型与主题配置（profiles/web/cordis.yml 等）、
+        //   API Key（.credentials.yaml）、工作区注册表。原来整棵 home 一律删除，
+        //   BUNDLE_REV 一变就等于把用户的一切清空。这里先把 .dsh 挪到 files/ 暂存，
+        //   删完 home 再挪回去。
+        File userData = new File(dir, "home/.dsh");
+        File stash = new File(dir, ".dsh-preserved");
+        deleteRecursively(stash);
+        boolean preserved = false;
+        if (userData.exists()) {
+            try {
+                preserved = userData.renameTo(stash);
+                if (!preserved) Log.w(TAG, "用户数据暂存失败：.dsh 将随解包一起丢失");
+            } catch (Exception e) {
+                Log.w(TAG, "用户数据暂存异常: " + e.getMessage());
+            }
+        }
         for (String n : new String[] { "usr", "home", "bin", "lib", "node_modules", PATCH_ASSET }) {
             deleteRecursively(new File(dir, n));
+        }
+        if (preserved) {
+            File home = new File(dir, "home");
+            if (!home.exists()) home.mkdirs();
+            if (stash.renameTo(userData)) {
+                Log.i(TAG, "已保留用户数据 home/.dsh（会话/配置/凭据）");
+            } else {
+                Log.w(TAG, "用户数据回填失败，暂存在 " + stash.getAbsolutePath());
+            }
         }
     }
 
@@ -571,6 +833,31 @@ public final class DshBootstrap {
     private static final String NODE_SHIM =
         "// generated by DshBootstrap\n"
         + "(function () {\n"
+        + "  // r205: prefix every log line with [+Xms] since node start, so dsh-web.log\n"
+        + "  //   finally shows where the ~6s goes. [ERR]/[WARN] stay at column 0 because\n"
+        + "  //   DshProcessManager classifies lines with line.startsWith(\"[ERR]\").\n"
+        + "  try {\n"
+        + "    var __t0 = Date.now();\n"
+        + "    var __stamp = function (s) {\n"
+        + "      var t = '[+' + (Date.now() - __t0) + 'ms] ';\n"
+        + "      if (s.indexOf('[ERR]') === 0) return '[ERR]' + t + s.slice(5);\n"
+        + "      if (s.indexOf('[WARN]') === 0) return '[WARN]' + t + s.slice(6);\n"
+        + "      return t + s;\n"
+        + "    };\n"
+        + "    var __wrap = function (fn) {\n"
+        + "      return function () {\n"
+        + "        try {\n"
+        + "          var a = Array.prototype.slice.call(arguments);\n"
+        + "          if (typeof a[0] === 'string') a[0] = __stamp(a[0]);\n"
+        + "          return fn.apply(console, a);\n"
+        + "        } catch (e) { return fn.apply(console, arguments); }\n"
+        + "      };\n"
+        + "    };\n"
+        + "    console.log = __wrap(console.log);\n"
+        + "    console.info = __wrap(console.info);\n"
+        + "    console.warn = __wrap(console.warn);\n"
+        + "    console.error = __wrap(console.error);\n"
+        + "  } catch (e) { }\n"
         + "  try {\n"
         + "    var cp = require('child_process');\n"
         + "    var BASH = (process.env.PREFIX || '') + '/bin/bash';\n"
@@ -615,6 +902,100 @@ public final class DshBootstrap {
         + "      if (!Array.isArray(args)) { if (args && typeof args === 'object') options = args; args = []; }\n"
         + "      return _spawnSync.call(this, command, args, pick(options, false));\n"
         + "    };\n"
+        + "  } catch (e) { }\n"
+        // ↓ r204: flush the V8 compile cache to disk proactively.
+        //   Node docs: the code cache "will only be written to disk when the Node.js
+        //   instance is about to exit". Android either gets LMK-killed (never exits
+        //   cleanly) or stays resident via the foreground service (never exits at all)
+        //   -- so r19's NODE_COMPILE_CACHE almost never produced a usable cache.
+        //   Do NOT monkey-patch http.Server.prototype.listen: if the framework never
+        //   goes through that prototype, the flush would silently never fire. Instead
+        //   flush on a plain timer (first tick at 10s, past the ~7.2s module graph)
+        //   plus an exit hook for the rare clean shutdown. unref keeps the timers from
+        //   holding the process open; every path is try/catch so an optional
+        //   optimization can never take the startup chain down.
+        + "  try {\n"
+        + "    var M = require('node:module');\n"
+        + "    if (M && typeof M.flushCompileCache === 'function') {\n"
+        + "      if (typeof M.getCompileCacheDir === 'function') {\n"
+        + "        console.log('[dsh] compile-cache dir=' + M.getCompileCacheDir());\n"
+        + "      }\n"
+        + "      var doFlush = function () {\n"
+        + "        try { M.flushCompileCache(); } catch (e) { }\n"
+        + "      };\n"
+        + "      setInterval(doFlush, 10000).unref();\n"
+        + "      process.once('exit', doFlush);\n"
+        + "    }\n"
+        + "  } catch (e) { }\n"
+        // ↓ r205: keep the DeepSeek model listing OFF the startup critical path.
+        //   dsh-llm-deepseek does `await fetch(.../models)` on the FIRST access of a
+        //   process (DEFAULT_MODELS_TIMEOUT_MS = 5000) and its cache is in-memory, so
+        //   EVERY cold start blocks on two network round-trips (api-key + account).
+        //   Strategy: serve a disk cache instantly when present; otherwise fail fast so
+        //   the plugin falls back to its bundled catalog, then fetch for real 4s later
+        //   (past the first frame) and persist. Next cold start gets the real list free.
+        //   start() already has .catch() inside, so a rejection here cannot become an
+        //   unhandledRejection (Node 24 would abort the process on that).
+        + "  try {\n"
+        + "    var __realFetch = globalThis.fetch;\n"
+        + "    if (typeof __realFetch === 'function') {\n"
+        + "      var __fs = require('node:fs');\n"
+        + "      var __path = require('node:path');\n"
+        + "      var __cf = (process.env.HOME || '') + '/.cache/dsh-model-listing.json';\n"
+        + "      var __isModels = function (u) {\n"
+        + "        try {\n"
+        + "          var s = typeof u === 'string' ? u : (u && u.url) || '';\n"
+        + "          return s.indexOf('api.deepseek.com/models') >= 0;\n"
+        + "        } catch (e) { return false; }\n"
+        + "      };\n"
+        + "      var __shape = function (d) {\n"
+        + "        var only = { data: d.data };\n"
+        + "        return {\n"
+        + "          ok: true, status: 200, statusText: 'OK',\n"
+        + "          text: function () { return Promise.resolve(JSON.stringify(only)); },\n"
+        + "          json: function () { return Promise.resolve(only); },\n"
+        + "          headers: { get: function () { return 'application/json'; } }\n"
+        + "        };\n"
+        + "      };\n"
+        + "      var __cached = function () {\n"
+        + "        try {\n"
+        + "          var j = JSON.parse(__fs.readFileSync(__cf, 'utf8'));\n"
+        + "          if (j && Array.isArray(j.data)) return j;\n"
+        + "        } catch (e) { }\n"
+        + "        return null;\n"
+        + "      };\n"
+        + "      var __pull = function (u, h) {\n"
+        + "        __realFetch.call(globalThis, u, { method: 'GET', redirect: 'error', headers: h || {} })\n"
+        + "          .then(function (r) { return r.text(); })\n"
+        + "          .then(function (t) {\n"
+        + "            var j = JSON.parse(t);\n"
+        + "            if (!j || !Array.isArray(j.data)) return;\n"
+        + "            try {\n"
+        + "              __fs.mkdirSync(__path.dirname(__cf), { recursive: true });\n"
+        + "              __fs.writeFileSync(__cf, JSON.stringify({ at: Date.now(), data: j.data }));\n"
+        + "            } catch (e) { }\n"
+        + "            console.log('[dsh] model listing cached: ' + j.data.length + ' model(s)');\n"
+        + "          })\n"
+        + "          .catch(function (e) { });\n"
+        + "      };\n"
+        + "      globalThis.fetch = function (input, init) {\n"
+        + "        if (!__isModels(input)) return __realFetch.apply(this, arguments);\n"
+        + "        var u = typeof input === 'string' ? input : (input && input.url);\n"
+        + "        var h = (init && init.headers) || {};\n"
+        + "        var hit = __cached();\n"
+        + "        if (hit) {\n"
+        + "          // r206: only refetch when the cache is older than the plugin's own\n"
+        + "          //   10-minute max age -- otherwise every cold start wasted a request.\n"
+        + "          if (!hit.at || Date.now() - hit.at > 600000) {\n"
+        + "            setTimeout(function () { __pull(u, h); }, 4000).unref();\n"
+        + "          }\n"
+        + "          console.log('[dsh] model listing served from cache (' + hit.data.length + ')')\n"
+        + "          return Promise.resolve(__shape(hit));\n"
+        + "        }\n"
+        + "        setTimeout(function () { __pull(u, h); }, 4000).unref();\n"
+        + "        return Promise.reject(new Error('deferred: model listing runs after first frame'));\n"
+        + "      };\n"
+        + "    }\n"
         + "  } catch (e) { }\n"
         // ↓ 方案 A：SAF FS 路由（见 docs/saf-feasibility.md §7）。
         //   用 try 包住是**硬性要求**：这个文件由 assets 拷进 libexec，万一缺失/损坏，
@@ -730,7 +1111,9 @@ public final class DshBootstrap {
         sb.append("export OPENSSL_MODULES=\"$PREFIX/lib/ossl-modules\"\n");
         sb.append("export NODE_OPTIONS=\"--require $PREFIX/libexec/dsh-node-shim.js\"\n");
         // node 模块编译缓存：dsh 冷启动要 require 几百个模块，开启后可省 3~6s。
-        // node>=20.19/22.12 才真正生效；旧版本只是忽略这个环境变量，无副作用。
+        // NODE_COMPILE_CACHE 自 v22.1.0 起生效（enableCompileCache v22.8.0 /
+        // flushCompileCache v23.0.0）；旧版本只是忽略这个环境变量，无副作用。
+        // ⚠️ 落盘由 NODE_SHIM 主动 flush —— Android 等不到「正常退出」，见 shim 注释。
         // 缓存目录写进 HOME/.cache（createLauncher 已 mkdirs）。
         sb.append("export NODE_COMPILE_CACHE=\"$HOME/.cache/node-compile-cache\"\n");
         sb.append("cd \"").append(h).append("\"\n");
@@ -755,8 +1138,22 @@ public final class DshBootstrap {
         // --expose-internals：web profile 的 patchReload=live 会创建 cordis-plugin-hmr，
         //   缺这个 flag 它会抛 "--expose-internals is required for HMR service" 并让整个进程退出。
         // --no-open：Termux 里没有 xdg-open，开浏览器必然失败。
-        sb.append("exec \"").append(p).append("/bin/node\" --expose-internals \"").append(h)
-          .append("/node_modules/@deepseek-ai/dsh/lib/bin.js\" web --port ")
+        // r206: optional startup trace, OFF unless $HOME/.dsh/trace-on exists.
+        //   The launcher is regenerated on every cold start, so the switch has to
+        //   live here (a hand-edited launcher would be overwritten). Unquoted $EXTRA
+        //   is intentional: it word-splits into two argv entries. HOME has no spaces.
+        sb.append("EXTRA=\"\"\n");
+        sb.append("[ -f \"$HOME/.dsh/trace-on\" ] && EXTRA=\"--trace-event-categories "
+                  + "node.module_timer,node.bootstrap --trace-event-file-pattern "
+                  + "$HOME/trace.log\"\n");
+        // r207: CPU profile switch, also OFF by default ($HOME/.dsh/cpuprof-on).
+        //   --cpu-prof writes only on a clean exit too, so the probe kills node with
+        //   SIGTERM after the server is up (same trick as trace).
+        sb.append("PROF=\"\"\n");
+        sb.append("[ -f \"$HOME/.dsh/cpuprof-on\" ] && PROF=\"--cpu-prof "
+                  + "--cpu-prof-dir=$HOME --cpu-prof-name=dsh.cpuprofile\"\n");
+        sb.append("exec \"").append(p).append("/bin/node\" --expose-internals $EXTRA $PROF \"")
+          .append(h).append("/node_modules/@deepseek-ai/dsh/lib/bin.js\" web --port ")
           .append(DSH_PORT).append(" --no-open\n");
         java.io.FileWriter fw = new java.io.FileWriter(launcher);
         try {
@@ -768,7 +1165,7 @@ public final class DshBootstrap {
     }
 
     /** 极简 tar 解包器（ustar + GNU 长名 'L'/'K' + 符号链接 '2' + base-256 大小）。 */
-    interface ProgressListener {
+    public static interface ProgressListener {
         void onProgress(int files, long bytes);
     }
 

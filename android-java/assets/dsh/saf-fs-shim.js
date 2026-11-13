@@ -388,8 +388,16 @@
         if (rel === null) return orig.apply(this, arguments);
         var cb = arguments[arguments.length - 1];
         if (typeof cb !== 'function') return orig.apply(this, arguments);
+        // ⚠️⚠️ r167：`args` 必须在**这里**捕获。原实现是在下面的 then 回调里写
+        //   `fn(rel, arguments)` —— 那个 `arguments` 属于内层匿名函数，恒为空，
+        //   于是 fn 拿到的 a[0]/a[1] 全是 undefined：
+        //     · realpath 返回字符串 "undefined"（dsh 拿它当 targetKey，身份全错）
+        //     · writeFile 拿不到要写的数据
+        //   之所以长期没暴露：dsh 之前只走 fs/promises（patchAsync，参数是对的），
+        //   0.2.1 的 dsh-fs-local 改用 `promisify(realpath.native)` 后回调式路径才被真正调用。
+        var args = arguments;
         Promise.resolve()
-          .then(function () { return fn(rel, arguments); })
+          .then(function () { return fn(rel, args); })
           .then(function (v) { cb(null, v); }, function (e) { cb(e); });
       };
     }
@@ -408,6 +416,20 @@
       return callJson('rename', { path: rel, to: relTo }).then(function () {});
     });
     patchCb('realpath', function (rel, a) { return Promise.resolve(nodePath.normalize(String(a[0]))); });
+
+    // ⚠️⚠️ r167 真机踩坑（务必看清再改）：patchCb 会把 `fs.realpath` 换成一个**新函数**，
+    //   而 node 原生 realpath 函数对象上挂着的 `.native` 属性随之消失。
+    //   dsh 0.2.1 的 @deepseek-ai/dsh-fs-local/lib/index.js:98 正是
+    //     `const realpath$1 = promisify(realpath.native);`
+    //   → promisify(undefined) 抛 `ERR_INVALID_ARG_TYPE: The "original" argument must be of
+    //     type function. Received undefined`，整个 dsh-fs-local 导入失败，
+    //     dsh-fs-sandbox 跟着失败 → **fs 服务缺席** → 17 个插件 pending
+    //     （working-directory / session-controller / workspace-files / schedule …）。
+    //   真机表现极具迷惑性：引擎起来了、3080 也监听、页面能打开，但会话和工作区全是空的。
+    //   所以这里把 `.native` 补回去，语义等同 realpath（Android 上无符号链接语义差异）。
+    try { fs.realpath.native = fs.realpath; } catch (_) {}
+    try { fs.realpathSync.native = fs.realpathSync; } catch (_) {}
+    try { fsp.realpath.native = fsp.realpath; } catch (_) {}
     patchCb('access', function (rel) { return Promise.resolve(); });
     patchCb('chmod', function () { return Promise.resolve(); });
 
@@ -491,7 +513,15 @@
       settled++;
       if (settled < 2) return;
       try {
-        console.log(TAG + ' FS 路由已装载（ESM facade: promises=' + pinned.promises
+        // ⚠️ 必须走 stderr，不能 console.log：
+        //   本 shim 通过 NODE_OPTIONS=--require 注入，**引擎派生的每个 node 子进程都会继承**。
+        //   走 stdout 会把这行追加到子进程的正常输出后面，把机器可读的 stdout 弄脏。
+        //   实测（r167）：市场装插件时跑 `pnpm view <pkg> name version description dsh --json`，
+        //   JSON 打完（第 23 行 `}`）紧跟这行横幅（第 24 行），宿主的 JSON.parse 直接抛
+        //   "Unexpected non-whitespace character after JSON at position 610" →
+        //   界面显示「无法获取插件信息」。凡是要解析 stdout 的子命令（npm/pnpm/git）都会中招。
+        //   DshProcessManager 把 stdout 与 stderr 都 append 到 dsh-web.log，所以日志照样能查。
+        console.error(TAG + ' FS 路由已装载（ESM facade: promises=' + pinned.promises
           + ' fs=' + pinned.fs + '）');
       } catch (_) {}
     }

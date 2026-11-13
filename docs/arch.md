@@ -24,9 +24,13 @@ dsh-harness-android/                ← 本仓库：harness 真相源（无gradl
 │   ├── SafProxyServer.java  方案 A：127.0.0.1 回环 HTTP 代理（token 鉴权）
 │   ├── ShellRunner.java     执行 shell / 组装环境变量
 │   └── ...
-├── assets/dsh/                    Web 资源（market / mobile 样式等）
-│   ├── mobile.js  mobile.css  market.css  market-chrome.css
+├── assets/dsh/                    Web 资源（0.2.x 轻量桥层）
+│   ├── official-bridge.js    主题/返回键/设置入口桥（OfficialShell 注入）
+│   ├── engine-switcher.js    引擎端点切换页（DshBridge engines* 接口驱动）
+│   ├── engine-proxy.mjs      远程引擎反代（EngineEndpoints 拷到 files/ 后由 node 起）
 │   └── saf-fs-shim.js       方案 A：node 预加载 FS 路由补丁（拷进 $PREFIX/libexec）
+├── assets/dsh-nas-sync/          内置 NAS 同步插件（随包部署，patch.sh 接入）
+├── assets/patch.sh               首启后自动执行的补丁
 ├── scripts/                        宿主机构建脚本（见 scripts/README.md）
 └── docs/                           本文档
 
@@ -117,3 +121,5 @@ MainActivity.onCreate
 - ❌ **不把 FileProvider 的 `exported` 改成 true**，也不把 `dsh_file_paths.xml` 扩到
   `filesDir` 根目录或含 `node_modules`/`usr`——那等于把 700MB 运行时与 node 二进制
   交给任意第三方 App。详见 [`saf-feasibility.md`](saf-feasibility.md) §6。
+
+> AI生成

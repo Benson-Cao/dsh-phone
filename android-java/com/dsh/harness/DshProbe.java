@@ -43,8 +43,19 @@ public final class DshProbe {
         Ready(String cookiePair) { this.cookiePair = cookiePair; }
     }
 
-    private static String baseUrl() {
-        return "http://127.0.0.1:" + DshProcessManager.DSH_PORT;
+    /**
+     * r199：探测目标必须与 WebView **实际加载的 URL** 一致。
+     *
+     * <p>原来恒为 3080（本机引擎直连）。选远程引擎时 WebView 走 3082 本地反代，
+     * 于是出现「3080 探到 200 → showWebView → loadUrl(3082) → ERR_CONNECTION_REFUSED」
+     * 的系统错误页（用户图二）。现在取 {@link EngineEndpoints#currentUrl}：本机引擎
+     * 仍是 3080，远程引擎则是 3082，探测通过才意味着真的能加载。
+     *
+     * <p>返回不带尾斜杠，调用方沿用 {@code baseUrl(ctx) + "/"} 的写法。
+     */
+    private static String baseUrl(Context ctx) {
+        String u = EngineEndpoints.currentUrl(ctx);
+        return u.endsWith("/") ? u.substring(0, u.length() - 1) : u;
     }
 
     private static HttpURLConnection open(String url, String cookiePair) throws Exception {
@@ -87,7 +98,7 @@ public final class DshProbe {
             }
             HttpURLConnection c2 = null;
             try {
-                c2 = open(baseUrl() + "/", cookie);
+                c2 = open(baseUrl(ctx) + "/", cookie);
                 if (c2.getResponseCode() == 200) return new Ready(cookie);
                 return null;
             } finally {
@@ -189,7 +200,7 @@ public final class DshProbe {
         StringBuilder sb = new StringBuilder();
 
         sb.append("=== dsh 握手体检 ===\n\n");
-        sb.append("target: ").append(baseUrl()).append('\n');
+        sb.append("target: ").append(baseUrl(ctx)).append('\n');
         sb.append("已等待: ").append(elapsedMs / 1000).append(" 秒\n");
         sb.append("token URL: ").append(tokenUrl == null ? "(未抓到 —— 服务可能没启动失败)"
                 : trim(tokenUrl, 120)).append("\n\n");
@@ -213,8 +224,8 @@ public final class DshProbe {
             }
         }
 
-        sb.append(describe("(2) 不带 cookie 访问 /", baseUrl() + "/", null)).append('\n');
-        sb.append(describe("(3) 带 cookie 访问 /", baseUrl() + "/", cookie)).append('\n');
+        sb.append(describe("(2) 不带 cookie 访问 /", baseUrl(ctx) + "/", null)).append('\n');
+        sb.append(describe("(3) 带 cookie 访问 /", baseUrl(ctx) + "/", cookie)).append('\n');
         sb.append(checkDist(ctx)).append('\n');
 
         sb.append("【设备与解包状态】\n");

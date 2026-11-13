@@ -72,6 +72,11 @@ public final class DshService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForegroundCompat();
+        // r230：前台服务只保证「进程不被当缓存进程冻结/回收」，管不住 CPU 睡眠。
+        // 没有 PARTIAL_WAKE_LOCK 时屏幕一关就 suspend，node 事件循环停摆，
+        // 正在流的模型请求断掉 → 回前台看到「已重试模型请求 / transport failed」。
+        // 按流量按需续期，不常驻加锁（见 DshWakeLock）。
+        DshWakeLock.begin(this);
         // 方案 A：代理必须先于 dsh 起来 —— 它要先把 saf_config.json 写好
         //（挂载点 + 端口 + token），node 侧的 shim 才能一上来就走代理。
         // 未配置存储目录时 start() 内部只会写 enabled:false，不做无用功。
@@ -88,9 +93,13 @@ public final class DshService extends Service {
     @Override
     public void onDestroy() {
         Log.i(TAG, "服务被销毁");
+        // 唤醒锁不能跟着服务一起漏：漏了就是长期不让 CPU 睡，待机耗电肉眼可见。
+        DshWakeLock.stop();
         // 代理随服务一起收：留着一个没人用的监听端口没有意义，
         // 且下次 start 会重新挑端口/token（旧 token 作废，更安全）。
         SafProxyServer.stop();
+        // r163 方案 B：服务没了，预热 WebView 一并作废（引擎可能也随之被杀）。
+        DshPreloadWeb.invalidate();
         super.onDestroy();
     }
 
@@ -99,19 +108,27 @@ public final class DshService extends Service {
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
-                    if (DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT)) {
-                        Log.i(TAG, "dsh 已在运行，跳过拉起");
-                        return;
-                    }
-                    DshBootstrap.setupIfNeeded(DshService.this);
-                    String err = DshBootstrap.getLastError();
-                    if (err != null) {
-                        Log.e(TAG, "环境准备失败: " + err);
+                    // r174：不再自己判断端口再 bootstrap+startEngine —— MainActivity 冷启时
+                    // 也在做同一件事，两边都看到"端口没开"就会各起一个 node，后者 EADDRINUSE。
+                    // 统一走闸门：端口已开 → REUSED；另一条路径正在拉 → ALREADY_STARTING。
+                    final DshProcessManager.StartOutcome outcome =
+                            DshProcessManager.ensureEngineStarted(DshService.this);
+                    Log.i(TAG, "ensureEngineStarted=" + outcome);
+                    if (outcome == DshProcessManager.StartOutcome.FAILED) {
+                        Log.e(TAG, "环境准备失败: " + DshProcessManager.getLastStartError());
                         updateNotification("环境准备失败");
                         return;
                     }
-                    boolean ok = DshProcessManager.start(DshService.this);
-                    Log.i(TAG, "拉起 dsh: " + (ok ? "成功" : "失败"));
+                    if (outcome == DshProcessManager.StartOutcome.REUSED) {
+                        // 引擎在线 → 立即开始预热首页 WebView，用户点图标时已加载完
+                        DshPreloadWeb.ensureStarted(DshService.this);
+                        return;
+                    }
+                    // STARTED / ALREADY_STARTING：旧预热的页面引用已失效，先作废再预热
+                    DshPreloadWeb.invalidate();
+                    if (outcome == DshProcessManager.StartOutcome.STARTED) {
+                        DshPreloadWeb.ensureStarted(DshService.this);   // r163 方案 B
+                    }
                     updateNotification(null);
                 } catch (Throwable t) {
                     Log.e(TAG, "保活异常", t);
@@ -161,6 +178,12 @@ public final class DshService extends Service {
                         }
                         try {
                             if (!DshSync.isConfigured(DshService.this)) continue;
+                            // v30.7：S17 选了「仅手动」就只保留定时探测（更新连通性状态供
+                            // S18 只读降级判断），**不搬数据**。真同步由页面「立即同步」触发。
+                            if (DshSync.DIR_MANUAL.equals(DshSync.direction(DshService.this))) {
+                                DshSync.probeHealth(DshService.this);
+                                continue;
+                            }
                             DshSync.Result r = DshSync.syncOnce(DshService.this);
                             // 只在真出问题时打日志；成功不刷屏
                             if (r.ran && !"ok".equals(r.message)) {

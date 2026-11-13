@@ -43,6 +43,15 @@ public final class ShellRunner {
             "SQLITE_TMPDIR=" + p + "/tmp",
             "OPENSSL_CONF=" + p + "/etc/tls/openssl.cnf",
             "OPENSSL_MODULES=" + p + "/lib/ossl-modules",
+            // git（市场按 GitHub 地址装插件时 pnpm 会调它）。Termux 的 git 把
+            // exec-path / 模板 / CA 全编译成 /data/data/com.termux/…，搬到本 App 前缀
+            // 后这些路径不存在 —— 不覆盖就会「git 在、但 clone 找不到子命令」。
+            "GIT_EXEC_PATH=" + p + "/libexec/git-core",
+            "GIT_TEMPLATE_DIR=" + p + "/share/git-core/templates",
+            "GIT_SSL_CAINFO=" + p + "/etc/tls/cert.pem",
+            // 没有终端可交互：一旦 git 要账号密码就会永久挂住（Windows 上实测卡 10 分钟
+            // 才被超时杀掉），这里直接禁掉提示，让它立刻失败而不是假死。
+            "GIT_TERMINAL_PROMPT=0",
             "NODE_OPTIONS=--require " + p + "/libexec/dsh-node-shim.js"
         };
     }

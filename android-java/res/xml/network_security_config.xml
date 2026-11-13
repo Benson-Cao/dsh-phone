@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!--
-      C-05：把明文（cleartext HTTP）从「全局放开」收窄到「仅本机」。
+      明文（cleartext HTTP）策略 —— v30.6 修订。
 
-      dsh 前端跑在 http://127.0.0.1:3080 的本地 HTTP 服务上，WebView 必须能明文访问它。
-      早期用 android:usesCleartextTraffic="true" 全局放行，等于对**任意域名**都允许明文。
-      这里改为：明文只对 127.0.0.1 / localhost 生效，其余域名一律拒绝明文。
+      C-05 曾把明文收窄到「仅 127.0.0.1/localhost」，但 v30.5 真机实测暴露了冲突：
+      NAS 同步（DshWebDavClient）要访问 http://192.168.x.x:5005 这类**局域网明文地址**
+      （飞牛 fnOS WebDAV 默认 HTTP 5005），base-config=false 时系统直接抛
+      "Cleartext HTTP traffic to 192.168.x.x not permitted"，表现为"无法连上 NAS"。
 
-      注意：显式 <base-config> 会覆盖 manifest 上的 usesCleartextTraffic 标志，
-      所以 manifest 里那条全局开关已移除，避免两处语义打架。
+      network-security-config 是静态 XML，无法按用户动态放行任意 NAS IP，
+      也没有覆盖 192.168.0.0/16 的通配写法。因此本文件改为：
+      base-config 放开明文 + 127.0.0.1/localhost 显式列出（语义不变）。
+
+      风险评估：本 App 是局域网工具，明文只用于 NAS 同步这类局域网内网场景；
+      凭据经 Basic Auth 传输仅限内网，且用户可改用 HTTPS(5006)。
+      WebDAV 客户端侧对自签名证书做了对应放行（见 DshWebDavClient）。
 
       本文件由 scripts/01-modify-termux.sh 拷进 termux-app 的 app/src/main/res/xml/。
     -->
@@ -17,6 +23,6 @@
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
 
-    <!-- 其余全部域名：禁止明文，HTTPS 走系统默认信任链 -->
-    <base-config cleartextTrafficPermitted="false" />
+    <!-- v30.6：放开明文，LAN NAS 的 http:// 地址必须能直连 -->
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

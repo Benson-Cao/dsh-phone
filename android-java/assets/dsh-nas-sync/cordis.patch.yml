@@ -1,0 +1,18 @@
+# dsh-nas-sync —— Cordis **bundle** patch 层
+#
+# ⚠️ 这里不是「用户 patch」，是 bundle patch：由本包 package.json 的
+#    dsh.bundle.patch 指向，被 profile-boot 当作 dsh.profile.bundles 里的
+#    一个层，叠在空 root（cordis.yml 的内容是 []）之上。
+#
+# 取证（@deepseek-ai/cordis-plugin-include 的 applyEntryPatches）：
+#   · 带 insert 的 patch → 把 insert 数组推进目标条目（无 id 时推进 root 数组）；
+#   · 不带 insert 的 patch → 必须按 id 命中**已经存在**的条目，否则
+#     warn "patch: entry %C not found" 后**静默跳过**。
+#   root 是 []，所以不带 insert 的写法（旧版就是这个）永远插不进去，
+#   插件不会进入 Loader 树 → dsh-client-modules 扫不到它的 dsh.client →
+#   前端不组合 client bundle → 界面上完全没有入口。
+#
+# 正确写法照 @deepseek-ai/dsh-base/cordis.patch.yml：一个 insert，包住全部行。
+- insert:
+    - id: nas-sync
+      name: dsh-nas-sync

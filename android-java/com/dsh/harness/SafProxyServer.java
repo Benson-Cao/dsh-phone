@@ -26,14 +26,14 @@ import java.util.Map;
  *
  * {@code docs/saf-feasibility.md} §2 把方案 B（UDS）列为"更干净但要先验证"：
  * Termux 版 node 在 Android 下能否 {@code net.connect(unixPath)} 本仓库没人验过。
- * HTTP 的可用性是已被验证过的（{@code DshProbe} 天天在探 3080），
+ * HTTP 的可用性是已被验证过的（{@code DshProbe} 天天在探 3081），
  * 且 {@code http} 模块在 node 里零依赖可用。先选能跑通的那条。
  *
  * ## 四道闸（缺一不可）
  *
  * <ol>
  *   <li><b>只绑回环</b>：{@code ServerSocket} 显式绑 127.0.0.1，端口取 0（内核分配空闲端口，
- *       避免与 dsh 的 3080 或别的本地服务抢）。</li>
+ *       避免与 dsh 的 3081 或别的本地服务抢）。</li>
  *   <li><b>来源再验一次</b>：accept 后核对对端是回环地址 —— 绑定不等于外部一定连不进来
  *       （部分 ROM 的 iptables 行为不可信）。</li>
  *   <li><b>token 鉴权</b>：每次请求校验 {@code x-dsh-token}。挂载点下是用户数据，

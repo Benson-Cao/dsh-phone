@@ -115,7 +115,7 @@ final class DshPalette {
      *
      * <p>本常量仅作文档锚点，不参与取色（渐变线用的是 {@code BRAND_500}）。
      */
-    static final int BRAND_NOTE = 0xFF1466B8;   // 仅作文档锚点，不参与取色
+    static final int BRAND_NOTE = 0xFF4D6BFE;   // 设计稿 brand #4D6BFE（与 BRAND_500 对齐；仅文档锚点，不参与取色）
 
     // 字段与取色方法见下方「优先级」注释块——那里的说明有真机踩坑记录，务必先读。
 
@@ -155,6 +155,8 @@ final class DshPalette {
 
     /** 页面底色。 */
     static int bg(Context c) { return isDark(c) ? D_BG : L_BG; }
+    /** 卡片/骨架块填充色：页面底色之上的一层（浅色=白，深色=比底色亮一档）。 */
+    static int surface(Context c) { return isDark(c) ? 0xFF1C2632 : 0xFFFFFFFF; }
     /** 主文字色。 */
     static int text(Context c) { return isDark(c) ? D_TEXT : L_TEXT; }
     /** 弱化文字色。 */

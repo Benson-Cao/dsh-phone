@@ -94,11 +94,28 @@ public final class DshProcessManager {
      * 端口打开 ≠ 服务可用（实测：端口已开但 frontend-static 还没注册 fallback，
      * 此时任何路径都是 404 空响应体）。启动与等待拆开也让启动更快。
      */
+    /**
+     * 拉起 dsh 服务（布尔版，向后兼容 {@link DshService} 等调用方）。
+     * 只负责启动，不等待就绪；失败返回 false（异常被吞，日志可见）。
+     */
     public static boolean start(Context ctx) {
+        try {
+            running = launch(ctx);
+            return running != null;
+        } catch (Exception e) {
+            Log.e(TAG, "启动 dsh 失败", e);
+            return false;
+        }
+    }
+
+    /**
+     * r152（官方对齐）：以 {@link RuntimeProvider} 接口形式拉起 dsh 引擎进程。
+     * 直接返回进程句柄（调用方负责保活 / 销毁），失败抛异常由上层兜底。
+     */
+    public static Process launch(Context ctx) throws Exception {
         File launcher = new File(DshBootstrap.prefix(ctx), "bin/dsh-web.sh");
         if (!launcher.exists()) {
-            Log.e(TAG, "启动脚本不存在，请先跑 DshBootstrap.setupIfNeeded()");
-            return false;
+            throw new IllegalStateException("启动脚本不存在，请先跑 DshBootstrap.setupIfNeeded()");
         }
         // 日志目录必须先建好，否则重定向失败、什么都看不到
         File homeDir = DshBootstrap.home(ctx);
@@ -111,27 +128,22 @@ public final class DshProcessManager {
         // 不用 setsid/nohup（bundle 里没有 coreutils）。
         // 关键：不能用 "cmd &" + waitFor —— Runtime.exec 的子进程会随调用方结束被回收。
         // 改成直接 ProcessBuilder 启动 bash 脚本本体，进程脱离调用栈继续活着。
-        try {
-            String bash = new File(DshBootstrap.prefix(ctx), "bin/bash").getAbsolutePath();
-            String[] env = ShellRunner.buildEnv(ctx);
-            ProcessBuilder pb = new ProcessBuilder(bash, launcher.getAbsolutePath());
-            pb.directory(homeDir);
-            pb.environment().clear();
-            for (String kv : env) {
-                int i = kv.indexOf('=');
-                if (i > 0) pb.environment().put(kv.substring(0, i), kv.substring(i + 1));
-            }
-            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
-            pb.redirectError(ProcessBuilder.Redirect.appendTo(logFile));
-            final long scanStart = logFile.exists() ? logFile.length() : 0;
-            running = pb.start();
-            Log.i(TAG, "bash 进程已启动");
-            startStateScan(ctx, scanStart);   // 增量扫描 dsh-web.log，解析 DSH_STATE: 行回调 UI
-        } catch (Exception e) {
-            Log.e(TAG, "启动 bash 失败", e);
-            return false;
+        String bash = new File(DshBootstrap.prefix(ctx), "bin/bash").getAbsolutePath();
+        String[] env = ShellRunner.buildEnv(ctx);
+        ProcessBuilder pb = new ProcessBuilder(bash, launcher.getAbsolutePath());
+        pb.directory(homeDir);
+        pb.environment().clear();
+        for (String kv : env) {
+            int i = kv.indexOf('=');
+            if (i > 0) pb.environment().put(kv.substring(0, i), kv.substring(i + 1));
         }
-        return true;
+        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
+        pb.redirectError(ProcessBuilder.Redirect.appendTo(logFile));
+        final long scanStart = logFile.exists() ? logFile.length() : 0;
+        running = pb.start();
+        Log.i(TAG, "bash 进程已启动");
+        startStateScan(ctx, scanStart);   // 增量扫描 dsh-web.log，解析 DSH_STATE: 行回调 UI
+        return running;
     }
 
     private static Process running = null;
@@ -143,6 +155,8 @@ public final class DshProcessManager {
             running = null;
         }
         stopStateScan();
+        // r174：闸门必须跟着清零，否则 stop 之后的 restart 会被自己拦成 ALREADY_STARTING
+        resetEngineGate();
     }
 
     public static boolean restart(Context ctx) {
@@ -159,7 +173,7 @@ public final class DshProcessManager {
      * 读取 dsh web 打印出来的鉴权 URL。
      *
      * 服务启动后 stdout 会有一行：
-     *   dsh web: http://127.0.0.1:3080/?token=xxxxxxxxxxxx
+     *   dsh web: http://127.0.0.1:3081/?token=xxxxxxxxxxxx
      * 裸的根路径会返回 401（"dsh web authentication required"），
      * 所以 WebView 必须加载这个带 token 的 URL —— 它会 303 下发了 dsh-auth cookie 再跳回 /。
      * token 每次启动都不同，所以每次都要从日志里重新抓最后一次出现的那条。
@@ -203,6 +217,105 @@ public final class DshProcessManager {
             return false;
         } finally {
             try { s.close(); } catch (Exception ignored) { }
+        }
+    }
+
+    // ==================================================================
+    // 启动闸门（r174）：冷启动只允许一条路径真正 spawn 引擎
+    // ==================================================================
+
+    /**
+     * 引擎启动的串行闸门。
+     *
+     * <p><b>要解决什么</b>：MainActivity 与 DshService 冷启时都会走
+     * 「端口没开 → bootstrap → startEngine」。而 {@link #isPortOpen} 回答的是
+     * 「**此刻**开没开」，node 从 spawn 到 listen 要十几秒 —— 这十几秒里两条
+     * 路径都判定"没开"，于是各拉起一个 node；后到的那只在 listen 时被
+     * {@code EADDRINUSE} 顶掉并退出。
+     *
+     * <p>副产物比"多起一个进程"更糟：死实例的日志会混进 dsh-web.log，而
+     * {@link #readTokenUrl} 取的是**最后一条** token（为的是重启后拿到新 token），
+     * 于是应用拿着死实例的 token 去换 cookie，永远 401 —— 首页卡在
+     * 「服务还没就绪」，点重试也不行。
+     *
+     * <p><b>闸门规则</b>：同一时刻只允许一条路径执行 bootstrap + startEngine；
+     * 已经 spawn 过的，在 {@link #SPAWN_GRACE_MS} 内其他路径只等不拉，避免
+     * "刚 spawn 完、端口还没开"被误判成需要再拉一次。引擎被 stop/restart 时
+     * 闸门清零。
+     */
+    private static final Object ENGINE_GATE = new Object();
+    /** spawn 之后的等待宽限期：覆盖 node 冷启动最坏情况，超过才允许再拉。 */
+    private static final long SPAWN_GRACE_MS = 120_000L;
+    private static long spawnedAt = 0L;
+    private static boolean spawnInFlight = false;
+    private static volatile String lastStartError = null;
+
+    /** {@link #ensureEngineStarted} 的结果。 */
+    public enum StartOutcome {
+        /** 端口已在监听，复用了已有进程 */
+        REUSED,
+        /** 本次真正 spawn 了一个引擎进程 */
+        STARTED,
+        /** 另一条路径正在启动，本次没有重复拉起 */
+        ALREADY_STARTING,
+        /** 失败：解包报错或 spawn 抛异常，原因见 {@link #getLastStartError()} */
+        FAILED
+    }
+
+    /** 最近一次启动失败的原因（成功时为 null）。 */
+    public static String getLastStartError() {
+        return lastStartError;
+    }
+
+    /**
+     * 幂等、线程安全地保证引擎在跑。
+     *
+     * <p>Activity 与 Service 都可以直接调用；谁先到谁负责拉起，后来的那个
+     * 拿到 {@link StartOutcome#ALREADY_STARTING} 并自己进入等待。
+     */
+    public static StartOutcome ensureEngineStarted(Context ctx) {
+        synchronized (ENGINE_GATE) {
+            if (isPortOpen(DSH_PORT)) return StartOutcome.REUSED;
+            final long now = System.currentTimeMillis();
+            if (spawnInFlight || (spawnedAt > 0 && now - spawnedAt < SPAWN_GRACE_MS)) {
+                // 有人正在拉、或刚拉完还没监听：不重复拉起，让调用方去等端口
+                return StartOutcome.ALREADY_STARTING;
+            }
+            spawnInFlight = true;
+            lastStartError = null;
+            try {
+                String err;
+                try {
+                    DshRuntimeSelector.get(ctx).bootstrap(ctx, null);
+                    err = DshBootstrap.getLastError();
+                } catch (Throwable e) {
+                    Log.e(TAG, "运行底座解包异常", e);
+                    err = "运行底座解包异常: " + e.getMessage();
+                }
+                if (err != null) {
+                    lastStartError = err;
+                    return StartOutcome.FAILED;
+                }
+                try {
+                    DshRuntimeSelector.get(ctx).startEngine(ctx, null);
+                } catch (Throwable e) {
+                    Log.e(TAG, "拉起 dsh 失败", e);
+                    lastStartError = "拉起 dsh 失败: " + e.getMessage();
+                    return StartOutcome.FAILED;
+                }
+                spawnedAt = System.currentTimeMillis();
+                return StartOutcome.STARTED;
+            } finally {
+                spawnInFlight = false;
+            }
+        }
+    }
+
+    /** 引擎被停掉后清空闸门，让下一次 ensureEngineStarted 能重新拉起。 */
+    private static void resetEngineGate() {
+        synchronized (ENGINE_GATE) {
+            spawnedAt = 0L;
+            spawnInFlight = false;
         }
     }
 
@@ -312,7 +425,7 @@ public final class DshProcessManager {
 
     /**
      * node 启动成功后会打印一行带 token 的 web URL：
-     *   dsh web: http://127.0.0.1:3080/?token=xxxxxxxxxxxx
+     *   dsh web: http://127.0.0.1:3081/?token=xxxxxxxxxxxx
      * 生产者（运行时）目前没显式发 DSH_STATE ready，这里把它规范化为 ready 事件，
      * 让启动页状态文案能即时更新（contract.md §3）。注意：
      * - ready 只更新状态文本，绝不触发 WebView 加载 —— WebView 仍由

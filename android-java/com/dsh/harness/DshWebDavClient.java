@@ -3,11 +3,9 @@ package com.dsh.harness;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Locale;
@@ -15,18 +13,22 @@ import java.util.Locale;
 /**
  * 极简 WebDAV 客户端（只实现同步必需的四个动作）。
  *
- * ## 为什么用HttpURLConnection 而不是引第三方库
+ * ## 为什么自己写客户端（两层原因）
  *
- * 这个 bundle 是**刻意极简**的（项目里反复强调「没有 coreutils、没有 pkill/ps」）。
- * 为了同步功能引入 okhttp / sardine 之类，会让 bundle 体积和依赖树重新膨胀，
- * 而实际只需要 PUT / GET / MKCOL / PROPFIND 四个动词 —— 自己写不到 200 行，
- * 且没有升级冲突风险。
+ * 1. 不引第三方库：这个 bundle 是**刻意极简**的（项目里反复强调「没有 coreutils、
+ *    没有 pkill/ps」）。为了同步功能引入 okhttp / sardine 之类，会让 bundle 体积和
+ *    依赖树重新膨胀，而实际只需要 PUT / GET / MKCOL / PROPFIND 四个动词。
+ * 2. **不能用 HttpURLConnection**：Android 与桌面 JDK 的实现都对 method 有白名单
+ *    （OPTIONS/GET/HEAD/POST/PUT/DELETE/TRACE/PATCH），PROPFIND/MKCOL 会被
+ *    **客户端本地**直接抛异常（v30.29 真机实锤：fnOS「连接并测试」报
+ *    {@code Expected one of [OPTIONS, GET, ...] but was PROPFIND}，服务器根本没收到请求）。
+ *    所以传输层换成自写的裸 Socket 客户端 {@link DshHttp}（任意 method、零依赖）。
  *
  * ## 目标端
  *
  * 飞牛 NAS（fnOS）的 WebDAV 服务，默认端口 HTTP 5005 / HTTPS 5006。
  * 开启方式：飞牛后台 → 系统设置 → 文件服务 → WebDAV → 启用。
- * ⚠️ 团队文件夹还要单独勾「允许通过文件共享协议挂载到其他设备」，否则连上��看不到目录
+ * ⚠️ 团队文件夹还要单独勾「允许通过文件共享协议挂载到其他设备」，否则连上了也看不到目录
  * （这是 fnOS 特有的安全机制，不是本类的bug）。
  *
  * ## 安全
@@ -36,17 +38,19 @@ import java.util.Locale;
  *   所以**不建议把 WebDAV 端口暴露到公网**。
  * - 凭证存在SharedPreferences（见 {@link DshSync}），不写日志。
  */
-final class DshWebDavClient {
+final class DshWebDavClient implements DshSync.NasTransport {
 
     private static final String TAG = "DshWebDavClient";
-
-    /** 单次请求超时。局域网正常应< 1s；留足余量但不允许无限等（NAS 掉线时不能卡住同步线程）。 */
-    private static final int CONNECT_TIMEOUT_MS = 8000;
-    private static final int READ_TIMEOUT_MS = 15000;
 
     private final String baseUrl;      // 形如 http://192.168.1.10:5005
     private final String user;
     private final String pass;
+
+    /** 最近一次失败的是人类可读原因（v30.6：设置页「连接并测试」直接展示，不再吞成一句"失败"）。 */
+    private String lastError = "";
+
+    @Override
+    public String lastError() { return lastError; }
 
     DshWebDavClient(String baseUrl, String user, String pass) {
         // 去掉末尾斜杠，避免拼出 // 导致部分服务端路径解析异常
@@ -79,16 +83,13 @@ final class DshWebDavClient {
         return sb.toString();
     }
 
-    private HttpURLConnection open(String method, String urlPath) throws IOException {
-        URL u = new URL(baseUrl + urlPath);
-        HttpURLConnection c = (HttpURLConnection) u.openConnection();
-        c.setRequestMethod(method);
-        c.setConnectTimeout(CONNECT_TIMEOUT_MS);
-        c.setReadTimeout(READ_TIMEOUT_MS);
-        c.setInstanceFollowRedirects(false);   // WebDAV 服务端重定向会丢认证头
-        c.setRequestProperty("Authorization", basicAuth());
-        c.setRequestProperty("User-Agent", "dsh-phone/1");
-        return c;
+    /** 拼完整 URL。构造函数已剥掉 baseUrl 末尾斜杠，而 urlPath 通常不以 / 开头
+     *  （如 "dsh-phone/storages"）——直接拼接会拼成 "http://host:5005dsh-phone/..."，
+     *  这是个会让所有请求 404 的隐藏 bug（v30.28 已修）。此处补斜杠，
+     *  同时兼容调用方已传 "/" 开头（如 ping 的 "/"）或 baseUrl 已带 "/" 的情况。 */
+    private URL urlFor(String urlPath) throws IOException {
+        String sep = (baseUrl.endsWith("/") || urlPath.startsWith("/")) ? "" : "/";
+        return new URL(baseUrl + sep + urlPath);
     }
 
     private String basicAuth() {
@@ -99,23 +100,31 @@ final class DshWebDavClient {
                 android.util.Base64.NO_WRAP);
     }
 
+    /** PROPFIND 必须带 Depth 头（WebDAV 语义）；通过 DshHttp 的附加头参数下发。 */
+    private DshHttp.Resp requestWithDepth(String method, String encodedPath, String depth,
+                                          byte[] body) throws IOException {
+        return DshHttp.request(method, urlFor(encodedPath), basicAuth(), null, body,
+                DshHttp.CONNECT_TIMEOUT_MS, DshHttp.READ_TIMEOUT_MS, "Depth", depth);
+    }
+
     /** 创建目录（已存在时服务端返回 405，视为成功）。 */
-    boolean mkdirs(String relPath) {
+    @Override
+    public boolean mkdirs(String relPath) {
         String acc = "";
         String[] parts = relPath.split("/");
         for (int i = 0; i < parts.length; i++) {
             if (parts[i].length() == 0) continue;
             acc += "/" + parts[i];
             try {
-                HttpURLConnection c = open("MKCOL", encodePath(acc));
-                int code = c.getResponseCode();
-                c.disconnect();
+                DshHttp.Resp r = DshHttp.request("MKCOL", urlFor(encodePath(acc)), basicAuth(),
+                        null, (byte[]) null, DshHttp.CONNECT_TIMEOUT_MS, DshHttp.READ_TIMEOUT_MS);
                 // 201 Created / 405 Method Not Allowed（已存在）都算成功
-                if (code != 201 && code != 405 && code != 301 && code != 409) {
-                    Log.w(TAG, "MKCOL " + acc + " -> " + code);
+                if (r.code != 201 && r.code != 405 && r.code != 301 && r.code != 409) {
+                    Log.w(TAG, "MKCOL " + acc + " -> " + r.code);
                 }
             } catch (IOException e) {
                 Log.w(TAG, "MKCOL 失败 " + acc + ": " + e.getMessage());
+                lastError = "创建目录失败：" + e.getMessage();
                 return false;
             }
         }
@@ -127,96 +136,74 @@ final class DshWebDavClient {
      *
      * @return true 表示服务端已接受（201/204/200）
      */
-    boolean put(String relPath, File local) {
+    @Override
+    public boolean put(String relPath, File local) {
         if (!local.isFile()) return false;
-        HttpURLConnection c = null;
-        InputStream in = null;
-        OutputStream os = null;
         try {
-            c = open("PUT", encodePath(relPath));
-            c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/octet-stream");
-            c.setFixedLengthStreamingMode((int) local.length());
-            os = c.getOutputStream();
-            in = new FileInputStream(local);
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
-            os.flush();
-            int code = c.getResponseCode();
-            return code == 201 || code == 204 || code == 200;
+            DshHttp.Resp r = DshHttp.request("PUT", urlFor(encodePath(relPath)), basicAuth(),
+                    "application/octet-stream", local,
+                    DshHttp.CONNECT_TIMEOUT_MS, DshHttp.READ_TIMEOUT_MS);
+            return r.code == 201 || r.code == 204 || r.code == 200;
         } catch (IOException e) {
             Log.w(TAG, "PUT 失败 " + relPath + ": " + e.getMessage());
+            lastError = "上传失败：" + e.getMessage();
             return false;
-        } finally {
-            closeQuietly(in);
-            closeQuietly(os);
-            if (c != null) c.disconnect();
         }
     }
 
     /** 下载远端文件到本地；本地已存在则覆盖。 */
-    boolean get(String relPath, File dest) {
-        HttpURLConnection c = null;
-        InputStream in = null;
-        OutputStream out = null;
+    @Override
+    public boolean get(String relPath, File dest) {
         try {
-            c = open("GET", encodePath(relPath));
-            int code = c.getResponseCode();
-            if (code != 200) return false;
-            in = c.getInputStream();
+            DshHttp.Resp r = DshHttp.request("GET", urlFor(encodePath(relPath)), basicAuth(),
+                    null, (byte[]) null, DshHttp.CONNECT_TIMEOUT_MS, DshHttp.READ_TIMEOUT_MS);
+            if (r.code != 200) {
+                lastError = "下载失败（HTTP " + r.code + "）";
+                return false;
+            }
             File parent = dest.getParentFile();
             if (parent != null) parent.mkdirs();
-            out = new java.io.FileOutputStream(dest);
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            out.flush();
+            OutputStream out = new FileOutputStream(dest);
+            try {
+                out.write(r.body);
+                out.flush();
+            } finally {
+                try { out.close(); } catch (IOException ignored) { }
+            }
             return true;
         } catch (IOException e) {
             Log.w(TAG, "GET 失败 " + relPath + ": " + e.getMessage());
+            lastError = "下载失败：" + e.getMessage();
             return false;
-        } finally {
-            closeQuietly(in);
-            closeQuietly(out);
-            if (c != null) c.disconnect();
         }
     }
 
     /**
      * 用 PROPFIND 列出远端某个目录下的条目名（只取文件名，不含路径）。
      *
-     * <p>实现取舍：服务端返回 XML，但我们**不引XML 解析库去正确处理命名空间**
-     * （WebDAV 的 `D:href` 在各家服务端前缀不一）。改为宽松的文本提取：
-     * 够用、零依赖。拿不到就返回空集合（调用方按"远端为空"处理，不会误删本地）。
+     * <p>实现取舍：服务端返回 XML，但我们**不引 XML 解析库去正确处理命名空间**
+     * （WebDAV 的 {@code D:href} 在各家服务端前缀不一——{@code <D:href>}、
+     * {@code <d:href>} 甚至 {@code <href>} 都有）。改为宽松的文本提取：先把 href
+     * 标签归一化成 {@code <D:href>} 再抽取。够用、零依赖。拿不到就返回空集合
+     * （调用方按"远端为空"处理，不会误删本地）。
      *
      * @return 文件名集合；失败返回空集合
      */
-    java.util.Set<String> list(String relPath) {
+    @Override
+    public java.util.Set<String> list(String relPath) {
         java.util.Set<String> names = new java.util.LinkedHashSet<>();
-        HttpURLConnection c = null;
-        InputStream in = null;
         try {
-            c = open("PROPFIND", encodePath(relPath));
-            c.setDoOutput(true);
-            c.setRequestProperty("Depth", "1");
-            c.setRequestProperty("Content-Type", "application/xml; charset=utf-8");
-            // 最小 PROPFIND body：只要 href
-            String body = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                    + "<D:propfind xmlns:D=\"DAV:\"><D:prop><D:href/></D:prop></D:propfind>";
-            OutputStream os = c.getOutputStream();
-            os.write(body.getBytes("UTF-8"));
-            os.flush();
-            os.close();
-
-            int code = c.getResponseCode();
-            if (code != 207 && code != 200) {
-                Log.w(TAG, "PROPFIND " + relPath + " -> " + code);
+            DshHttp.Resp r = requestWithDepth("PROPFIND", encodePath(relPath), "1",
+                    ("<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                            + "<D:propfind xmlns:D=\"DAV:\"><D:prop><D:href/></D:prop></D:propfind>")
+                            .getBytes("UTF-8"));
+            if (r.code != 207 && r.code != 200) {
+                Log.w(TAG, "PROPFIND " + relPath + " -> " + r.code);
                 return names;
             }
-            in = c.getInputStream();
-            String xml = readAll(in);
-            String prefix = baseUrl.replace("http://", "").replace("https://", "");
+            String xml = new String(r.body, "UTF-8");
+            // 归一化 href 标签：<d:href>、<href>、</d:href> 等 → <D:href>、</D:href>
+            xml = xml.replaceAll("(?i)<(/?)(?:[A-Za-z0-9]+:)?href>", "<$1D:href>");
             for (String m : between(xml, "<D:href>", "</D:href>")) {
                 String href = m;
                 int q = href.indexOf('?');
@@ -240,9 +227,6 @@ final class DshWebDavClient {
             }
         } catch (Exception e) {
             Log.w(TAG, "PROPFIND 异常 " + relPath + ": " + e.getMessage());
-        } finally {
-            closeQuietly(in);
-            if (c != null) c.disconnect();
         }
         return names;
     }
@@ -256,15 +240,14 @@ final class DshWebDavClient {
      *
      * @return 毫秒时间戳；取不到返回 0（调用方须把 0 视为"未知"，据此放弃覆盖）
      */
-    long lastModified(String relPath) {
-        HttpURLConnection c = null;
+    @Override
+    public long lastModified(String relPath) {
         try {
-            c = open("HEAD", encodePath(relPath));
-            int code = c.getResponseCode();
-            if (code != 200 && code != 204) return 0L;
+            DshHttp.Resp r = requestWithDepth("HEAD", encodePath(relPath), "0", null);
+            if (r.code != 200 && r.code != 204) return 0L;
             // 有些服务端（尤其自建/精简实现）不回Last-Modified，改用 Date 兜底意义不大，
             // 直接返回 0让调用方跳过 —— 宁可不同步，也不冒险用错误时间覆盖用户数据。
-            String lm = c.getHeaderField("Last-Modified");
+            String lm = r.header("Last-Modified");
             if (lm == null) return 0L;
             java.text.SimpleDateFormat[] fmts = {
                 new java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US),
@@ -278,33 +261,54 @@ final class DshWebDavClient {
             return 0L;
         } catch (Exception e) {
             return 0L;
-        } finally {
-            if (c != null) c.disconnect();
         }
     }
 
     /** 连通性探测（PROPFIND Depth:0）。用于设置页「测试连接」。 */
-    boolean ping() {
-        HttpURLConnection c = null;
+    @Override
+    public boolean ping() {
+        lastError = "";
         try {
-            c = open("PROPFIND", "/");
-            c.setDoOutput(true);
-            c.setRequestProperty("Depth", "0");
-            OutputStream os = c.getOutputStream();
-            os.write(("<?xml version=\"1.0\"?><D:propfind xmlns:D=\"DAV:\">"
-                    + "<D:prop><D:resourcetype/></D:prop></D:propfind>").getBytes("UTF-8"));
-            os.flush();
-            os.close();
-            int code = c.getResponseCode();
-            // 207 Multi-Status 是 WebDAV 正常应答；401 说明能连但凭证不对
-            return code == 207 || code == 200 || code == 401;
-        } catch (Exception e) {
+            DshHttp.Resp r = requestWithDepth("PROPFIND", "/", "0",
+                            ("<?xml version=\"1.0\"?><D:propfind xmlns:D=\"DAV:\">"
+                                    + "<D:prop><D:resourcetype/></D:prop></D:propfind>").getBytes("UTF-8"));
+            // 207 Multi-Status 是 WebDAV 正常应答；200 兜底。
+            // ⚠️ 401 不再当成功：那是"服务器可达但凭证不对"，测试页必须如实报错。
+            if (r.code == 207 || r.code == 200) return true;
+            if (r.code == 401) {
+                lastError = "服务器可达，但账号或密码不对（HTTP 401）";
+            } else if (r.code == 403) {
+                lastError = "账号或密码不对，或该账号无 WebDAV 权限（HTTP 403）";
+            } else if (r.code == 404) {
+                lastError = "服务端没有 WebDAV 根路径（HTTP 404），确认 fnOS 已开启 WebDAV 服务";
+            } else {
+                lastError = "服务器响应异常（HTTP " + r.code + "）";
+            }
+            Log.w(TAG, "ping -> " + r.code);
+            return false;
+        } catch (javax.net.ssl.SSLHandshakeException e) {
+            lastError = "HTTPS 证书校验失败：" + e.getMessage();
+            return false;
+        } catch (java.net.SocketTimeoutException e) {
+            lastError = "连接超时——确认手机与 NAS 在同一网络，且 IP/端口正确";
+            return false;
+        } catch (java.net.ConnectException e) {
+            lastError = "无法建立连接——确认 NAS IP 正确、对应服务已开启";
+            return false;
+        } catch (IOException e) {
+            lastError = "网络请求失败：" + e.getMessage();
             Log.w(TAG, "ping 失败: " + e.getMessage());
             return false;
-        } finally {
-            if (c != null) c.disconnect();
+        } catch (Exception e) {
+            lastError = "连接失败：" + e.getClass().getSimpleName();
+            Log.w(TAG, "ping 异常: " + e.getMessage());
+            return false;
         }
     }
+
+    /** 释放底层连接（裸 Socket 每请求自管连接，这里为空实现，仅满足接口契约）。 */
+    @Override
+    public void close() { }
 
     // ---- 小工具 ----
     private static String trimSlash(String s) {
@@ -335,14 +339,6 @@ final class DshWebDavClient {
             i = b + close.length();
         }
         return out;
-    }
-
-    private static String readAll(InputStream in) throws IOException {
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
-        return bo.toString("UTF-8");
     }
 
     private static void closeQuietly(java.io.Closeable c) {

@@ -43,13 +43,16 @@ github.com/termux/termux-app  (v0.118.0, fork)
 ## 目录
 
 ```
-android-java/com/dsh/harness/     我们自己的 8 个 Java 文件（唯一需要维护的代码）
+android-java/com/dsh/harness/     我们自己的 Java 源码（唯一需要维护的代码，含 webview/ 子包）
   DshBootstrap.java               解包 / 完整性自愈 / 环境修护 / 生成启动脚本
   DshProcessManager.java           起停服务 / 端口探测 / 从日志抓 token URL
   DshProbe.java                   手机端体征自检（状态码/响应头/dist/日志）
   DshChromeClient.java            附件：接上系统文件选择器
-  MobileTuning.java               手机布局适配（注入 CSS + 自动折叠侧栏）
-  DshWebViewClient.java           内外链分流 + 错误页
+  DshWebViewClient.java           内外链分流 + 错误页 + official-bridge 注入
+  webview/OfficialShell.java     注入 official-bridge.js（0.2.x 轻量桥，取代 mobile.js 外壳）
+  webview/DshWebBridge.java      官方 dsh-bridge 消息通道（WebViewCompat.addWebMessageListener）
+  DshRuntimeSelector.java        运行时底座选择（PRoot 优先，不可用回退 Termux）
+  EngineEndpoints.java           引擎端点（本机/远程）持久化 + engine-switcher 数据源
   MainActivity.java               加载界面 + 启动编排 + 体征自检展示
   ShellRunner.java                环境变量拼装
 
@@ -120,9 +123,11 @@ INSTALL=1 bash scripts/00-build-apk.sh                        # 编完自动 adb
 |---|---|
 | Web UI | 完整 dsh Web 界面，桌面/手机自适应 |
 | **附件上传** | 自接 `WebChromeClient.onShowFileChooser` → 系统文件选择器（WebView 默认不实现，不接就是"点了没反应"） |
-| **移动端导航外壳** | 窄屏注入顶栏 + 抽屉式侧栏 + 遮罩，主区独占全宽（详见 `MobileTuning.java`） |
+| **移动端布局** | 官方 0.2.x Web UI 自带响应式，不再注入自建外壳（`MobileTuning` 已删除） |
+| **官方桥** | `webview/OfficialShell` 注入 `official-bridge.js`（主题/返回键/设置入口）+ `dsh-bridge` 消息通道 |
 | 软键盘 | `windowSoftInputMode=adjustResize`，输入区不被遮挡 |
-| 明文流量 | `usesCleartextTraffic=true`（targetSdk 28 对 127.0.0.1 同样拦） |
+| 明文流量 | `network_security_config` 放开明文（回环 + 局域网 NAS；targetSdk 28 对 127.0.0.1 同样拦） |
+| 常驻保活 | `DshService` 前台服务（已注册进清单 + `FOREGROUND_SERVICE_DATA_SYNC` 权限） |
 | 自愈 | 关键文件缺失 → 自动清理重解包；解包写失败 → **不写安装标记**，下次重试 |
 | 自检 | 服务异常时把状态码/响应头/响应体/dist 状态/服务日志直接显示在屏幕上（无 adb 时唯一渠道） |
 
@@ -184,3 +189,5 @@ GCM 里缓存着 GitHub 的 OAuth 凭据（`gho_` 开头的长期令牌）并会
 
 最快的自检通道：**装上后如果没进 UI，屏幕会直接显示状态码 / 响应头 / dist 检查 / 服务日志**，
 截那张图就等于有了 logcat。
+
+> AI生成

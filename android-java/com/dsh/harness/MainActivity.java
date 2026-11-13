@@ -38,7 +38,7 @@ import org.json.JSONObject;
  * 启动顺序（全部在后台线程，避免首启解压 735MB 导致 ANR / 黑屏）：
  *   1. DshBootstrap.setupIfNeeded() —— 首次解包 + 补符号链接 + 打补丁 + 生成启动脚本
  *   2. DshProcessManager.start()    —— 后台拉起 dsh Web 服务
- *   3. WebView 等待 3080 端口就绪后加载 http://127.0.0.1:3080
+ *   3. WebView 等待 3081 端口就绪后加载 http://127.0.0.1:3081
  *
  * 期间显示"正在启动"界面，而不是黑屏。
  */
@@ -59,7 +59,18 @@ public class MainActivity extends Activity {
     // ===== 设计稿《移动端 UI 设计系统》token =====
     // 唯一依据：资料库页面《移动端 UI 设计系统》的 :root 变量表。
     // 之前 App 用的是深色 #0F1116，与设计稿的浅色体系冲突（也导致状态栏配色别扭）。
-    private static final int BRAND_500 = 0xFF2B8AE8;  // 鲨鱼蓝，主色
+    private static final int BRAND_500 = 0xFF4D6BFE;  // 设计稿 brand #4D6BFE（选中/链接/品牌渐变）
+
+    // 动效规范（设计稿 07）：4 档时长 + 2 条缓动，原生动画统一走这里。
+    private static final long DUR_PRESS  = 120;   // 按压反馈
+    private static final long DUR_PANE   = 200;   // Tab / 面板切换
+    private static final long DUR_TRACE  = 320;   // 轨迹 / 指标 / WebView 入场
+    private static final long DUR_SCREEN = 450;   // 屏入场 / 启动页淡出 / 主题换肤
+    // 出场通用缓动 cubic-bezier(.2,.8,.2,1)；换肤缓动 cubic-bezier(.45,.05,.2,1)
+    private static final android.view.animation.Interpolator EASE_OUT =
+            new android.view.animation.PathInterpolator(0.2f, 0.8f, 0.2f, 1f);
+    private static final android.view.animation.Interpolator EASE_THEME =
+            new android.view.animation.PathInterpolator(0.45f, 0.05f, 0.2f, 1f);
     // ⚠️ INK_900 / INK_400 / INK_50 只在**渐变线等品牌元素**上直接用；
     //    所有「会随深浅色切换」的用色一律走 {@link DshPalette}。
     //    r79：启动页加深色模式，原先这里硬编码导致深色系统下白底黑字（刺眼）。
@@ -72,6 +83,12 @@ public class MainActivity extends Activity {
     private ScrollView splashScroll;
     private TextView splashTitle;
     private View splashRule;
+
+    /** 启动页各处视图引用：主题切换时要能就地改色，故持有引用。
+     *  r163（回滚 v34/v35）：恢复品牌启动页（图二状态）。v35 的骨架屏方案有硬伤——
+     *  crossfadeSplashToWeb() 只淡入 WebView，从不移除 homeSkeleton，骨架永远
+     *  盖在最上层，真机表现为「卡在骨架屏，无法使用」。整组撤掉：呼吸线、
+     *  引擎连接成功浮层、首页骨架，全部回归启动页 → 交叉淡入 → 首页。 */
 
     /**
      * 应用当前调色板到启动页的全部视图。
@@ -137,7 +154,15 @@ public class MainActivity extends Activity {
     private boolean webShown = false;
 
     private String dshUrl() {
-        return "http://127.0.0.1:" + DshProcessManager.DSH_PORT;
+        // 三引擎切换：本机直连 3080，电脑/服务器走 3082 本地反代。
+        // 两者都是 loopback，A-02 的 DshOrigin 判定与 JS 桥信任边界保持不变。
+        return EngineEndpoints.currentUrl(this);
+    }
+
+    /** 由 DshBridge.engineSwitch() 在切换完成后调用（已在主线程）。 */
+    public void reloadForEngine() {
+        if (webView == null) return;
+        webView.loadUrl(EngineEndpoints.currentUrl(this));
     }
 
     private void setStatus(final String s) {
@@ -148,20 +173,25 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** v31：进程内单例引用 —— 原生设置页「网页设置」回程需要拿 WebView 执行 JS。 */
+    public static volatile java.lang.ref.WeakReference<MainActivity> sInstance;
+
+    /** r204: real timing origin (first line of onCreate). The old tBoot was taken
+     *  *inside* the background thread, so every "total Xms" silently omitted the
+     *  whole onCreate main-thread segment (splash views, WebView provider, etc.). */
+    private static volatile long sCreateAt = 0L;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        sCreateAt = System.currentTimeMillis();   // r204: real timing origin
         super.onCreate(savedInstanceState);
+        Log.i("Startup", "[mark] onCreate start");
+        sInstance = new java.lang.ref.WeakReference<>(this);
 
-        // r107：开 WebView 远程调试（仅 debug 构建有价值，release 会被 R8 掉也无所谓）。
-        //   为什么必须开：vivo 机型会吞掉第三方应用的 logcat（实测 persist.log.tag=VERBOSE
-        //   且进程 alive，logcat --pid 仍 0 行），页面内 JS 的执行情况完全看不到。
-        //   开了之后可以用 chrome://inspect 或 CDP 直连，直接读 DOM / console / 执行 JS，
-        //   排查前端问题不再依赖 logcat。
-        try {
-            android.webkit.WebView.setWebContentsDebuggingEnabled(true);
-        } catch (Throwable t) {
-            android.util.Log.w("MainActivity", "远程调试开关失败：" + t.getMessage());
-        }
+        // r204: WebView debugging switch moved down to just before prepareWebView().
+        //   setWebContentsDebuggingEnabled is the FIRST android.webkit API touched;
+        //   it synchronously loads WebViewFactoryProvider (1~3s on low-end phones).
+        //   Leaving it here pushed Node launch back by W -- the two costs added up.
 
         // r107：SAF 代理必须在拉起 dsh **之前**就位（幂等）。
         //   为什么不能只靠 DshService：DshService 并没有在 AndroidManifest 里注册，
@@ -172,6 +202,25 @@ public class MainActivity extends Activity {
         //   这里起一次即可：未配置 → 只写 enabled:false；已配置 → 用新端口/token 覆盖。
         //   于是配置文件永远与真实状态一致（shim 按 mtime 现读，不需要重启 dsh）。
         SafProxyServer.start(this);
+
+        // r204: launch the engine at the earliest legal point. DshService.start /
+        // ensureEngineStarted used to sit at the END of onCreate's background thread,
+        // behind splash view building, setContentView, WebView provider loading and
+        // prepareWebView() -- all main-thread work with zero dependency on Node boot.
+        // This thread only does the *spawn*: ensureEngineStarted synchronizes on
+        // ENGINE_GATE for its whole body, so the original thread queues on that lock,
+        // then proceeds with the 3082 proxy and readiness polling exactly as before.
+        // DshService.start() deliberately stays in the original thread --
+        // startForegroundService has a hard 5s deadline to call startForeground().
+        // SAF proxy must already be up (r107 hard constraint, see above).
+        new Thread(new Runnable() {
+            @Override public void run() {
+                Log.i("Startup", "[mark] onCreate->NodeLaunch="
+                        + (System.currentTimeMillis() - sCreateAt) + "ms");
+                Log.i("Startup", "[mark] earlySpawn="
+                        + DshProcessManager.ensureEngineStarted(MainActivity.this));
+            }
+        }, "dsh-engine-early-start").start();
 
         // r79：必须在任何取色之前读上次记住的 dsh 主题，
         // 否则启动页会先按系统主题画一遍、再改一次（肉眼可见的闪色）。
@@ -185,6 +234,8 @@ public class MainActivity extends Activity {
         splashRoot = root;   // r79：留给 applyPalette() 二次改色
 
         // --- 加载界面（替代黑屏），按设计稿重写 ---
+        // r163：恢复品牌启动页（鲸鱼标 → DeepSeek Harness → 状态文案 → 品牌渐变线）。
+        // 引擎就绪后由 crossfadeSplashToWeb() 交叉淡入真实首页。
         loadingBox = new LinearLayout(this);
         loadingBox.setOrientation(LinearLayout.VERTICAL);
         // CENTER = CENTER_VERTICAL | CENTER_HORIZONTAL，配合 ScrollView.fillViewport
@@ -195,12 +246,22 @@ public class MainActivity extends Activity {
         //   垂直居中完全交给 gravity，padding 只留左右。
         loadingBox.setPadding(dp(32), 0, dp(32), 0);
 
-        // 品牌图标 36×36pt 透明底（设计稿「首页布局规格」）—— 复用 adaptive 前景。
+        // 品牌图标：优先用裁边版鲸鱼（r200，strip_icon_bg.py 生成的
+        // drawable-nodpi/dsh_splash_whale.png，内容 bbox+8% 留白，鲸鱼几乎占满画布），
+        // 找不到时回退 adaptive 前景（原图鲸鱼只占画布 48%×35%，视觉偏小）。
         // 用 getIdentifier 而非 R.mipmap.*：纯 javac 校验时没有生成的 R 类。
         ImageView logo = new ImageView(this);
-        int fgId = getResources().getIdentifier("dsh_foreground", "mipmap", getPackageName());
+        // v36：深浅色各备一张鲸鱼（同一剪影两色）。判定用 DshPalette.isDark（含
+        // dshDarkOverride 持久化主题），**不能**用 drawable-night 资源限定符 ——
+        // 那个只跟系统 uiMode 走，用户「系统浅色 + dsh 深色」时启动页底是深色、
+        // 图还是深炭色，肉眼几乎看不见（用户实拍图二）。
+        int fgId = getResources().getIdentifier(
+            DshPalette.isDark(this) ? "dsh_splash_whale_night" : "dsh_splash_whale",
+            "drawable", getPackageName());
+        if (fgId == 0) fgId = getResources().getIdentifier("dsh_splash_whale", "drawable", getPackageName());
+        if (fgId == 0) fgId = getResources().getIdentifier("dsh_foreground", "mipmap", getPackageName());
         if (fgId != 0) logo.setImageResource(fgId);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(72), dp(72));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(80), dp(80));
         logoLp.bottomMargin = dp(20);
         loadingBox.addView(logo, logoLp);
 
@@ -219,14 +280,9 @@ public class MainActivity extends Activity {
         loadingBox.addView(title, tLp);
 
         // 设计稿「启动页 / 服务初始化」：**只保留**鲸鱼标 → 标题 → 启动服务文案 → 进度条。
-        // 标注原文：「已按标注去掉『正在初始化 Agent 运行时…』文案」，
-        // 所以这里**不再**添加任何中间副标题行。
         statusText = new TextView(this);
         statusText.setText("正在准备运行环境…");
         statusText.setTextColor(DshPalette.muted(this));
-        // r79：12px → 14px。既然浅色下 muted 已被迫压深到接近正文
-        //（见 DshPalette.L_MUTED 的实测说明），层级就靠字号表达。
-        // 14px 仍是小字，AA 依旧要求 4.5:1 —— 已达标。
         statusText.setTextSize(14);
         statusText.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
@@ -237,7 +293,6 @@ public class MainActivity extends Activity {
         // 品牌渐变细线（--brand-500 →透明），替代原来的 ProgressBar
         View rule = new View(this);
         // ⚠️ r79：末端透明色取**当前底色**，不再写死 0x00FFFFFF。
-        //   深色底下若渐变到"白色透明"，末端会泛出白雾，比不渐变更显眼。
         rule.setBackground(gradient(0, 100, BRAND_500, DshPalette.fadeToBg(this)));
         splashRule = rule;
         LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(dp(120), dp(3));
@@ -248,15 +303,29 @@ public class MainActivity extends Activity {
         scroll.setBackgroundColor(DshPalette.bg(this));
         splashScroll = scroll;
         // ⚠️ 必须开 fillViewport：ScrollView 的子View 默认只按内容高度布局，
-        //    此时 LinearLayout 的 gravity(CENTER) **不会**产生垂直居中效果
-        //    （真机表现：整块内容贴在上方，图标刚好在状态栏下面）。
-        //    fillViewport 让子View 在内容不足一屏时**被拉伸到一屏高**，
-        //    gravity 生效；内容超过一屏时仍可正常滚动。
+        //    此时 LinearLayout 的 gravity(CENTER) **不会**产生垂直居中效果。
         scroll.setFillViewport(true);
         scroll.addView(loadingBox);
         root.addView(scroll, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+
+        // r216：启动时先回收常驻预热 WebView（用户选定方案）。
+        // 旧实例的 uiMode/主题停在上一轮配置，且预热阶段没挂 WebViewClient →
+        // official-bridge.js 从未注入，是一张裸的浅色首页；真机 CDP 见过两个
+        // 同源 target，浅色那个就是它。回收后本次进程只留一个干净的 WebView。
+        DshPreloadWeb.discardOnLaunch();
+        // r204: debugging switch moved here from the top of onCreate (see above).
+        //   Still before new WebView(), so CDP works unchanged; but the provider
+        //   load now happens AFTER Node launch and overlaps the ~7.2s engine boot.
+        try {
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "远程调试开关失败：" + t.getMessage());
+        }
+        // WebView 照旧提前创建预热（渲染进程冷启动 1~3s，与 node 启动并行），
+        // 但**不挂进视图树** —— 由 crossfadeSplashToWeb() 在就绪时加到最上层淡入。
+        prepareWebView();
 
         // 接入 DSH_STATE 协议（contract.md §6）：运行时把结构化状态写进 dsh-web.log，
         // DshProcessManager 增量扫描并回调此处，统一驱动启动页状态文案 / 错误诊断。
@@ -277,9 +346,11 @@ public class MainActivity extends Activity {
         //原来这里写死 INK_50 + LIGHT_STATUS_BAR，深色系统下会出现"浅状态栏 + 深页面"割裂。
         applyPalette();
 
-        // 品牌渐显：标题从 0.3alpha 淡入到 1（设计稿「品牌渐显」）
-        title.setAlpha(0.3f);
-        title.animate().alpha(1f).setDuration(700).setStartDelay(120).start();
+        // 品牌渐显：标题上浮 18px + 淡入（设计稿 07 屏入场 450ms / cubic-bezier(.2,.8,.2,1)）
+        title.setAlpha(0f);
+        title.setTranslationY(dp(18));
+        title.animate().alpha(1f).translationY(0f)
+                .setDuration(DUR_SCREEN).setStartDelay(80).setInterpolator(EASE_OUT).start();
 
         // --- 耗时工作全部丢后台线程 ---
         new Thread(new Runnable() {
@@ -289,29 +360,30 @@ public class MainActivity extends Activity {
                 // ===== 常驻服务 =====
                 // 启动 DshService，让 dsh 在 App 退出后仍存活。
                 // 这样第二次打开只需探测端口（亚秒级），不必等 node 冷启动。
+                //
+                // ⚠️ 这里**不再自己判断端口然后 bootstrap + startEngine**：
+                //    服务那条路径此刻也在做同一件事，而 isPortOpen 只是「现在开没开」，
+                //    node 冷启动要十几秒 —— 两条路径都会判"没开"，于是各起一个进程，
+                //    后到的被 EADDRINUSE 顶掉。死实例的日志还会让 readTokenUrl 取错
+                //    token，首页就卡在「服务还没就绪」。
+                //    统一交给 ensureEngineStarted 的闸门：谁先到谁拉，另一条只等。
                 DshService.start(MainActivity.this);
 
-                // ⚠️ **先探测端口**：若 DshService 已经把 dsh 拉起来了，
-                //   这里应立刻短路返回，不要再走一遍 bootstrap + start
-                //   （那会把秒开浪费掉）。这是"8s → 亚秒"的关键分支。
-                if (DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT)) {
-                    Log.i("MainActivity", "[计时] 端口已就绪（常驻服务命中），跳过 bootstrap");
-                    waitThenShowWeb(tBoot, 0, 0, true);
-                    return;
-                }
-
-                setStatus("正在解包运行环境（首次约需 1–3 分钟）…");
-                DshBootstrap.setupIfNeeded(MainActivity.this);
+                setStatus("正在准备运行环境…");
+                final long tStart = System.currentTimeMillis();
+                final DshProcessManager.StartOutcome outcome =
+                        DshProcessManager.ensureEngineStarted(MainActivity.this);
                 final long tBootDone = System.currentTimeMillis();
-                Log.i("MainActivity", "[计时] bootstrap " + (tBootDone - tBoot) + "ms");
+                Log.i("MainActivity", "[计时] ensureEngineStarted=" + outcome
+                        + " " + (tBootDone - tStart) + "ms（总 " + (tBootDone - tBoot) + "ms）");
 
-                // 解包失败：立刻把真实原因显示出来，别让用户对着黑屏猜
-                final String bootErr = DshBootstrap.getLastError();
-                if (bootErr != null) {
+                if (outcome == DshProcessManager.StartOutcome.FAILED) {
+                    // 失败：把真实原因显示出来，别让用户对着黑屏猜
+                    final String errMsg = DshProcessManager.getLastStartError();
                     final long free = DshBootstrap.usableBytes(MainActivity.this);
                     main.post(new Runnable() {
                         @Override public void run() {
-                            showDiagnostics("环境准备失败：\n\n" + bootErr
+                            showDiagnostics("环境准备失败：\n\n" + errMsg
                                 + "\n\n可用空间: " + (free < 0 ? "未知" : (free / 1048576) + " MB")
                                 + "\n\n" + DshBootstrap.describeIntegrity(MainActivity.this)
                                 + "\n点下面的“重试”会重新尝试解包；"
@@ -321,26 +393,26 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                setStatus("正在启动 dsh 服务…");
-                // 端口已监听 → dsh 进程还活着（切后台 / 重建 Activity 时常见），直接复用，
-                // 省掉 15s node 冷启动；否则才拉起。
-                final boolean reused =
-                        DshProcessManager.isPortOpen(DshProcessManager.DSH_PORT);
-                final long tStart = System.currentTimeMillis();
+                // r199：把 3082 本地反代的启动**提前到就绪探测之前**。
+                // 原来 EngineEndpoints.apply() 只在 showWebView() 里调用 —— 等于刚
+                // Runtime.exec 拉起 node 反代就立刻 loadUrl(3082)，必然撞上
+                // ERR_CONNECTION_REFUSED（用户图二的系统错误页）。现在探测循环有
+                // 充足时间等反代监听，且 DshProbe 已改为探同一个 URL。
+                try {
+                    EngineEndpoints.apply(MainActivity.this);
+                } catch (Throwable e) {
+                    Log.e("MainActivity", "启动本地反代失败", e);
+                }
+
+                // REUSED（端口已开）/ STARTED（本次拉起）/ ALREADY_STARTING（服务正在拉）
+                // 三条都进同一条等待路径 —— 区别只在文案与耗时统计。
+                final boolean reused = outcome == DshProcessManager.StartOutcome.REUSED;
                 if (reused) {
                     Log.i("MainActivity", "dsh 端口已监听，复用现有进程，不重新拉起");
-                } else {
-                    boolean ok = DshProcessManager.start(MainActivity.this);
-                    if (!ok) {
-                        // 启动失败：把真实日志显示在界面上，省得必须连电脑看 logcat
-                        final String log = DshProcessManager.tailLog(MainActivity.this, 40);
-                        final String msg = log.isEmpty() ? "（无日志，node 可能未启动）" : log;
-                        setStatus("dsh 启动失败。日志：\n\n" + msg);
-                        return;   // 停在错误页，不进入空白 WebView
-                    }
+                } else if (outcome == DshProcessManager.StartOutcome.ALREADY_STARTING) {
+                    Log.i("MainActivity", "常驻服务正在拉起 dsh，本路径只等待不重复启动");
                 }
-                // dWait = 从「决定拉起/复用」到「就绪」的耗时
-                waitThenShowWeb(tBoot, tBootDone - tBoot, 0, reused);
+                waitThenShowWeb(tBoot, reused ? 0 : (tBootDone - tBoot), 0, reused);
             }
         }).start();
     }
@@ -377,6 +449,8 @@ public class MainActivity extends Activity {
                 Log.i("MainActivity", "[计时] 总 " + (tReady - tBoot)
                         + "ms | bootstrap " + dBoot
                         + "ms | " + (reused ? "复用" : "冷启") + " " + dWait + "ms");
+                Log.i("Startup", "[mark] onCreate->HTTP200="
+                        + (tReady - sCreateAt) + "ms (old scope " + (tReady - tBoot) + "ms)");
                 // 直接显示在启动页上——真机没有 adb 时，这是唯一的取证渠道
                 setStatus("已用 " + ((tReady - tBoot) / 1000) + " 秒"
                         + "（环境 " + dBoot + "ms"
@@ -390,8 +464,7 @@ public class MainActivity extends Activity {
                                 + DshProcessManager.DSH_PORT + "/", cookie);
                             cm.flush();
                         }
-                        showWebView("http://127.0.0.1:"
-                            + DshProcessManager.DSH_PORT + "/");
+                        showWebView(EngineEndpoints.currentUrl(MainActivity.this));
                     }
                 });
                 return;
@@ -399,7 +472,10 @@ public class MainActivity extends Activity {
             final int sec = (int) ((System.currentTimeMillis() - t0) / 1000);
             setStatus("正在启动 dsh 服务…"
                 + (sec >= 1 ? "（已用 " + sec + " 秒）" : ""));
-            try { Thread.sleep(250); } catch (InterruptedException e) { return; }
+            // r163 方案 A：自适应轮询。前 3 秒 120ms 快探（常驻命中路径就绪极快，
+            // 250ms 固定间隔平均多等 ~125ms），之后回落 250ms 给引擎喘息。
+            long gap = (System.currentTimeMillis() - t0 < 3000) ? 120 : 250;
+            try { Thread.sleep(gap); } catch (InterruptedException e) { return; }
         }
 
         // 超时：把原始证据摊在屏幕上（没有 adb 时唯一渠道）
@@ -458,10 +534,28 @@ public class MainActivity extends Activity {
     /**
      * 预热 WebView：提前创建并 load 空白页，让渲染进程在 node 启动期间就起来。
      * 这样等轮询探测到 200 时，WebView 已经 ready，不必再串行等 1~3s 的渲染进程冷启动。
+     *
+     * <p>r163 方案 B：优先领养 DshService 预热的常驻 WebView —— 那个不仅渲染进程
+     * 就位，连首页 HTML/JS 都已加载完。领养后重设绑 Activity 的回调
+     * （ChromeClient 的附件选择器需要 Activity 的 startActivityForResult，
+     * Service 预热阶段故意没设），并跳过后续 loadUrl（页面已在）。
      */
     private void prepareWebView() {
         if (webView != null) return;
         if (isFinishing() || isDestroyed()) return;   // Activity 已退出就不必建了
+        try {
+            if (DshPreloadWeb.isAvailable()) {
+                webView = DshPreloadWeb.adopt();
+                bindActivityClients();
+                // 领养时页面早已 onPageFinished，注入钩子不会再触发；主动补一次
+                // （脚本自带 __dshOfficialBridge 守卫，重复注入是 no-op）。
+                com.dsh.harness.webview.OfficialShell.inject(webView);
+                Log.i("MainActivity", "已领养常驻预热的 WebView（首页已加载）");
+                return;
+            }
+        } catch (Throwable t) {
+            Log.w("MainActivity", "领养预热 WebView 失败，回退自建: " + t.getMessage());
+        }
         webView = new WebView(this);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -474,6 +568,21 @@ public class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         // 让 dsh 下发的 dsh-auth cookie 能落盘，否则跳回 / 又是 401
         android.webkit.CookieManager.getInstance().setAcceptCookie(true);
+        bindActivityClients();
+        webView.setBackgroundColor(DshPalette.bg(this));
+        webView.loadUrl("about:blank");   // 仅预热，不显示
+        Log.i("MainActivity", "WebView 已预热（自建）");
+        Log.i("Startup", "[mark] onCreate->WebViewInstance="
+                + (System.currentTimeMillis() - sCreateAt) + "ms");
+    }
+
+    /**
+     * 给当前 webView 绑定**依赖 Activity** 的回调与 JS 桥（r163 方案 B 抽出）。
+     * 自建与领养两条路径都要走：领养的 WebView 在 Service 里只做了设置与加载，
+     * 这些回调故意留空等 Activity 补上。
+     */
+    private void bindActivityClients() {
+        if (webView == null) return;
         // 附件：WebView 默认不弹文件选择器，必须挂 WebChromeClient
         chromeClient = new DshChromeClient(this);
         webView.setWebChromeClient(chromeClient);
@@ -484,16 +593,18 @@ public class MainActivity extends Activity {
             webView.addJavascriptInterface(new DshBridge(this), "dshNative");
             // 方案 C：文件导出桥（dshSaf）。单独一个对象名，避免和插件市场逻辑混在一起。
             webView.addJavascriptInterface(new DshSafBridge(this), "dshSaf");
+            // r152（官方对齐）：官方 dsh-bridge 通道（WebViewCompat.addWebMessageListener）。
+            // 与上面两个接口并存：现有前端继续走 dshNative/dshSaf，本通道是官方「祝福路径」
+            // 的前向兼容实现（消息名 dsh-bridge，JS 侧 window.DshBridge.call）。
+            new com.dsh.harness.webview.DshWebBridge(this).register(webView);
         } catch (Exception e) {
             Log.e("MainActivity", "注册 JS bridge 失败", e);
         }
-        webView.setBackgroundColor(DshPalette.bg(this));
-        webView.loadUrl("about:blank");   // 仅预热，不显示
-        Log.i("MainActivity", "WebView 已预热");
     }
 
     /** DshBridge 需要在安装完成后回调 JS，故暴露 webView 引用。 */
-    android.webkit.WebView webViewRef() {
+    /** v31：改 public —— 原生设置页（mobile.SettingsActivity）「网页设置」回程经它执行 JS。 */
+    public android.webkit.WebView webViewRef() {
         return webView;
     }
 
@@ -541,6 +652,28 @@ public class MainActivity extends Activity {
      *
      * <p>只改系统栏，**不动页面视图** —— 此时 setContentView 已是 WebView。
      */
+    /**
+     * v30.38：应用页面持续上报的 dsh 真实主题（由 {@code official-bridge.js} 轮询触发）。
+     *
+     * <p>与 {@code DshWebViewClient.probeTheme()} 的区别：那个只在页面加载完成时探
+     * 有限几次；本方法处理「页面已加载、用户在原生设置里改了主题后返回」的场景 ——
+     * WebView 不 reload，但 dsh 的 CSS 变量已切换，此时必须重刷系统栏。
+     *
+     * @param dark 页面自报的深浅色
+     */
+    public void applyDshTheme(boolean dark) {
+        try {
+            boolean changed = DshPalette.rememberDshDark(this, dark);
+            if (changed) {
+                Log.i("MainActivity", "[dsh] 页面主题变化 → " + (dark ? "dark" : "light")
+                        + "，刷新系统栏");
+                refreshSystemBarsForTheme();
+            }
+        } catch (Throwable t) {
+            Log.w("MainActivity", "applyDshTheme 失败: " + t.getMessage());
+        }
+    }
+
     public void refreshSystemBarsForTheme() {
         try {
             // ⚠️ 这里必须用 systemBar()（与 dsh 首页背景对齐），
@@ -559,17 +692,51 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 引擎就绪提示浮层（v35）→ r163 已随骨架屏方案一并移除（见类头注释）。
+     * 回归图二状态：启动页只负责「正在启动 dsh 服务…」，就绪即交叉淡入首页。
+     */
+    /**
+     * 冷启动骨架屏（v35）→ r163 已移除。硬伤：crossfadeSplashToWeb() 只负责把
+     * WebView 淡入，骨架从未被淡出/移除，真机永远停在骨架屏（用户 2026-11-03
+     * 反馈「打开后无法使用」）。v41 之后的回归验证必须先点首页确认可交互。
+     */
     private void showWebView(String url) {
+        // 以引擎配置为准：调用方即使传了旧的 3080 常量也重算一遍，
+        // 并按需拉起 3082 本地反代（本机引擎时是 no-op）。
+        EngineEndpoints.apply(this);
+        url = EngineEndpoints.currentUrl(this);
         if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
+        // r163 方案 B 领养兜底：到这一刻（已就绪、主线程）预热若刚完成，
+        // 而本 Activity 自建的 WebView 还没加载过真首页（webShown=false 保证），
+        // 换成预热的更划算 —— 它连 dsh 前端都初始化完了，进入即首页。
+        if (webView != null && !DshPreloadWeb.adopted() && DshPreloadWeb.isAvailable()) {
+            try {
+                webView.removeAllViews();
+                webView.destroy();
+            } catch (Throwable ignored) { }
+            webView = null;
+            prepareWebView();    // 这次会走领养分支
+        }
         // r79 真机发现：进入 dsh 后**状态栏仍是启动页的浅色**，
         //   而页面已经是深色 → 顶部一条白边，深色下非常刺眼（真机截图确认）。
         //   原因：dsh 页面自己不管系统栏（mobile.js 里没有 statusBar 相关逻辑），
         //   而 showWebView() 也没有重新下发配色，于是沿用了 applyPalette() 当时的值。
         // 这里用**当前页面的实际主题**重刷一次系统栏。
         applyPalette();
-        webView.loadUrl(url);
+        // 领养的预热 WebView 加载的是本机 3080 首页；若当前选的是远程引擎，
+        // 必须强制 loadUrl 到 3082，否则会停在本机引擎上（切换看似无效）。
+        if (DshPreloadWeb.adopted() && !EngineEndpoints.isRemote(this)) {
+            // 领养的常驻 WebView 已加载首页：绝不能再 loadUrl ——
+            // 那会把已就绪的页面整个重刷（白屏 + 前端重新初始化），领养白费。
+            Log.i("MainActivity", "领养的预热 WebView 已在首页，跳过 loadUrl");
+        } else {
+            webView.loadUrl(url);
+        }
         webShown = true;
-        Log.i("MainActivity", "已进入 dsh：loadUrl " + url);
+        Log.i("MainActivity", "已进入 dsh：" + (DshPreloadWeb.adopted() ? "（预热直入）" : "loadUrl " + url));
+        Log.i("Startup", "[mark] onCreate->crossfade="
+                + (System.currentTimeMillis() - sCreateAt) + "ms");
         // 已进入 dsh 界面后，若服务其实没起来，onReceivedError 会显示友好页
 
         // r106：原来这里直接 setContentView(webView) 硬切 —— 冷启十几秒后画面
@@ -615,16 +782,18 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 进场减速（对应 CSS 的 --ease-out）：320ms
-        webView.animate().alpha(1f).setDuration(320)
-                .setInterpolator(new DecelerateInterpolator()).start();
+        // 进场（设计稿 07 轨迹/指标档 320ms / cubic-bezier(.2,.8,.2,1)）
+        webView.animate().alpha(1f).setDuration(DUR_TRACE)
+                .setInterpolator(EASE_OUT).start();
 
-        // 退场加速（对应 CSS 的 --ease-in）：离场不该恋恋不舍
+        // 退场（设计稿 07 屏入场档 450ms / cubic-bezier(.2,.8,.2,1)）：轻推放大收起
+        // ⚠️ 这里是 v35 翻车点：v41 只做了上面的「淡入」，漏了这段「启动页退场」，
+        //    骨架屏盖在 WebView 上永不移除。恢复完整交叉淡入。
         for (int i = 0; i < host.getChildCount(); i++) {
             final View v = host.getChildAt(i);
             if (v == webView) continue;          // 别把自己也淡掉
-            v.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(220)
-                    .setInterpolator(new AccelerateInterpolator())
+            v.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(DUR_SCREEN)
+                    .setInterpolator(EASE_OUT)
                     .setListener(new AnimatorListenerAdapter() {
                         @Override public void onAnimationEnd(Animator a) {
                             try {
@@ -656,8 +825,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        // 附件选择结果必须先回灌给 WebView，否则页面拿不到文件
-        if (chromeClient != null && chromeClient.deliver(requestCode, resultCode, data)) return;
+        // 附件选择结果必须先回灌给 WebView，否则页面拿不到文件。
+        // r219：改走静态入口 —— 文件管理器占据前台期间本 Activity 可能已被回收重建，
+        // 那时 chromeClient 是新实例甚至为 null，只有静态回调还认得出这次结果。
+        if (DshChromeClient.deliverStatic(requestCode, resultCode, data)) return;
 
         // 方案 C：「另存为」——把私有文件写到用户选的位置（主线程）
         if (requestCode == REQ_SAVE_AS) {
@@ -858,6 +1029,15 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // r163 方案 B：把领养的常驻 WebView 归还给 DshPreloadWeb，供下次点图标
+        // 再次领养（不销毁 —— 引擎活着，页面 JS 状态还在，下次直接回到原界面）。
+        // 新 Activity 领养时会重设绑 Activity 的回调，旧引用随之释放。
+        if (webView != null && DshPreloadWeb.adopted()) {
+            try {
+                DshPreloadWeb.release(webView);
+                webView = null;
+            } catch (Throwable ignored) { }
+        }
         super.onDestroy();
         DshProcessManager.setObserver(null);   // 释放对 Activity 的引用，避免泄漏
     }

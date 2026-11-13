@@ -1,9 +1,14 @@
 package com.dsh.harness;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
+import android.webkit.CookieManager;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -18,7 +23,8 @@ public class DshWebViewClient extends WebViewClient {
 
     /** dsh 服务根地址（r72/P2-7：错误页「重试」需要直达它，而不是 reload 错误文档）。 */
     private static String dshBaseUrl() {
-        return "http://127.0.0.1:" + DshProcessManager.DSH_PORT + "/";
+        // 错误页「重试」要回到当前选中的引擎，而不是永远回本机 3080。
+        return EngineEndpoints.currentUrlStatic();
     }
 
     /**
@@ -44,6 +50,28 @@ public class DshWebViewClient extends WebViewClient {
         // r72（P3-4）：401（鉴权过期）与“服务未就绪”分开提示，避免误导排障方向
         return errorHtml("需要重新登录",
             "dsh 的登录状态已过期（401）。请完全退出应用后重新打开，应用会重新获取登录凭证。");
+    }
+
+    /**
+     * r199：主帧失败后的占位页，用来盖住 Chromium 自带的
+     * 「网页无法打开 … net::ERR_CONNECTION_REFUSED」原生错误页。
+     *
+     * <p>自动重试（r198）虽然最终能恢复，但失败那一瞬 WebView 会先把系统错误页
+     * 渲染出来，用户看到的就是「启动闪一下报错」。这里在第一次失败时立刻塞一个
+     * 与启动页同风格的轻量文档，重试成功后被 loadUrl 覆盖；
+     * {@link #onPageFinished} 的 clearHistory 会剪掉这段 data: 历史。
+     */
+    private static String connectingHtml() {
+        return "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+            + "<style>html,body{height:100%;margin:0;background:#f7f9fc;font-family:sans-serif;"
+            + "color:#1b2330;display:flex;align-items:center;justify-content:center;text-align:center}"
+            + ".bar{margin:18px auto 0;height:3px;width:150px;border-radius:2px;"
+            + "background:linear-gradient(90deg,#4f6ef7,#a78bfa,transparent);"
+            + "animation:p 1.2s ease-in-out infinite}@keyframes p{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}"
+            + "</style></head><body><div>"
+            + "<div style='font-size:17px;font-weight:600'>正在连接 dsh 服务…</div>"
+            + "<div style='font-size:13px;color:#8792a2;margin-top:8px'>首次启动需要几秒，请稍候</div>"
+            + "<div class='bar'></div></div></body></html>";
     }
 
     /**
@@ -133,10 +161,108 @@ public class DshWebViewClient extends WebViewClient {
         return false;
     }
 
+    // ==================================================================
+    // r198：主帧加载失败自动重试 —— 根治冷启「服务还没就绪」
+    // ==================================================================
+    /**
+     * <p><b>为什么需要</b>：{@link MainActivity#waitThenShowWeb} 里
+     * {@code DshProbe.tryReady} 返回 200，只代表「那一刻」根路径可访问。
+     * 紧接着 {@code WebView.loadUrl} 仍可能撞上三种窗口：
+     * <ol>
+     *   <li>3082 本地反代（engine-proxy）比 3080 晚监听；</li>
+     *   <li>token → cookie 的下发与 loadUrl 竞争（预热 WebView 和 Activity 各探一次）；</li>
+     *   <li>frontend-static 的 fallback 尚未注册，短暂 404（DshProbe 注释里已记录）。</li>
+     * </ol>
+     * 旧实现一收到主帧错误就 {@code loadDataWithBaseURL(serverNotReadyHtml)}，
+     * 把真页面永久换成错误文档 —— 于是必须用户手点「重试」。
+     *
+     * <p><b>策略</b>：主帧失败先做有限次自动重试（重新取 cookie + reload 当前引擎根），
+     * 成功落地后计数清零；连续失败到上限才显示错误页，保留真故障的可诊断性。
+     * 不采用「无限重试/永不显示错误」：引擎真的挂了时用户需要对着证据排障。
+     */
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final int MAX_AUTO_RETRY = 6;
+    private static final long[] RETRY_DELAYS_MS = { 400L, 800L, 1200L, 2000L, 3000L, 4000L };
+    private static final Object RETRY_LOCK = new Object();
+    private static int sRetryCount = 0;
+    private static long sLastFailureAt = 0L;
+    private static boolean sRetryScheduled = false;
+
+    /** 页面成功落到本地 dsh 文档时清零，别把上一轮失败算进新一轮。 */
+    private static void noteLoadSucceeded(String url) {
+        if (url == null || !DshOrigin.isLocalUrl(url)) return;  // data: 错误文档不算
+        synchronized (RETRY_LOCK) {
+            sRetryCount = 0;
+        }
+    }
+
+    /** 主帧失败统一入口：先自动重试，超过上限才出错误文档。 */
+    private static void handleMainFrameFailure(final WebView view, final int httpCode) {
+        if (view == null) return;
+        synchronized (RETRY_LOCK) {
+            final long now = SystemClock.elapsedRealtime();
+            // onReceivedError 与 onReceivedHttpError 常对同一次失败各回调一次
+            if (now - sLastFailureAt < 250L) return;
+            sLastFailureAt = now;
+            if (sRetryCount >= MAX_AUTO_RETRY) {
+                showFinalError(view, httpCode);
+                return;
+            }
+            if (sRetryScheduled) return;
+            final int attempt = sRetryCount++;
+            sRetryScheduled = true;
+            // 第一次失败：立刻盖住 Chromium 原生错误页（回调本身在主线程，直接同步
+            // loadData 才不会和后面的 loadUrl 抢顺序）。后续重试期间沿用这个占位页。
+            if (attempt == 0 && view != null) {
+                view.loadDataWithBaseURL(null, connectingHtml(), "text/html", "utf-8", null);
+            }
+            final long delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+            MAIN.postDelayed(new Runnable() {
+                @Override public void run() {
+                    synchronized (RETRY_LOCK) { sRetryScheduled = false; }
+                    // DshProbe.tryReady 会发 HttpURLConnection —— 严禁放主线程（targetSdk 28）。
+                    new Thread(new Runnable() {
+                        @Override public void run() {
+                            try {
+                                Context ctx = view.getContext().getApplicationContext();
+                                DshProbe.Ready ready = DshProbe.tryReady(ctx);
+                                if (ready != null && ready.cookiePair != null) {
+                                    CookieManager cm = CookieManager.getInstance();
+                                    cm.setAcceptCookie(true);
+                                    cm.setCookie(dshBaseUrl(), ready.cookiePair);
+                                    cm.flush();
+                                }
+                            } catch (Throwable ignored) { }
+                            MAIN.post(new Runnable() {
+                                @Override public void run() {
+                                    Log.i("DshWebViewClient", "[dsh-retry] attempt=" + (attempt + 1)
+                                            + " url=" + dshBaseUrl());
+                                    view.loadUrl(dshBaseUrl());
+                                }
+                            });
+                        }
+                    }, "dsh-retry-probe").start();
+                }
+            }, delay);
+        }
+    }
+
+    /** 重试耗尽：显示错误文档（必须主线程）。 */
+    private static void showFinalError(final WebView view, final int httpCode) {
+        Log.w("DshWebViewClient", "[dsh-retry] 重试耗尽，显示错误页 httpCode=" + httpCode);
+        MAIN.post(new Runnable() {
+            @Override public void run() {
+                view.loadDataWithBaseURL(null,
+                        httpCode == 401 ? authExpiredHtml() : serverNotReadyHtml(),
+                        "text/html", "utf-8", null);
+            }
+        });
+    }
+
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         if (request != null && request.isForMainFrame() && view != null) {
-            view.loadDataWithBaseURL(null, serverNotReadyHtml(), "text/html", "utf-8", null);
+            handleMainFrameFailure(view, 0);
         }
     }
 
@@ -152,7 +278,7 @@ public class DshWebViewClient extends WebViewClient {
         try {
             String cur = view.getUrl();
             if (failingUrl.equals(cur)) {
-                view.loadDataWithBaseURL(null, serverNotReadyHtml(), "text/html", "utf-8", null);
+                handleMainFrameFailure(view, 0);
             }
         } catch (Throwable ignored) { }
     }
@@ -164,9 +290,9 @@ public class DshWebViewClient extends WebViewClient {
             try {
                 if (android.os.Build.VERSION.SDK_INT >= 23) code = errorResponse.getStatusCode();
             } catch (Throwable ignored) { }
-            // r72（P3-4）：401 单独给“重新登录”文案
-            view.loadDataWithBaseURL(null, code == 401 ? authExpiredHtml() : serverNotReadyHtml(),
-                "text/html", "utf-8", null);
+            // r72（P3-4）：401 与其他失败分开记，但**不立刻**弹「重新登录」——
+            // 冷启时 401 多半只是 cookie 还没下发，交给自动重试再判。
+            handleMainFrameFailure(view, code);
         }
     }
 
@@ -176,6 +302,9 @@ public class DshWebViewClient extends WebViewClient {
     @Override
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
+        // r198：本地 dsh 文档真正加载完成 → 清掉自动重试计数。
+        // 错误页是 data: URL，DshOrigin.isLocalUrl 不认它，所以不会误清。
+        noteLoadSucceeded(url);
         // r80（P0）：首次 dsh 页面加载完成后，立刻清掉 WebView 历史的"栈底" ——
         //   预热阶段的 about:blank 条目。原 onResume 的 clearHistory() 在
         //   loadUrl(dsh) **之前**执行，只清掉当时的 [blank]，随后 loadUrl 又把
@@ -192,8 +321,9 @@ public class DshWebViewClient extends WebViewClient {
                 Log.i("DshWebViewClient", "[dsh] clearHistory @ first dsh load: " + url);
             } catch (Throwable ignored) { }
         }
-        // dsh 的 UI 是桌面优先布局，手机上必须先补一刀（限宽侧栏 + 自动折叠）
-        MobileTuning.apply(view);
+        // r151：官方 dsh 0.2.x web 已自带移动端响应式布局（侧栏抽屉 / 窄屏自适应），
+        // 不再注入针对 0.1.x 桌面优先布局的手机适配外壳（assets/dsh/mobile.css|js 等）。
+        // 保留下面的主题探测（已对齐到 0.2.x 的主题信号）。
 
         // r79：启动页深色模式的第二段 —— 页面真正加载完，**此时才读得到 dsh 的主题**。
         // 启动页阶段只能按系统 uiMode 猜（见 DshPalette 注释），若用户是在 dsh 里
@@ -205,6 +335,17 @@ public class DshWebViewClient extends WebViewClient {
         // 现在改成**最多重试 5 次、间隔递增**（1s/2s/4s/8s/12s），
         // 覆盖 SPA 首屏渲染的不确定时长。
         probeTheme(view, 0);
+
+        // r169（用户回滚）：恢复 official-bridge.js 注入。
+        //   原委：r167 曾按用户要求改成「零注入」，移动端适配交给 dsh-web-mobile 插件；
+        //   真机用下来反馈插件不好用，遂回滚到 r166 的注入形态。
+        //   ⚠️ 只注入**这一段脚本**（设置入口拦截 → 原生 Compose 设置页 + 返回状态上报），
+        //      不注入任何 CSS、不改布局 —— 页面观感与官方 WebView 一致。
+        //      历史上更早的三层（mobile.css / mobile.js / market*.css / dvh 结构修复）
+        //      保持移除状态，不要因回滚而复活。
+        if (url != null && DshOrigin.isLocalUrl(url)) {
+            com.dsh.harness.webview.OfficialShell.inject(view);
+        }
     }
 
     /** 探测 dsh 页面主题（带退避重试）。attempt 从 0 开始。 */
@@ -219,20 +360,13 @@ public class DshWebViewClient extends WebViewClient {
                 @Override public void run() {
                     try {
                         view.evaluateJavascript(
-                                // ⚠️ r79 真机调试（第二轮）修正：**直接读 dsh 的权威判定结果**，
-                                //   不要自己重算 body 背景色亮度。
-                                //   原因：真机上出现过「回读=light 但页面明显是深色」的矛盾 ——
-                                //   因为 dsh 的主题不一定落在 body 背景上（可能是内层容器或 CSS 变量），
-                                //   自己算出来的结论与页面实际观感不一致，还把错误值落了盘。
-                                //   而 `documentElement.classList.contains('dsh-dark')`
-                                //   正是 mobile.js 的 detectDark() 算完后写下的**最终结论**，
-                                //   读它 = 直接复用页面的判定，零分歧。
-                                // ① 权威：mobile.js 的 detectDark() 算完写下的结论
-                                // ② dsh 强制浅色标记
-                                // ⚠️ ③ 之后全是**猜测** → 一律加 guess: 前缀，
-                                //    Java 侧见到guess: 就丢弃结果、跟随系统。
-                                //    （r79 真机：早期版本把猜测当权威，错误落盘，
-                                //      导致深色系统下启动页画成浅色 —— 闪瞎眼）
+                                // 0.2.x 原生暗色主题探测（不再依赖已移除的 mobile.js 注入层）：
+                                //   dsh 官方 CSS 用 `body[data-ds-dark-theme]` 切换深色变量，这是权威信号；
+                                //   同时兜底 prefers-color-scheme（0.2.x 默认跟随系统暗色）。
+                                //   直接读这些信号 → 首探即返回确定结论，避免旧逻辑在 SPA 未渲染时
+                                //   误判并退避重试最多 ~46s 才跟随系统（深色系统下启动页闪白条）。
+                                //   data-ds-dark-theme 可能落在 body 也可能落在 html（不同构建），两者都查；
+                                //   兜底 matchMedia 立即可得，与 0.2.x 的系统暗色渲染保持一致。
                                 "(function(){try{"
                                 + "var h=document.documentElement,b=document.body;"
                                 + "if(!h||!b)return '';"
@@ -246,10 +380,13 @@ public class DshWebViewClient extends WebViewClient {
                                 //   **避免双重应用**（页面已经用 data-* 应用过了），
                                 //   不是"改成浅色"。
                                 //   我曾误判为浅色 → 真机上深色系统却画出浅色启动页。
-                                + "if(b.hasAttribute('data-ds-dark-theme'))return 'dark';"
-                                + "if(h.classList.contains('dsh-dark'))return 'dark';"
-                                + "return 'guess:none';"
-                                + "}catch(e){return 'guess:err'}})()",
+                                + "var dark=b.hasAttribute('data-ds-dark-theme')"
+                                + "||h.hasAttribute('data-ds-dark-theme')"
+                                + "||h.classList.contains('dsh-dark')"
+                                + "||h.classList.contains('dark')"
+                                + "||(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);"
+                                + "return dark?'dark':'light';"
+                                + "}catch(e){return '';}})()",
                                 new android.webkit.ValueCallback<String>() {
                                     @Override public void onReceiveValue(String value) {
                                         // ⚠️ **每条分支都打日志**：静默失败是最难查的一类问题，

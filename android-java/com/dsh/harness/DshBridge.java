@@ -18,7 +18,7 @@ import java.lang.ref.WeakReference;
  * 所以只能由原生做。
  *
  * ⚠️ 安全：{@code @JavascriptInterface} 只在**已加载我们信任的页面**时可达
- * （WebView 只 load 127.0.0.1:3080 的 dsh 实例），所以这里不额外做 origin 校验。
+ * （WebView 只 load 127.0.0.1:3081 的 dsh 实例），所以这里不额外做 origin 校验。
  * 若将来要加载远程页面，必须补上域名白名单。
  *
  * ⚠️ 生命周期（C-04 / U12 修复）：
@@ -32,9 +32,12 @@ public final class DshBridge {
 
     private static final String TAG = "DshBridge";
     private final WeakReference<Activity> actRef;
+    /** Application Context 不持有 Activity，供纯读判断使用（可长期持有）。 */
+    private final Context appCtx;
 
     public DshBridge(Activity act) {
         this.actRef = new WeakReference<>(act);
+        this.appCtx = act.getApplicationContext();
     }
 
     /**
@@ -99,6 +102,37 @@ public final class DshBridge {
     private static volatile long sPnpmCacheAt = 0L;
 
     /**
+     * 打开原生 App 设置页（若该分支提供）。
+     *
+     * <p>dsh-phone 是纯 Java 工程，没有 Compose 设置页；原实现直接引用
+     * {@code com.dsh.harness.mobile.SettingsActivity}，会让 javac 在编译期就失败。
+     * 这里改为按类名反射启动：类存在则打开，不存在则静默降级（官方网页设置仍可用）。
+     *
+     * <p>调用点：{@code assets/dsh/official-bridge.js} 拦下官方侧栏「设置」入口后调用。
+     */
+    @JavascriptInterface
+    public void openAppSettings() {
+        final Activity a = act();
+        if (a == null) return;
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    Class<?> cls = Class.forName("com.dsh.harness.mobile.SettingsActivity");
+                    android.content.Intent it = new android.content.Intent(a, cls);
+                    a.startActivity(it);
+                    a.overridePendingTransition(
+                        com.termux.R.anim.slide_in_right, com.termux.R.anim.slide_out_left);
+                } catch (ClassNotFoundException e) {
+                    // 本工程没有 Compose 设置页：交给官方网页设置处理，不算错误。
+                    Log.i(TAG, "无原生设置页，回落到网页设置");
+                } catch (Throwable t) {
+                    Log.w(TAG, "打开原生设置页失败: " + t.getMessage());
+                }
+            }
+        });
+    }
+
+    /**
      * r65：注入脚本上报"当前这一级返回该由 JS 处理"（设置面板 / 抽屉这类
      * <b>覆盖层</b>开着）。
      *
@@ -115,6 +149,53 @@ public final class DshBridge {
         if (a instanceof MainActivity) {
             ((MainActivity) a).setJsBackHandled(handled);
         }
+    }
+
+    /**
+     * v30.38：页面持续上报自己的真实深浅色（不再只在 onPageFinished 探一次）。
+     *
+     * <p>为什么需要：dsh 主题是 {@code ui-theme.preference}（跟随系统/浅色/深色），
+     * 用户在原生设置页改完后返回，WebView 不会 reload —— 而
+     * {@code DshWebViewClient.probeTheme()} 只在加载完成时跑那几次，于是系统栏
+     * 一直停在旧颜色（真机实测：dsh 已深色、状态栏仍是浅色，顶部一条白边）。
+     *
+     * <p>由 {@code official-bridge.js} 每 700ms 采样一次，**只有变化时**才过桥
+     * （JS 侧已去重），因此这里不会产生高频 IO。
+     */
+    @JavascriptInterface
+    public void applyDshTheme(final boolean dark) {
+        final Activity a = actRef.get();
+        if (!(a instanceof MainActivity)) { return; }
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    ((MainActivity) a).applyDshTheme(dark);
+                } catch (Throwable t) {
+                    Log.w(TAG, "应用 dsh 主题失败: " + t.getMessage());
+                }
+            }
+        });
+    }
+
+    /**
+     * r214：把「此刻页面**应该**是深色吗」直接交给 JS。
+     *
+     * <p>为什么需要：真机实测（19:03）系统已是深色（uiMode=UI_MODE_NIGHT_YES），
+     * 但 dsh 主 WebView 里的 `matchMedia('(prefers-color-scheme: dark)').matches`
+     * 返回 **false**（同一个进程里的 about:blank WebView 却返回 true）。dsh 的
+     * `ui-theme.preference = system` 于是被解析成浅色 → 整页白，用户报的
+     * 「首页深色模式失效」就是这个，跟我们注入的 CSS 无关。
+     *
+     * <p>判据与 dsh 一致：显式 dark/light 优先，其余（system / 未读到）跟随系统
+     * uiMode。只读内存缓存，同步且无 IO —— JS 侧每 500ms 会调一次。
+     */
+    @JavascriptInterface
+    public boolean dshShouldBeDark() {
+        // dsh-phone 无 Compose 设置层，读不到 ui-theme.preference 的内存缓存
+        // （原实现走 mobile.data.DshSettingsStore.INSTANCE.peekThemePreference）。
+        // 缓存缺失时按 dsh 默认值「跟随系统」处理，与原实现的降级语义一致。
+        Context c = (appCtx != null) ? appCtx : actRef.get();
+        return c != null && DshPalette.systemIsDark(c);
     }
 
     /**
@@ -313,5 +394,62 @@ public final class DshBridge {
                 });
             }
         }, "dsh-market-install").start();
+    }
+
+    // ===== 三引擎切换（手机本地 / 多台电脑 / 服务器）=====
+    // WebView 的 origin 始终是 127.0.0.1，所以这里不扩大 JS 桥的信任面：
+    // 远程引擎由 App 内 3082 本地反代承载，页面依旧是本地页面。
+
+    /** 返回端点列表 JSON，供 engine-switcher.js 渲染。 */
+    @JavascriptInterface
+    public String engineList() {
+        return EngineEndpoints.toJson(appCtx);
+    }
+
+    @JavascriptInterface
+    public String engineAdd(String json) {
+        try {
+            JSONObject o = new JSONObject(json);
+            EngineEndpoints.Ep ep = EngineEndpoints.add(appCtx,
+                o.optString("label", ""), o.optString("url", ""), o.optString("kind", "pc"));
+            if (ep == null) return "{\"ok\":false,\"error\":\"URL 无效或已存在\"}";
+            return "{\"ok\":true}";
+        } catch (Exception e) {
+            return "{\"ok\":false,\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
+    @JavascriptInterface
+    public String engineRemove(String id) {
+        return EngineEndpoints.remove(appCtx, id)
+            ? "{\"ok\":true}"
+            : "{\"ok\":false,\"error\":\"至少保留一个端点\"}";
+    }
+
+    /** 异步切引擎：写反代上游 → 等 3082 就绪 → 回主线程让 WebView 重新 loadUrl。 */
+    @JavascriptInterface
+    public String engineSwitch(final String id) {
+        if (EngineEndpoints.select(appCtx, id) == null) {
+            return "{\"ok\":false,\"error\":\"端点不存在\"}";
+        }
+        new Thread(new Runnable() {
+            @Override public void run() {
+                EngineEndpoints.apply(appCtx);
+                if (EngineEndpoints.isRemote(appCtx)) {
+                    for (int i = 0; i < 30; i++) {
+                        if (DshProcessManager.isPortOpen(EngineEndpoints.PROXY_PORT)) break;
+                        try { Thread.sleep(100); } catch (Exception ignored) { }
+                    }
+                }
+                final Activity a = act();
+                if (a == null) return;
+                a.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (a instanceof MainActivity) ((MainActivity) a).reloadForEngine();
+                    }
+                });
+            }
+        }, "dsh-engine-switch").start();
+        return "{\"ok\":true}";
     }
 }

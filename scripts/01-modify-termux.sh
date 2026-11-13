@@ -111,11 +111,13 @@ done
 # ---- 5) 拷贝 Java 源码到 com/dsh/harness/ ----
 # 注意：Termux 是纯 Java 项目（app/build.gradle 只配了 com.android.application，
 # 没有 Kotlin 插件），所以必须用 .java，.kt 会被完全忽略、不会编进 dex。
+# r<v2.3>：源码已含子包 webview/（OfficialShell 注入 + DshWebBridge 消息通道），
+# 用 `cp -rf .../com/dsh/harness/.` 整棵树拷，别再只拷 *.java 顶层。
 DST="$APP/src/main/java/com/dsh/harness"
 rm -rf "$DST"
 mkdir -p "$DST"
-cp -f "$SRC_DIR"/com/dsh/harness/*.java "$DST"/
-echo "  ✓ 拷贝 android-java/com/dsh/harness/*.java -> $DST"
+cp -rf "$SRC_DIR"/com/dsh/harness/. "$DST"/
+echo "  ✓ 拷贝 android-java/com/dsh/harness/ -> $DST ($(find "$DST" -name '*.java' | wc -l | tr -d ' ') 个 java)"
 
 # ---- 5.5) 拷贝网络安全配置（C-05：明文只放开 127.0.0.1/localhost） ----
 # 必须和第 6 步注入的 android:networkSecurityConfig 成对出现，
@@ -130,10 +132,45 @@ echo "  ✓ 拷贝 network_security_config.xml -> $APP/src/main/res/xml/"
 cp -f "$SRC_DIR"/res/xml/dsh_file_paths.xml "$APP/src/main/res/xml/"
 echo "  ✓ 拷贝 dsh_file_paths.xml -> $APP/src/main/res/xml/"
 
-# ---- 6) 注册 MainActivity 为启动入口 ----
-MANIFEST="$APP/src/main/AndroidManifest.xml"
+# python 解释器探测（5.7 起就要用，因此提到这里；第 6 步直接复用）
 PY=""
 for c in python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
+
+# ---- 5.7) 注入第三方依赖（官方 dsh-bridge 通道 + NAS 的 SFTP/SMB 传输）----
+# 1) androidx.webkit: DshWebBridge 用 WebViewCompat.addWebMessageListener，需 1.4.0+；
+# 2) jsch: DshSftpClient 的纯 Java SSH/SFTP；
+# 3) jcifs-ng: DshSmbClient 的 SMB/CIFS（自带 slf4j/bcprov 传递依赖）。
+# termux-app 上游都没有这几条，缺了就编译失败。幂等：已存在则跳过。
+if grep -q 'androidx.webkit:webkit' "$APP/build.gradle" \
+   && grep -q 'com.jcraft:jsch' "$APP/build.gradle" \
+   && grep -q 'jcifs-ng' "$APP/build.gradle"; then
+  echo "  · 第三方依赖已齐，跳过"
+elif [ -z "$PY" ]; then
+  echo "  ! 找不到 python，请手动在 app/build.gradle 的 dependencies 里加："
+  echo "    implementation 'androidx.webkit:webkit:1.12.1'"
+  echo "    implementation 'com.jcraft:jsch:0.1.55'"
+  echo "    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.10'"
+else
+  "$PY" - "$APP/build.gradle" <<'PYEOF_WK'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+want = [
+    ('androidx.webkit:webkit', "    implementation 'androidx.webkit:webkit:1.12.1'"),
+    ('com.jcraft:jsch',        "    implementation 'com.jcraft:jsch:0.1.55'"),
+    ('jcifs-ng',               "    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.10'"),
+]
+add = [line for key, line in want if key not in s]
+if add:
+    s = s.replace('dependencies {', 'dependencies {\n' + '\n'.join(add), 1)
+    open(p, 'w', encoding='utf-8').write(s)
+    for line in add:
+        print("  ✓ 注入 " + line.strip())
+PYEOF_WK
+fi
+
+# ---- 6) 注册 MainActivity 为启动入口 ----
+MANIFEST="$APP/src/main/AndroidManifest.xml"
 
 if [ -z "$PY" ]; then
   echo "  ! 找不到 python，无法自动注册 MainActivity，请手动在 AndroidManifest.xml 加"
@@ -249,6 +286,49 @@ elif grep -q "dsh.files" "$MANIFEST"; then
   exit 1
 else
   echo "  · 未注册 FileProvider（方案 C 未启用）"
+fi
+
+# ---- 6.7) 注册常驻前台服务 DshService + 前台服务权限（幂等）----
+# 为什么必须注册：DshService 走 startForegroundService() 保活 dsh 引擎；
+# 清单里没有它时 startForeground() 直接抛异常 → 服务从未真正起来 →
+# 引擎随 App 进程一起死 → 每次点图标都要冷启 node（十几秒白屏）。
+# FOREGROUND_SERVICE_DATA_SYNC 是 API 34 起的强制类型权限，属普通权限、无运行时弹窗。
+if grep -q "com.dsh.harness.DshService" "$MANIFEST"; then
+  echo "  · DshService 已注册，跳过"
+elif [ -z "$PY" ]; then
+  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 DshService"
+else
+  "$PY" - "$MANIFEST" <<'PYEOF_SVC'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+
+# 1) 权限：<uses-permission> 必须在 <application> 之前
+for perm in ('android.permission.FOREGROUND_SERVICE',
+             'android.permission.FOREGROUND_SERVICE_DATA_SYNC'):
+    if perm not in s:
+        s = s.replace('<application',
+                      '    <uses-permission android:name="%s" />\n\n    <application' % perm, 1)
+
+# 2) 服务：stopWithTask=false —— 任务被划掉也不带停服务
+svc = ('    <service android:name="com.dsh.harness.DshService"\n'
+       '        android:exported="false"\n'
+       '        android:stopWithTask="false" />\n')
+s = s.replace('</application>', svc + '</application>')
+open(p, 'w', encoding='utf-8').write(s)
+print("  ✓ 注册 DshService + 前台服务权限")
+PYEOF_SVC
+fi
+
+# ---- 6.8) 自检：服务与权限必须成对 ----
+if grep -q "com.dsh.harness.DshService" "$MANIFEST" \
+   && grep -q "FOREGROUND_SERVICE" "$MANIFEST"; then
+  echo "  ✓ DshService 与 FOREGROUND_SERVICE 成对存在"
+elif grep -q "com.dsh.harness.DshService" "$MANIFEST"; then
+  echo "  ✗ 有 DshService 但缺 FOREGROUND_SERVICE 权限 —— API 28+ 起前台服务会崩"
+  exit 1
+else
+  echo "  · 未注册 DshService（常驻保活未启用）"
 fi
 
 # ---- 7) 创建 assets 目录，放 bundle + patch（由 build.sh 拷入实际文件） ----

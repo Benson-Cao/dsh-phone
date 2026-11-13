@@ -1,0 +1,75 @@
+{
+  "name": "dsh-nas-sync",
+  "version": "0.6.0",
+  "description": "DeepSeek Harness 插件：通过 WebDAV / 本地挂载把会话、附件、Skills、Profile 加密同步到 NAS，支持分块断点续传、冲突管理与设置页面板",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "dist",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:test": "node scripts/build-test.mjs",
+    "test": "npm run build:test && node --test test/portable.test.mjs test/manifest.test.mjs test/events.test.mjs test/delete-propagation.test.mjs test/chunker.test.mjs test/exclusions.test.mjs test/plugin-objects.test.mjs test/rel-migration.test.mjs test/rel-migration-engine.test.mjs test/crypto.test.mjs test/envelope-engine.test.mjs test/scan-cache.test.mjs test/plugin-cas.test.mjs test/api-contract.test.mjs test/a11y.test.mjs test/uat.test.mjs test/perf.test.mjs test/fault-injection.test.mjs test/plugins.test.mjs test/safety.test.mjs test/state-file.test.mjs test/config.test.mjs test/engine.test.mjs test/panel.test.mjs",
+    "coverage": "node scripts/coverage.mjs",
+    "mutation": "npm run build:test && node scripts/mutation.mjs",
+    "audit:security": "node scripts/security-audit.mjs",
+    "verify": "npm run build && npm test && npm run coverage && npm run mutation && npm run audit:security",
+    "device:e2e": "bash scripts/device-e2e.sh",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "engines": {
+    "dsh": ">=0.2.0",
+    "node": ">=22.15.0"
+  },
+  "dependencies": {
+    "scrypt-js": "^3.0.1",
+    "tweetnacl": "^1.0.3",
+    "webdav": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-home-paths": "*",
+    "@deepseek-ai/dsh-client-core": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-home-paths": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  }
+}
