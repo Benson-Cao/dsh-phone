@@ -42,19 +42,32 @@ echo "  FILES_ROOT = $FILES_ROOT"
 [ -x "$PREFIX/bin/bash" ]        || { echo "✗ 找不到可执行的 $PREFIX/bin/bash"; exit 1; }
 [ -d "$HOME_DIR/node_modules" ]  || { echo "✗ 找不到 $HOME_DIR/node_modules"; exit 1; }
 
-# ---- 世代守卫：bundle 里的 dsh 必须是 0.2.x ----
-# com.termux 的 HOME 可能还停着 0.1.x 的 node_modules（历史上就发生过）。
-# App 端 DshBootstrap 按 0.2.1-rc.5 的启动脚本/端口/注入约定走，
-# 混进 0.1.x 的 node_modules 会「能启动但全错配」，而且极难排查。
+# ---- 世代与版本守卫：bundle 里的 dsh 必须与 App 端一致 ----
+# 两层校验：
+#   1) 世代：必须 0.2.x —— 0.1.x 的运行环境混进 v2.3 bundle 会「能启动但全错配」；
+#   2) 精确版本：默认必须 = 0.2.2-rc1（真机 App 当前版本，2026-11-14 用户确认）。
+#      为什么必须一致：App 重解包会**整体替换** home/node_modules ——
+#      bundle 版本旧于 App，等于把用户升级好的 dsh 静默降级；版本新于 App
+#      则可能与壳层（启动脚本/端口/注入约定）未验证组合。确认无误用 FORCE=1。
 DSH_VER="$(node -p "require('$HOME_DIR/node_modules/@deepseek-ai/dsh/package.json').version" 2>/dev/null || echo unknown)"
+EXPECTED_DSH_VER="${EXPECTED_DSH_VER:-0.2.2-rc1}"
 case "$DSH_VER" in
   0.2.*) echo "  ✓ dsh 世代正确: $DSH_VER" ;;
   *)
     echo "  ✗ Termux HOME 里的 dsh 版本 = $DSH_VER，不是 0.2.x —— 0.1.x 的运行环境不能打进 v2.3 的 bundle。"
-    echo "    先在 Termux 里升级：npm i -g @deepseek-ai/dsh@0.2.1-rc.5 或按当时升级文档操作。"
+    echo "    先在 Termux 里升级： cd ~ && npm i @deepseek-ai/dsh@0.2.2-rc1"
     echo "    确认无误要强行打包（不推荐）： FORCE=1 bash $0"
     [ "${FORCE:-0}" = "1" ] || exit 1 ;;
 esac
+if [ "$DSH_VER" != "$EXPECTED_DSH_VER" ]; then
+  echo "  ✗ dsh 版本 $DSH_VER ≠ 预期 $EXPECTED_DSH_VER（App 端基准版本）。"
+  echo "    重解包会整体替换 App 的 node_modules，版本不一致 = 静默升级/降级。"
+  echo "    对齐版本： cd ~ && npm i @deepseek-ai/dsh@$EXPECTED_DSH_VER"
+  echo "    确认要以此版本出包： FORCE=1 bash $0"
+  [ "${FORCE:-0}" = "1" ] || exit 1
+else
+  echo "  ✓ dsh 版本与 App 基准一致: $DSH_VER"
+fi
 
 # ---- 打包清单：node/bash/lib/node_modules + （可选）openssh 客户端 ----
 # v2.3 S-6.7 的 SSH 档案要在 App 内起 `ssh -L` 本地隧道，bundle 里必须有 ssh。

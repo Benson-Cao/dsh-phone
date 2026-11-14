@@ -63,9 +63,14 @@ public final class DshBootstrap {
      *  v6（v2.3 批 B）：bundle 加入 usr/bin/{ssh,ssh-keygen,scp,sftp}
      *  （02-build-bundle.sh 在手机 Termux 重打时一并装入）—— S-6.7 SSH 档案
      *  要在 App 内起 ssh -L 本地隧道，bundle 里没有 ssh 客户端就无从谈起。
+     *
+     *  v6-0.2.2-rc1：真机 App 里的 dsh 已升到 0.2.2-rc1（2026-11-14 用户确认）。
+     *  bundle 重打必须从同版本的 Termux 环境取材 —— 重解包会整体替换
+     *  home/node_modules，如果 bundle 里是旧版，等于把用户升级好的 dsh
+     *  静默降级。版本门见 02-build-bundle.sh 的 EXPECTED_DSH_VER。
      *  内容变了必须推 REV，否则旧安装命中 stamp 直接跳过重解包，ssh 永远装不上。
      */
-    private static final String BUNDLE_REV = "v6-dsh-0.2.1-rc.5-ssh1";
+    private static final String BUNDLE_REV = "v6-dsh-0.2.2-rc1-ssh1";
 
     /**
      * 内置插件（assets/dsh-nas-sync）的内容版本戳。
