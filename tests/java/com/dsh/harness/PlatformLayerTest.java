@@ -20,9 +20,11 @@ public final class PlatformLayerTest {
     public static void main(String[] args) {
         String nodeSig = System.getProperty("nodeSig", "");
         String nodeFp = System.getProperty("nodeFp", "");
+        String nodeSshFp = System.getProperty("nodeSshFp", "");
 
         fingerprint(nodeFp);
         proof(nodeSig);
+        sshHostKey(nodeSshFp);
         request();
         errors();
         hosts();
@@ -92,6 +94,66 @@ public final class PlatformLayerTest {
                 PairProof.sign("9f2c4a17d0b35e68ac0127be945df013", "");
             }
         }));
+    }
+
+    // ---- SSH 主机指纹（TOFU）----
+
+    private static void sshHostKey(String nodeSshFp) {
+        byte[] blob = "dsh-ssh-hostkey-vector".getBytes();
+        String fp = SshHostKey.fingerprintOfBlob(blob);
+
+        check("SSH 指纹带 SHA256: 前缀", fp.startsWith("SHA256:"));
+        check("SSH 指纹 base64 无填充", !fp.contains("="));
+        if (!nodeSshFp.isEmpty()) {
+            check("SSH 指纹与 node crypto 一致", nodeSshFp.equals(fp));
+        } else {
+            System.out.println("ok - 跳过 node 对照（未提供 nodeSshFp）");
+        }
+
+        check("归一：裸串补前缀", ("SHA256:" + fp.substring(7)).equals(SshHostKey.normalize(fp.substring(7))));
+        check("归一：去掉注释", fp.equals(SshHostKey.normalize(fp + " user@host")));
+        check("归一：空串为 null", SshHostKey.normalize("  ") == null);
+        check("归一：非法字符为 null", SshHostKey.normalize("SHA256:abc$def") == null);
+
+        check("首次连接 → FIRST_SEEN",
+                SshHostKey.decide(null, fp) == SshHostKey.Decision.FIRST_SEEN);
+        check("指纹相同 → MATCH",
+                SshHostKey.decide(fp, fp) == SshHostKey.Decision.MATCH);
+        check("指纹不同 → MISMATCH",
+                SshHostKey.decide(fp, "SHA256:" + repeat('A', 43)) == SshHostKey.Decision.MISMATCH);
+        check("取不到本次指纹 → MISMATCH（不能当首次放行）",
+                SshHostKey.decide(fp, null) == SshHostKey.Decision.MISMATCH);
+
+        String line = "192.0.2.10 ssh-ed25519 " + base64Of(blob);
+        check("解析 keyscan 行得到同一指纹",
+                fp.equals(SshHostKey.fingerprintOfKeyLine(line)));
+        check("注释行返回 null", SshHostKey.blobOfKeyLine("# comment") == null);
+        check("字段不足返回 null", SshHostKey.blobOfKeyLine("only-two ssh-ed25519") == null);
+        check("base64 解码 hello",
+                "hello".equals(new String(SshHostKey.decodeBase64("aGVsbG8="))));
+    }
+
+    /** 测试用：把字节编成标准 base64（带填充），只为拼 keyscan 行。 */
+    private static String base64Of(byte[] d) {
+        final String T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i + 2 < d.length) {
+            int n = ((d[i] & 0xff) << 16) | ((d[i + 1] & 0xff) << 8) | (d[i + 2] & 0xff);
+            sb.append(T.charAt((n >> 18) & 63)).append(T.charAt((n >> 12) & 63))
+              .append(T.charAt((n >> 6) & 63)).append(T.charAt(n & 63));
+            i += 3;
+        }
+        int rem = d.length - i;
+        if (rem == 1) {
+            int n = (d[i] & 0xff) << 16;
+            sb.append(T.charAt((n >> 18) & 63)).append(T.charAt((n >> 12) & 63)).append("==");
+        } else if (rem == 2) {
+            int n = ((d[i] & 0xff) << 16) | ((d[i + 1] & 0xff) << 8);
+            sb.append(T.charAt((n >> 18) & 63)).append(T.charAt((n >> 12) & 63))
+              .append(T.charAt((n >> 6) & 63)).append('=');
+        }
+        return sb.toString();
     }
 
     // ---- 请求体 ----

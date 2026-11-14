@@ -65,14 +65,16 @@ sec "1. 纯逻辑测试（指纹 / HMAC / 请求体 / 错误处置 / 地址规�
 
 NODE_SIG=""
 NODE_FP=""
+NODE_SSH_FP=""
 if [ -n "$NODE" ]; then
   NODE_SIG="$("$NODE" -e 'const{createHmac}=require("crypto");process.stdout.write(createHmac("sha256","9f2c4a17d0b35e68ac0127be945df013").update("a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718").digest("hex"))')"
   NODE_FP="$("$NODE" -e 'const{createHash}=require("crypto");process.stdout.write(createHash("sha256").update("dsh-device-key-test-vector").digest("hex"))')"
+  NODE_SSH_FP="$("$NODE" -e 'const c=require("crypto");const b=Buffer.from("dsh-ssh-hostkey-vector");process.stdout.write("SHA256:"+c.createHash("sha256").update(b).digest("base64").replace(/=+$/,""))')"
 fi
 
 if ! "$JDK/bin/javac" -encoding UTF-8 -nowarn -d "$OUT" \
     "$SRC/DeviceKeyFingerprint.java" "$SRC/PairProof.java" "$SRC/PairRequest.java" \
-    "$SRC/PairError.java" "$SRC/PairUrl.java" "$SRC/HostsError.java" \
+    "$SRC/PairError.java" "$SRC/PairUrl.java" "$SRC/HostsError.java" "$SRC/SshHostKey.java" \
     "$TEST/com/dsh/harness/PlatformLayerTest.java"; then
   bad "纯逻辑源码编译失败"
   exit 1
@@ -81,7 +83,7 @@ ok "纯逻辑源码编译通过（零 Android 依赖）"
 
 # 注意：JDK 17 默认按系统编码（Windows 上是 GBK）写 stdout，而本脚本与终端都是 UTF-8，
 # 不显式指定就会出现「断言全过但中文全乱码」—— 乱码会让人误判成编码 bug 去改源码。
-TEST_OUT="$("$JDK/bin/java" -Dfile.encoding=UTF-8 -DnodeSig="$NODE_SIG" -DnodeFp="$NODE_FP" \
+TEST_OUT="$("$JDK/bin/java" -Dfile.encoding=UTF-8 -DnodeSig="$NODE_SIG" -DnodeFp="$NODE_FP" -DnodeSshFp="$NODE_SSH_FP" \
   -cp "$OUT" com.dsh.harness.PlatformLayerTest 2>&1)"
 TEST_RC=$?
 echo "$TEST_OUT" | sed 's/^/    /'

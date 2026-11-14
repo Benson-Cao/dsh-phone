@@ -518,13 +518,122 @@ public class MainActivity extends Activity {
             });
             return;
         }
-        // ssh：隧道批 C 接（TOFU 指纹 + 断线重连）；本批先诚实占位。
+        // ssh：本地隧道（批 C）。三件事按顺序做，任何一步失败都给出具体原因，
+        // 不假装连接 —— 假装的结果是一个连不上任何东西的回环端口和一张白屏。
+        if (!prof.sshConfigured()) {
+            main.post(new Runnable() {
+                @Override public void run() {
+                    showDiagnostics("SSH 档案未配置完整。\n\n需要：主机地址、端口、用户名、本地端口。");
+                }
+            });
+            return;
+        }
+        if (!DshSshTunnel.available(this)) {
+            main.post(new Runnable() {
+                @Override public void run() {
+                    showDiagnostics(DshSshTunnel.unavailableReason(MainActivity.this));
+                }
+            });
+            return;
+        }
         main.post(new Runnable() {
-            @Override public void run() {
-                showDiagnostics("SSH 档案（" + prof.describe() + "）已保存。\n\n"
-                    + "本地隧道将在下一批接入；目前请先用「本机」或「Relay」档案。");
-            }
+            @Override public void run() { setStatus("正在建立 SSH 隧道…"); }
         });
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final String host = prof.sshHost;
+                final int port = prof.sshPort;
+
+                // 1) 主机指纹 TOFU：先取对端公钥，再与记录比对，不同即拒绝
+                String line = DshSshTunnel.scanKeyLine(MainActivity.this, host, port);
+                final String fp = SshHostKey.fingerprintOfKeyLine(line);
+                if (fp == null) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            showDiagnostics("取不到 " + host + ":" + port + " 的主机公钥。\n\n"
+                                    + "确认：主机与端口可达、对端 sshd 在运行、手机与它同网段。");
+                        }
+                    });
+                    return;
+                }
+                final String pinned = DshSshTunnel.pinned(MainActivity.this, host, port);
+                SshHostKey.Decision d = SshHostKey.decide(pinned, fp);
+                if (d == SshHostKey.Decision.MISMATCH) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            showDiagnostics("主机指纹与上次记录不一致，已拒绝连接。\n\n"
+                                    + "上次记录：" + pinned + "\n本次取得：" + fp + "\n\n"
+                                    + "这可能是对端重装过系统，也可能是中间人。确认无误后清除本机记录再重试。");
+                        }
+                    });
+                    return;
+                }
+                if (d == SshHostKey.Decision.FIRST_SEEN) {
+                    DshSshTunnel.pin(MainActivity.this, host, port, fp);
+                    Log.i("MainActivity", "[ssh] 首次连接，已钉住主机指纹 " + fp);
+                }
+                // 2) 写 known_hosts（StrictHostKeyChecking=yes 需要），再确保密钥存在
+                DshSshTunnel.writeKnownHost(MainActivity.this, host, port, line);
+                if (DshSshTunnel.ensureKeyPair(MainActivity.this) == null) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            showDiagnostics("生成 SSH 密钥失败（bundle 里缺 ssh-keygen 或目录不可写）。");
+                        }
+                    });
+                    return;
+                }
+
+                // 3) 起隧道，等本地端口真的通（进程活着但端口没通 = 密钥没被接受）
+                Process pr = DshSshTunnel.start(MainActivity.this, prof);
+                if (pr == null) {
+                    main.post(new Runnable() {
+                        @Override public void run() { showDiagnostics("SSH 隧道启动失败（进程未能创建）。"); }
+                    });
+                    return;
+                }
+                if (!waitLocalPort(prof.localPort, 15000)) {
+                    DshSshTunnel.stop();
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            showDiagnostics("隧道进程起来了，但 127.0.0.1:" + prof.localPort + " 没通。\n\n"
+                                    + "最常见原因：本机公钥没有被对端接受。把下面这行加到对端"
+                                    + " ~/.ssh/authorized_keys 后重试：\n\n"
+                                    + "(在电脑侧执行 ssh-keygen 对应的 authorized_keys 追加；"
+                                    + "公钥可在配对页/本机档案里查看)");
+                        }
+                    });
+                    return;
+                }
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        showWebView("http://127.0.0.1:" + prof.localPort);
+                    }
+                });
+            }
+        }, "dsh-ssh").start();
+    }
+
+    /**
+     * 等本地端口可连（隧道真正的就绪信号）。
+     *
+     * <p>为什么不用「进程还活着」当就绪：`ssh -L` 在密钥未被接受时会先建立连接再失败，
+     * 进程可能存活数秒；只有端口 accept 了才说明转发真的建立。
+     */
+    private boolean waitLocalPort(int port, int timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            java.net.Socket s = null;
+            try {
+                s = new java.net.Socket();
+                s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 400);
+                return true;
+            } catch (Throwable t) {
+                try { Thread.sleep(300); } catch (InterruptedException ignored) { }
+            } finally {
+                if (s != null) { try { s.close(); } catch (Throwable ignored) { } }
+            }
+        }
+        return false;
     }
 
     /**

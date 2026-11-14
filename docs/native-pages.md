@@ -234,3 +234,28 @@ connection-entry（依赖 `dshSaf` 已存在）。
 `02-build-bundle.sh`，新 bundle 会带上这四个二进制；那时再接 `DshSshTunnel`
 （TOFU 主机指纹守卫 + 断线退避）才有意义。顺带说明：SSH 认证应走密钥而非密码
 （`ssh-keygen` 生成到 `$HOME/.ssh`），密码认证需要 askpass/sshpass，而这两者都不在包内。
+
+## 15. SSH 档（批 C）实现（r115）
+
+代码已落地，但**当前安装包跑不起来**：`files/usr/bin` 里没有 `ssh` / `ssh-keygen`
+（`DshSshTunnel.available()` 为 false，界面展示重出包指引，不假装连接）。
+
+实现要点：
+
+| 环节 | 做法 | 为什么 |
+|---|---|---|
+| 隧道命令 | `ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<home>/.ssh/known_hosts -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -i <home>/.ssh/id_ed25519 -p <port> -L 127.0.0.1:<localPort>:127.0.0.1:3080 user@host` | 任一步失败都要**退出**而不是挂着一个假连接；`BatchMode` 让任何交互提问直接失败 |
+| 认证 | ed25519 密钥（`ssh-keygen` 生成到 `$HOME/.ssh`），用户把公钥加到对端 `authorized_keys` | 包内无 askpass/sshpass，密码认证无法非交互完成 |
+| 主机指纹 | `ssh-keyscan` 取原始行 → `SshHostKey.fingerprintOfKeyLine` → 与记录比对 | `StrictHostKeyChecking=no` 等于关掉中间人防线 |
+| 判定 | 首次记录 / 一致放行 / **不一致阻断**；取不到本次指纹按不一致处理 | 把「读不到」当「首次」会让攻击者只要让扫描失败就能通过 |
+| known_hosts | 非 22 端口写成 `[host]:port keytype base64`，同主机旧行先删 | 端口形态写错时 ssh 认不出这条记录，表现是「写进去了仍提示未知主机」 |
+| 就绪 | 轮询 `127.0.0.1:<localPort>` 能否 accept（15s） | 「进程还活着」不是就绪：密钥被拒时进程也会存活数秒 |
+| 环境 | `PREFIX`/`HOME`/`PATH`/`LD_LIBRARY_PATH`/`TMPDIR`/`OPENSSL_CONF` 与 `dsh-web.sh` 对齐 | 缺 `LD_LIBRARY_PATH` 报 `libz.so.1 not found`；缺 `OPENSSL_CONF` 报 `BIO_new_file: Permission denied` |
+
+**解阻条件**：出包用的 Termux 里 `pkg install -y openssh` → 重跑 `02b-harvest-bundle.sh`
+与 `02-build-bundle.sh`，新包 `usr/bin` 会带 `ssh`/`ssh-keygen`/`scp`/`sftp`；
+此时 `available()` 转 true，整条链路即可启用（无需改代码）。
+
+**仍未做**：断线自动重连（现在进程退出只报错，由用户重进）。接法是在
+`DshSshTunnel.running()` 之外加一个守护轮询，按 1s→2s→4s…→30s 退避重启，
+并在重连成功后不需要重建 WebView（回环端口不变）。
