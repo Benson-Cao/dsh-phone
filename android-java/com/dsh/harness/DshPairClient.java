@@ -78,7 +78,8 @@ public final class DshPairClient {
         if (json == null) return new Challenge(null, null, 0, PairError.NETWORK);
         int status = statusOf(json);
         if (status != 200) return new Challenge(null, null, status, codeOf(json));
-        return new Challenge(optString(json, "challenge"), optString(json, "pairSecret"),
+        JSONObject data = payload(json);
+        return new Challenge(optString(data, "challenge"), optString(data, "pairSecret"),
                 status, null);
     }
 
@@ -98,11 +99,11 @@ public final class DshPairClient {
             return new Verified(status, codeOf(json), null, null, null, null, null);
         }
         return new Verified(status, null,
-                optString(json, "deviceToken"),
-                optString(json, "deviceId"),
-                optString(json, "hostDeviceId"),
-                optString(json, "relayUrl"),
-                optString(json, "protocol"));
+                optString(payload(json), "deviceToken"),
+                optString(payload(json), "deviceId"),
+                optString(payload(json), "hostDeviceId"),
+                optString(payload(json), "relayUrl"),
+                optString(payload(json), "protocol"));
     }
 
     /**
@@ -169,8 +170,9 @@ public final class DshPairClient {
                     (byte[]) null, 6000, 8000);
             if (r.code != 200) return new Health(true, 0, null, r.code);
             JSONObject json = new JSONObject(new String(r.body, UTF8));
-            return new Health(true, json.optInt("online", 0),
-                    optString(json, "protocol"), r.code);
+            JSONObject data = payload(json);
+            return new Health(true, data.optInt("online", 0),
+                    optString(data, "protocol"), r.code);
         } catch (Exception e) {
             return new Health(false, 0, null, 0);
         }
@@ -203,11 +205,29 @@ public final class DshPairClient {
         return json.optInt("__status", 0);
     }
 
+    /**
+     * 取响应**载荷**：Relay 的成功体统一是 {@code {ok:true, data:{…}, protocol}}。
+     *
+     * <p>这里同时容忍「裸对象」形态（登录态等旧实现直接回业务字段）——
+     * 判据只看有没有 `data` 对象，有就取内层，没有就当自己就是载荷。
+     * 早期版本按顶层字段解析 `deviceToken`，对真 Relay 永远拿到 null，
+     * 表现是「配对一直失败但错误码为空」，所以这段不能想当然。
+     */
+    private static JSONObject payload(JSONObject json) {
+        if (json == null) return null;
+        JSONObject data = json.optJSONObject("data");
+        return data != null ? data : json;
+    }
+
+    /** 错误码：失败体是 {@code {ok:false, error:{code,message,retryable}}}。 */
     private static String codeOf(JSONObject json) {
-        String c = optString(json, "code");
-        if (c != null) return c;
-        // 有些失败体把原因放在 error 里
-        return optString(json, "error");
+        if (json == null) return null;
+        JSONObject err = json.optJSONObject("error");
+        if (err != null) {
+            String c = optString(err, "code");
+            if (c != null) return c;
+        }
+        return optString(json, "code");
     }
 
     private static String optString(JSONObject json, String key) {

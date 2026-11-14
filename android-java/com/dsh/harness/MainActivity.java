@@ -53,6 +53,13 @@ public class MainActivity extends Activity {
     /** 选择 SAF 存储目录的请求码（方案 A，见 {@link DshSafBridge#safPickDir}）。 */
     public static final int REQ_SAF_DIR = 4003;
 
+    /**
+     * r113：显式进入远端档案。带上 {@code true} 的启动 Intent 会跳过「按需连接」的
+     * 选择页守卫，直接进 relay 档 —— 只在用户刚刚确认过时使用
+     * （切换器切完主机、离线页点「进入这台电脑」）。
+     */
+    public static final String EXTRA_ENTER_REMOTE = "enterRemote";
+
     /** 待写入「另存为」目标的源文件（onActivityResult 要用它）。 */
     private File pendingSaveSrc = null;
 
@@ -184,16 +191,8 @@ public class MainActivity extends Activity {
         }
         Log.i("MainActivity", "切档 -> " + profileId
                 + "（" + hp.current().describe() + "）");
-        try {
-            android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
-            cm.removeAllCookies(null);
-            cm.flush();
-        } catch (Throwable t) {
-            Log.w("MainActivity", "切档清 cookie 失败: " + t.getMessage());
-        }
-        // 预热的常驻 WebView 装的是本机首页：切档后 epoch 必须作废，
-        // 否则 prepareWebView() 可能领养一张旧档案的页面。
-        DshPreloadWeb.invalidate();
+        // 清 cookie + 作废预热：两个入口（原生切换器 / 离线页）共用，见 ProfileSession
+        ProfileSession.resetRuntime();
         if (webView != null) {
             try {
                 webView.removeAllViews();
@@ -405,8 +404,25 @@ public class MainActivity extends Activity {
 
                 // v2.3 批 B：档案分支 —— 只有 local 档才走本机引擎全套流程；
                 // relay 直连 Relay origin，ssh 等隧道（批 C）。见 handleNonLocalProfile()。
-                final HostProfile.Profile prof = HostProfile.get(MainActivity.this).current();
+                final HostProfile hp = HostProfile.get(MainActivity.this);
+                final HostProfile.Profile prof = hp.current();
                 if (!prof.needsLocalEngine()) {
+                    // r113 · 按需连接：远端档案默认**不**在启动时自动进入。
+                    // 「打开应用」多数意味着「用手机上的 dsh」；自动连一台可能已离线/被收回的
+                    // 电脑，失败时只会停在白屏。改成停在选择页，用户点了才连。
+                    // 例外：切换器/离线页在用户确认后拉起本页时会带 enterRemote=true。
+                    final boolean forced = getIntent() != null
+                            && getIntent().getBooleanExtra(EXTRA_ENTER_REMOTE, false);
+                    if (!forced && !hp.autoEnterRemote()) {
+                        main.post(new Runnable() {
+                            @Override public void run() {
+                                startActivity(new Intent(MainActivity.this, OfflineActivity.class)
+                                        .putExtra(OfflineActivity.EXTRA_CHOICE, true));
+                                finish();
+                            }
+                        });
+                        return;
+                    }
                     handleNonLocalProfile(prof, tBoot);
                     return;
                 }

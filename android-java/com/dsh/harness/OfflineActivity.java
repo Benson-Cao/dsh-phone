@@ -34,14 +34,25 @@ import android.widget.TextView;
  */
 public class OfflineActivity extends Activity {
 
+    /**
+     * 以「选择连接方式」的身份打开（r113 按需连接）。
+     *
+     * <p>同一个页面承担两种语义：远端档案启动时不自动进入 → 停在这里让用户选
+     * 「进入电脑 / 改用本机」；或电脑连不上时 → 停在这里看诊断。
+     * 两者共用同一套探测与绑定信息，只有标题与引导文案不同。
+     */
+    public static final String EXTRA_CHOICE = "choice";
+
     private TextView stateView;
     private TextView detailView;
     private TextView bindingView;
     private Button recheckButton;
+    private boolean choiceMode;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        choiceMode = getIntent() != null && getIntent().getBooleanExtra(EXTRA_CHOICE, false);
         buildUi();
         check();
     }
@@ -68,11 +79,21 @@ public class OfflineActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("电脑未连接");
+        title.setText(choiceMode ? "连接到电脑" : "电脑未连接");
         title.setTextColor(fg);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
         root.addView(title, matchWrap());
+
+        if (choiceMode) {
+            TextView lead = new TextView(this);
+            lead.setText("这台手机上也有 dsh 引擎，可以直接在本机用；"
+                    + "要用电脑上的会话与文件，再连过去。连接不会把会话带走。");
+            lead.setTextColor(muted);
+            lead.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            lead.setLineSpacing(dp(2), 1f);
+            root.addView(lead, marginTop(matchWrap(), 8));
+        }
 
         stateView = new TextView(this);
         stateView.setText("正在检查…");
@@ -94,6 +115,40 @@ public class OfflineActivity extends Activity {
         bindingView.setBackground(roundRect(DshPalette.surface(this), dp(10)));
         root.addView(bindingView, marginTop(matchWrap(), 20));
 
+        // ---- 按需连接的三条出口（r113）----
+        Button enterButton = new Button(this);
+        enterButton.setText("进入这台电脑");
+        enterButton.setAllCaps(false);
+        enterButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                enterRemote();
+            }
+        });
+        root.addView(enterButton, marginTop(matchWrap(), 18));
+
+        Button switcherButton = new Button(this);
+        switcherButton.setText("切换到其它电脑");
+        switcherButton.setAllCaps(false);
+        switcherButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(OfflineActivity.this, HostSwitcherActivity.class));
+            }
+        });
+        root.addView(switcherButton, marginTop(matchWrap(), 8));
+
+        Button localButton = new Button(this);
+        localButton.setText("改用本机引擎");
+        localButton.setAllCaps(false);
+        localButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                useLocal();
+            }
+        });
+        root.addView(localButton, marginTop(matchWrap(), 8));
+
         recheckButton = new Button(this);
         recheckButton.setText("重新检查");
         recheckButton.setAllCaps(false);
@@ -103,7 +158,7 @@ public class OfflineActivity extends Activity {
                 check();
             }
         });
-        root.addView(recheckButton, marginTop(matchWrap(), 18));
+        root.addView(recheckButton, marginTop(matchWrap(), 8));
 
         Button pairButton = new Button(this);
         pairButton.setText("重新配对");
@@ -222,6 +277,51 @@ public class OfflineActivity extends Activity {
         }
         sb.append('\n').append("省电　").append(DshPowerGuard.isExempt(this) ? "已放行" : "未放行");
         return sb.toString();
+    }
+
+    // ---- 按需连接的三条出口 ----
+
+    /**
+     * 进入 remote 档（relay）。
+     *
+     * <p>三要素必须齐：origin、hostId、令牌。缺令牌时**不能**降级成「无令牌也进」——
+     * 反代页会因为拿不到会话票而白屏，用户只会觉得「点了没用」。
+     */
+    private void enterRemote() {
+        String relay = DshDeviceIdentity.lastRelayUrl(this);
+        String host = DshDeviceIdentity.lastHostDeviceId(this);
+        String token = DshTokenStore.load(this);
+        if (relay == null || host == null || token == null) {
+            stateView.setText("还缺一步：这台手机没有可用的配对凭据");
+            detailView.setText("点下面的「重新配对」，把手机重新连上电脑（配对码在电脑上生成）。");
+            return;
+        }
+        HostProfile hp = HostProfile.get(this);
+        hp.setRelay(relay, host, token);
+        if (!hp.setCurrent(HostProfile.KIND_RELAY)) {
+            stateView.setText("进入失败：relay 档案没有配置完整");
+            detailView.setText("地址或主机 ID 为空。重新配对一次。");
+            return;
+        }
+        ProfileSession.resetRuntime();
+        startActivity(new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        finish();
+    }
+
+    /** 改用本机引擎：把档案切回 local，然后让 MainActivity 重新走本机流程。 */
+    private void useLocal() {
+        HostProfile hp = HostProfile.get(this);
+        if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
+            stateView.setText("切回本机失败");
+            detailView.setText("档案状态异常，重启应用后再试。");
+            return;
+        }
+        ProfileSession.resetRuntime();
+        startActivity(new Intent(this, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
+        finish();
     }
 
     // ---- 小工具 ----

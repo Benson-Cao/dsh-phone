@@ -9,7 +9,7 @@
 |---|---|---|---|
 | 配对页 | 已落地 | `android-java/com/dsh/harness/PairActivity.java` | 电脑地址 + 6 位配对码，两步配对，失败按错误码给处置 |
 | PC 离线页 | 已落地 | `android-java/com/dsh/harness/OfflineActivity.java` | 探 `/health`，区分「地址不通 / Relay 在但电脑没上线 / 在线 N 台」 |
-| 主机切换器 | 未落地 | — | 阻塞点：切换器需要 CP 的 `/api/hosts` 与设备令牌，令牌归属 `client-core` 的存储层；App 内目前没有 `client-core` 运行时 |
+| 主机切换器 | 已落地（r113） | `android-java/com/dsh/harness/HostSwitcherActivity.java` | `GET /api/hosts` 列可切电脑，确认后 `POST /api/hosts/select` 带 `confirmNoMigration:true`；切完清 cookie + 作废预热 |
 
 两点口径：
 
@@ -166,3 +166,45 @@ bash scripts/test-java.sh --logic  # 只跑纯逻辑（不找 android.jar）
 代码去用它们**：壳里没有 `client-core` 运行时，WebView 侧也没接。也就是说当前配对
 只是把身份备好了，尚未真正接入会话同步。下一步是桥提供 `listHosts()` 能力 +
 切换器页面，届时 binding 与令牌才被真正消费。
+
+## 10. 按需连接（r113）
+
+**默认不自动进远端档案。** `HostProfile.autoEnterRemote()` 缺省 `false`：
+启动时若当前档案是 `relay` / `ssh`，`MainActivity` 不直接进 WebView，而是打开
+`OfflineActivity` 的 **choice 模式**（标题「连接到电脑」），让用户选：
+
+- 「进入这台电脑」→ 校验 relay 三要素（origin / hostId / 令牌），写档 → `ProfileSession.resetRuntime()` → 带 `EXTRA_ENTER_REMOTE=true` 拉起 `MainActivity`；
+- 「改用本机引擎」→ 切回 `local` 档 → 同上；
+- 「切换到其它电脑」→ `HostSwitcherActivity`。
+
+理由：打开应用多数意味着「用手机上的 dsh」；自动连一台可能已离线或被收回的电脑，
+失败时只会停在白屏，而用户并不知道问题在哪。`ssh` 档同理（隧道还没接，更不该自动进）。
+
+显式进入的唯一通道是 `MainActivity.EXTRA_ENTER_REMOTE=true`，只在用户刚点过确认时由
+切换器 / 选择页带上。**不要**用「每次启动都带」的方式绕过它 —— 那等于把开关又关掉。
+
+## 11. 响应封套（r113 修复的真实缺陷）
+
+Relay 的全部 HTTP 响应统一是：
+
+```jsonc
+{ "ok": true,  "data": { ... }, "protocol": "wbsync/2.3" }
+{ "ok": false, "error": { "code": "HOST_OFFLINE", "message": "…", "retryable": true }, "protocol": "wbsync/2.3" }
+```
+
+r111 的客户端按**顶层字段**解析（`json.deviceToken` / `json.online`），对真 Relay 的结果是：
+
+- 配对：`challenge` / `pairSecret` 取到 null → 第二步直接判失败，且错误码为空（`error.code` 也没读到）；
+- 离线页：`online` 永远 0 → 明明电脑在线也显示「没有电脑在线」。
+
+现在统一走 `payload()`（取 `data` 内层，容忍裸对象形态）与 `error.code`。
+**新增任何 Relay 调用都必须走这两个入口**，别再直接读顶层 —— 这条错误不会报错，
+只会让功能静默失效，是最难发现的一类。
+
+## 12. 已知漂移（待出包前处理）
+
+真机实测（`adb run-as com.dsh.harness` 执行 `files/usr/bin/node`，即 `dsh-web.sh` 用的
+`$PREFIX/bin/node`）报 **node v24.18.0**，而 `version.ini` 的 `components.node_version`
+写的是 **22.22.2**。两者必须一致，否则 `version_code` / `BUNDLE_REV` 的判定依据是错的。
+处理方式二选一：出包前核实 bundle 实际版本并改 `version.ini`，或在 `02-build-bundle.sh`
+收尾加一条 `$PREFIX/bin/node -v` 与 `version.ini` 的断言，让漂移在出包时就失败。

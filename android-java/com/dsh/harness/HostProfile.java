@@ -48,6 +48,8 @@ public final class HostProfile {
     private static final String TAG = "DshProfile";
     private static final String PREF = "dsh_profiles";
     private static final String KEY_STATE = "state";
+    /** 启动是否自动进入远端档案；默认缺省 = false（按需连接）。 */
+    private static final String KEY_AUTO_ENTER_REMOTE = "autoEnterRemote";
 
     public static final String KIND_LOCAL = "local";
     public static final String KIND_SSH = "ssh";
@@ -283,6 +285,36 @@ public final class HostProfile {
 
     /** 当前档案 id（local/ssh/relay）。 */
     public String currentId() { return cur.kind; }
+
+    /**
+     * 启动时是否自动进入远端档案（relay / ssh）。默认 {@code false} —— **按需连接**。
+     *
+     * <p>为什么默认关：远端档案意味着连另一台机器，用户开 App 的意图多数是「用手机上的
+     * dsh」。启动即连会把「打开应用」变成「连一台可能已经离线/被收回的电脑」，
+     * 失败时还停在白屏或错误页。关掉之后启动停在选择页，用户点了才连。
+     *
+     * <p>显式进入的路径有两条：选择页上的「进入这台电脑」，或 `MainActivity` 收到
+     * `enterRemote=true` 的 extra（切换器/离线页在用户确认后拉起时带）。
+     */
+    public boolean autoEnterRemote() {
+        try {
+            JSONObject o = new JSONObject(prefs().getString(KEY_STATE, "{}"));
+            return o.optBoolean(KEY_AUTO_ENTER_REMOTE, false);
+        } catch (Throwable t) {
+            return false;   // 读不出来就最保守：不自动连
+        }
+    }
+
+    /** 设置启动是否自动进入远端档案。 */
+    public void setAutoEnterRemote(boolean on) {
+        try {
+            JSONObject state = new JSONObject(prefs().getString(KEY_STATE, "{}"));
+            state.put(KEY_AUTO_ENTER_REMOTE, on);
+            prefs().edit().putString(KEY_STATE, state.toString()).apply();
+        } catch (Throwable t) {
+            Log.w(TAG, "写 autoEnterRemote 失败: " + t.getMessage());
+        }
+    }
 
     /**
      * 仅持久化切换（不执行切换动作）。

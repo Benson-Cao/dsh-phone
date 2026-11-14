@@ -260,6 +260,10 @@
         android:exported="false"
         android:label="@string/application_name"
         android:configChanges="orientation|screenSize|keyboardHidden" />
+    <activity android:name="com.dsh.harness.HostSwitcherActivity"
+        android:exported="false"
+        android:label="@string/application_name"
+        android:configChanges="orientation|screenSize|keyboardHidden" />
 
 </application>
 

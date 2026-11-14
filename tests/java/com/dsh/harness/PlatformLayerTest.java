@@ -25,6 +25,7 @@ public final class PlatformLayerTest {
         proof(nodeSig);
         request();
         errors();
+        hosts();
         urls();
 
         System.out.println();
@@ -171,6 +172,38 @@ public final class PlatformLayerTest {
 
         PairError.Finding unauth = PairError.of(401, null);
         check("401 无码 → 按未授权处置", PairError.UNAUTHORIZED.equals(unauth.code));
+    }
+
+    // ---- 主机切换处置 ----
+
+    private static void hosts() {
+        HostsError.Finding unauth = HostsError.of(401, HostsError.UNAUTHORIZED);
+        check("切换·未授权 → 不可原样重试", !unauth.retryable);
+        check("切换·未授权 → 提示重新配对", unauth.action.contains("重新配对"));
+
+        HostsError.Finding confirm = HostsError.of(400, HostsError.CONFIRM_REQUIRED);
+        check("切换·缺确认 → 不可原样重试", !confirm.retryable);
+        check("切换·缺确认 → 指向确认框", confirm.action.contains("确认"));
+
+        HostsError.Finding offline = HostsError.of(404, HostsError.HOST_OFFLINE);
+        check("切换·目标不在 → 可重试", offline.retryable);
+
+        HostsError.Finding limit = HostsError.of(409, HostsError.CLIENT_LIMIT);
+        check("切换·名额满 → 不可原样重试", !limit.retryable);
+
+        HostsError.Finding net = HostsError.of(0, null);
+        check("切换·无响应 → 网络故障可重试",
+                HostsError.NETWORK.equals(net.code) && net.retryable);
+
+        HostsError.Finding server = HostsError.of(502, "BAD_GATEWAY");
+        check("切换·5xx → 可重试", server.retryable);
+
+        HostsError.Finding unknown401 = HostsError.of(401, "SOMETHING");
+        check("切换·未知码 + 401 → 按未授权", HostsError.UNAUTHORIZED.equals(unknown401.code));
+
+        HostsError.Finding unknown = HostsError.of(418, null);
+        check("切换·未知状态 → 通用码且可重试",
+                "HTTP_418".equals(unknown.code) && unknown.retryable);
     }
 
     // ---- 地址规整 ----

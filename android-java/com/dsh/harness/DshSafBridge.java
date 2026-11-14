@@ -429,6 +429,12 @@ public final class DshSafBridge {
         return openNativePage("openOfflinePage", OfflineActivity.class);
     }
 
+    /** 打开主机切换器（r113）。 */
+    @JavascriptInterface
+    public int openSwitcherPage() {
+        return openNativePage("openSwitcherPage", HostSwitcherActivity.class);
+    }
+
     private int openNativePage(String tag, Class<?> target) {
         final Activity a = act();
         if (a == null || !localOriginAllowed(tag)) return -1;

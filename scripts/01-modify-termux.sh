@@ -341,10 +341,10 @@ fi
 # 或压根连不上电脑的时候 —— 寄生在 Web UI 上的入口在这两种场景下点不到。
 # 省电放行权限是 DshPowerGuard 直接弹系统对话框的前提；缺了它只能退到设置列表页，
 # 用户多走两步，还容易在列表里找不到本应用。
-if grep -q "com.dsh.harness.PairActivity" "$MANIFEST"; then
+if grep -q "com.dsh.harness.HostSwitcherActivity" "$MANIFEST"; then
   echo "  · 原生页已注册，跳过"
 elif [ -z "$PY" ]; then
-  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity"
+  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity / HostSwitcherActivity"
 else
   "$PY" - "$MANIFEST" <<'PYEOF_PAGES'
 import sys
@@ -357,21 +357,35 @@ if perm not in s:
     s = s.replace('<application',
                   '    <uses-permission android:name="%s" />\n\n    <application' % perm, 1)
 
-# 2) 两个页面：都不导出（只有本 App 自己能起），主题跟随 dsh 的 DayNight
-pages = (
-    '    <activity android:name="com.dsh.harness.PairActivity"\n'
-    '        android:exported="false"\n'
-    '        android:label="@string/application_name"\n'
-    '        android:windowSoftInputMode="adjustResize"\n'
-    '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'
-    '    <activity android:name="com.dsh.harness.OfflineActivity"\n'
-    '        android:exported="false"\n'
-    '        android:label="@string/application_name"\n'
-    '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'
-)
-s = s.replace('</application>', pages + '</application>')
+# 2) 三个页面逐个判断是否已注册（幂等按「每个 activity」做，不是整块跳过：
+#    否则将来新增第四页时，因为第一个已存在就永远不会被加进去）
+pages = {
+    'PairActivity': (
+        '    <activity android:name="com.dsh.harness.PairActivity"\n'
+        '        android:exported="false"\n'
+        '        android:label="@string/application_name"\n'
+        '        android:windowSoftInputMode="adjustResize"\n'
+        '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
+    'OfflineActivity': (
+        '    <activity android:name="com.dsh.harness.OfflineActivity"\n'
+        '        android:exported="false"\n'
+        '        android:label="@string/application_name"\n'
+        '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
+    'HostSwitcherActivity': (
+        '    <activity android:name="com.dsh.harness.HostSwitcherActivity"\n'
+        '        android:exported="false"\n'
+        '        android:label="@string/application_name"\n'
+        '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
+}
+added = []
+for name in ('PairActivity', 'OfflineActivity', 'HostSwitcherActivity'):
+    if 'com.dsh.harness.' + name not in s:
+        s = s.replace('</application>', pages[name] + '</application>')
+        added.append(name)
+
 open(p, 'w', encoding='utf-8').write(s)
-print("  ✓ 注册 PairActivity / OfflineActivity + 省电放行权限")
+print("  ✓ 注册原生页: " + (", ".join(added) if added else "（已全部存在）")
+      + " + 省电放行权限")
 PYEOF_PAGES
 fi
 
