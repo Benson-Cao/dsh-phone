@@ -1220,8 +1220,12 @@ public final class DshBootstrap {
                 } else if (typeflag == '2') {
                     // 符号链接：Termux 的 .so 短名全靠它（libz.so.1 -> libz.so.1.3.2）
                     String target = linkTarget != null ? linkTarget : cstr(header, 157, 100);
-                    // r72（P3-10）：tar 版 Zip Slip 防护 —— 目标禁绝对路径/..
-                    safeLinkTarget(target);
+                    // r72（P3-10）：tar 版 Zip Slip 防护 —— 绝对路径/UNC/逃逸根一律拒绝。
+                    // v6（批 B 收割）：允许「词法归一后仍在解包根内」的 ../ ——
+                    //   run-as 收割的 bundle 含 node_modules/.bin 链接（如
+                    //   .bin/claude -> ../@anthropic-ai/sdk/bin/cli），目标在树内；
+                    //   旧一刀切拒 ../ 会让解包在 7 万文件处崩掉整个 bootstrap。
+                    safeLinkTarget(name, target);
                     File link = safeDest(dest, name);
                     if (link.getParentFile() != null) link.getParentFile().mkdirs();
                     try {
@@ -1317,10 +1321,24 @@ public final class DshBootstrap {
         }
 
         /** r72（P3-10）：符号链接目标禁止绝对路径与 ..（防止写盘穿透出解包根）。 */
-        private static void safeLinkTarget(String target) throws Exception {
-            if (target.startsWith("/") || target.startsWith("\\\\")
-                || java.util.regex.Pattern.compile("(^|[/\\\\])\\.\\.(/|$)").matcher(target).find()) {
+        private static void safeLinkTarget(String name, String target) throws Exception {
+            if (target == null || target.isEmpty()
+                || target.startsWith("/") || target.startsWith("\\\\")
+                || target.indexOf('\0') >= 0) {
                 throw new Exception("bundle 符号链接目标非法: " + target);
+            }
+            // 把「链接所在目录 + 相对目标」做词法归一（不碰盘，不依赖条目顺序）；
+            // 归一后若试图爬出根（parts 空时还遇 ..）才拒绝。
+            String dir = name.contains("/") ? name.substring(0, name.lastIndexOf('/')) : "";
+            java.util.ArrayList<String> parts = new java.util.ArrayList<String>();
+            for (String seg : (dir + "/" + target).split("[/\\\\]")) {
+                if (seg == null || seg.isEmpty() || ".".equals(seg)) continue;
+                if ("..".equals(seg)) {
+                    if (parts.isEmpty()) throw new Exception("bundle 符号链接目标非法: " + target);
+                    parts.remove(parts.size() - 1);
+                } else {
+                    parts.add(seg);
+                }
             }
         }
 

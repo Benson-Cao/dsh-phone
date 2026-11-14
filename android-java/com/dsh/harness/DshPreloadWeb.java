@@ -109,6 +109,10 @@ public final class DshPreloadWeb {
         st.setAllowFileAccessFromFileURLs(false);
         st.setAllowUniversalAccessFromFileURLs(false);
         st.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // 1134 登录白屏修复（r110）：领养后不会重设 WebSettings，这里必须与
+        // MainActivity.prepareWebView() 一致，否则 window.open 仍落在当前 WebView。
+        st.setSupportMultipleWindows(true);
+        st.setJavaScriptCanOpenWindowsAutomatically(true);
         android.webkit.CookieManager.getInstance().setAcceptCookie(true);
         if (cookiePair != null) {
             android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();

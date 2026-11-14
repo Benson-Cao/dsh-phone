@@ -662,6 +662,10 @@ public class MainActivity extends Activity {
         s.setAllowFileAccessFromFileURLs(false);
         s.setAllowUniversalAccessFromFileURLs(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // 1134 登录白屏修复（r110）：让 window.open 走 DshChromeClient.onCreateWindow，
+        // 而不是把当前 WebView 导航到远程授权页（会落成 about:blank 空白文档）。
+        s.setSupportMultipleWindows(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
         // 让 dsh 下发的 dsh-auth cookie 能落盘，否则跳回 / 又是 401
         android.webkit.CookieManager.getInstance().setAcceptCookie(true);
         bindActivityClients();
@@ -1121,9 +1125,38 @@ public class MainActivity extends Activity {
         Log.i("MainActivity", "[dsh] setJsBackHandled -> " + handled);
     }
 
+    /**
+     * 1134 登录白屏修复（r110）：空白页守卫。
+     * 领养的常驻 WebView 被系统回收、或跨应用跳转后 WebView 停在 about:blank 时，
+     * showWebView() 已完成（webShown=true）不会再 loadUrl，页面永久纯白。
+     * 仅在确实停在空白文档时重载当前引擎首页，正常首页不会被刷新。
+     */
+    private void restoreBlankWebView() {
+        if (isFinishing() || isDestroyed()) return;
+        if (!webShown || webView == null) return;
+        String url;
+        try { url = webView.getUrl(); } catch (Throwable t) { return; }
+        if (url != null && !url.equals("about:blank") && !url.startsWith("data:")) return;
+        String base;
+        try { base = EngineEndpoints.currentUrl(this); } catch (Throwable t) { return; }
+        if (base == null || base.length() == 0) return;
+        Log.i("MainActivity", "[blank-guard] WebView 停在 " + url + "，重新加载 " + base);
+        try { webView.loadUrl(base); } catch (Throwable t) {
+            Log.w("MainActivity", "[blank-guard] loadUrl 失败: " + t.getMessage());
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        // 1134 登录白屏修复（r110）：从浏览器/后台回到 App 时补一次重加载，
+        // 并在 1.5s 后再兜一次（预热 WebView 归还的空白文档常晚于 onResume 落地）。
+        restoreBlankWebView();
+        if (webView != null) {
+            webView.postDelayed(new Runnable() {
+                @Override public void run() { restoreBlankWebView(); }
+            }, 1500L);
+        }
         // r60：**只清一次**（每个 App 进程首次），之后保留 WebView 历史。
         //   r49 当初每次都清，是因为 r43 用整页跳 /dsh-market，在 WebView 历史里
         //   留下了一条 404 文档 —— 侧滑回去就是一整页白屏（只剩注入的汉堡）。

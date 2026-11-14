@@ -131,6 +131,68 @@ public class DshChromeClient extends WebChromeClient {
         return true;
     }
 
+    /**
+     * 1134 登录白屏修复（r110）：补上 WebChromeClient.onCreateWindow（新建窗口回调）。
+     * 原实现没有这个方法，window.open(登录授权 URL) 会让当前 WebView 落到 about:blank；
+     * 这里用一次性承载 WebView 接住目标 URL，远程 URL 交给系统浏览器、本地 URL 交回主
+     * WebView，主 WebView 本身不导航。需要 WebSettings.setSupportMultipleWindows(true)。
+     */
+    @Override
+    public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                  android.os.Message resultMsg) {
+        if (resultMsg == null || !(resultMsg.obj instanceof WebView.WebViewTransport)) {
+            return false;
+        }
+        try {
+            final WebView parent = view;
+            final WebView carrier = new WebView(act);
+            carrier.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView v,
+                        android.webkit.WebResourceRequest request) {
+                    String url = (request == null || request.getUrl() == null)
+                            ? null : request.getUrl().toString();
+                    return dispatch(parent, v, url);
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                    return dispatch(parent, v, url);
+                }
+
+                private boolean dispatch(WebView parentView, WebView carrierView, String url) {
+                    if (url != null && url.length() > 0) {
+                        if (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+                            try { parentView.loadUrl(url); } catch (Throwable ignored) { }
+                        } else {
+                            try {
+                                act.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                            } catch (Exception e) {
+                                Log.w(TAG, "打开外部页面失败: " + e.getMessage());
+                            }
+                        }
+                    }
+                    try {
+                        carrierView.postDelayed(new Runnable() {
+                            @Override public void run() {
+                                try { carrierView.destroy(); } catch (Throwable ignored) { }
+                            }
+                        }, 1000L);
+                    } catch (Throwable ignored) { }
+                    return true;
+                }
+            });
+            WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+            transport.setWebView(carrier);
+            resultMsg.sendToTarget();
+            Log.i(TAG, "onCreateWindow: 已接管 window.open");
+            return true;
+        } catch (Throwable t) {
+            Log.e(TAG, "onCreateWindow 接管失败", t);
+            return false;
+        }
+    }
+
     // ===== 附件选择：r219 回程重做 =====
 
     /**
