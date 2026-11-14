@@ -3,6 +3,8 @@ package com.dsh.harness.webview;
 import android.util.Log;
 import android.webkit.WebView;
 
+import com.dsh.harness.HostProfile;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +50,30 @@ public final class OfficialShell {
                 Log.w(TAG, "[dsh] inject 失败 " + asset + ": " + t.getMessage());
             }
         }
+    }
+
+    /**
+     * v2.3 批 B：**按当前档案决定是否注入** 的统一入口。
+     *
+     * <p>relay 档的页面是<b>远端 origin</b>（Relay 反代官方 UI）—— 桥对象不存在，
+     * official-bridge.js 里对 {@code window.dshNative} 的守卫虽会让脚本空转，
+     * 但「往远端页面里注我们自己的 JS」这件事本身就该杜绝：脚本可能随版本演进
+     * 引入新的桥调用，不能指望 JS 侧守卫永远是 no-op。
+     * 档案判定失败同样不注入（fail-safe：少一个功能，不多一个洞）。
+     */
+    public static void injectIfAllowed(WebView view) {
+        if (view == null) { return; }
+        try {
+            HostProfile.Profile p = HostProfile.get(view.getContext()).current();
+            if (!p.bridgeAllowed()) {
+                Log.i(TAG, "[dsh] relay 档（远端 origin）不注入脚本");
+                return;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "[dsh] 档案判定失败，保守不注入: " + t.getMessage());
+            return;
+        }
+        inject(view);
     }
 
     private static synchronized String load(WebView view, String asset) {

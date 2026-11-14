@@ -45,4 +45,50 @@ public final class DshOrigin {
         if ("::1".equals(h) || "0:0:0:0:0:0:0:1".equals(h)) return true;
         return "127.0.0.1".equals(h) || "localhost".equals(h);
     }
+
+    /**
+     * v2.3 批 B：url 与给定 origin（scheme://host[:port]）是否同源。
+     *
+     * <p>用途：非 local 档案（relay 是远端 origin）下，WebViewClient 的外链分流
+     * 不能再只认回环 —— 当前档案自己的 origin 也要留在 WebView 内。
+     * 判定仍归 {@link DshOrigin} 管（本类保持「不 import android」的可单测铁律）。
+     *
+     * <p>fail-safe：任一侧解析失败 / origin 为空 → false（宁可当外链丢出去，
+     * 也不能把陌生源当可信源留在带桥的 WebView 里）。
+     * 端口缺省补全：http=80、https=443（{@code https://r.example.com} 与
+     * {@code https://r.example.com:443/d/...} 必须判同）。
+     */
+    public static boolean sameOrigin(String url, String origin) {
+        if (url == null || origin == null) return false;
+        String o = origin.trim();
+        if (o.isEmpty()) return false;
+        try {
+            URI u = new URI(url.trim());
+            URI b = new URI(o);
+            String us = u.getScheme(), bs = b.getScheme();
+            String uh = u.getHost(), bh = b.getHost();
+            if (us == null || bs == null || uh == null || bh == null) return false;
+            if (!us.toLowerCase(Locale.ROOT).equals(bs.toLowerCase(Locale.ROOT))) return false;
+            if (!uh.toLowerCase(Locale.ROOT).equals(bh.toLowerCase(Locale.ROOT))) return false;
+            // 两边各按「显式端口优先，否则 scheme 缺省端口」归一后比较。
+            // （首版曾写成 defaultPort(scheme) == explicit —— 任何带端口的同源
+            //   判定都会误判 false，单测抓出。）
+            return portOf(us, u.getPort()) == portOf(bs, b.getPort());
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    /** scheme 的默认端口；未知 scheme 返回 -1（与「未写端口」同值 → 判等通过）。 */
+    private static int defaultPort(String scheme) {
+        String s = scheme.toLowerCase(Locale.ROOT);
+        if ("http".equals(s)) return 80;
+        if ("https".equals(s)) return 443;
+        return -1;
+    }
+
+    /** 显式端口优先，未写（-1/0）时回 scheme 缺省端口。 */
+    private static int portOf(String scheme, int explicitPort) {
+        return explicitPort > 0 ? explicitPort : defaultPort(scheme);
+    }
 }

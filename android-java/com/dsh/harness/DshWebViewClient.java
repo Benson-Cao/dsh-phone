@@ -21,10 +21,32 @@ import android.webkit.WebViewClient;
  */
 public class DshWebViewClient extends WebViewClient {
 
-    /** dsh 服务根地址（r72/P2-7：错误页「重试」需要直达它，而不是 reload 错误文档）。 */
-    private static String dshBaseUrl() {
-        // 错误页「重试」要回到当前选中的引擎，而不是永远回本机 3080。
-        return EngineEndpoints.currentUrlStatic();
+    /**
+     * dsh 服务根地址（r72/P2-7：错误页「重试」需要直达它，而不是 reload 错误文档）。
+     * v2.3 批 B：按档案取 —— local 档维持引擎语义（可能是 3082 反代），
+     * relay/ssh 档用档案自己的地址。
+     */
+    private static String dshBaseUrl(Context ctx) {
+        HostProfile.Profile p = HostProfile.get(ctx).current();
+        if (p.needsLocalEngine()) {
+            return EngineEndpoints.currentUrl(ctx);
+        }
+        return p.loadUrl();
+    }
+
+    /**
+     * v2.3 批 B：本页是否属于当前档案的可信页（回环 或 当前档案 origin）。
+     * history 清理 / 注入 / 重试计数都以它为界；判定失败一律 false。
+     */
+    private static boolean isTrustedPage(WebView view, String url) {
+        if (url == null) return false;
+        if (DshOrigin.isLocalUrl(url)) return true;
+        try {
+            return DshOrigin.sameOrigin(url,
+                    HostProfile.get(view.getContext().getApplicationContext()).current().baseOrigin());
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /**
@@ -32,23 +54,25 @@ public class DshWebViewClient extends WebViewClient {
      * 但页面是 loadDataWithBaseURL(null,…) 的 about:blank 文档，重载的是错误
      * 文档本身，永远不会真正重试 dsh 服务。现在重试直接 location.href 回 dsh 根。
      */
-    private static String errorHtml(String title, String body) {
+    private static String errorHtml(String baseUrl, String title, String body) {
+        String safeBase = baseUrl == null || baseUrl.isEmpty()
+                ? "http://127.0.0.1:" + DshProcessManager.DSH_PORT : baseUrl;
         return "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;color:#333'>"
             + "<h2>" + title + "</h2>"
             + "<p>" + body + "</p>"
-            + "<button onclick='location.href=\"" + dshBaseUrl() + "\"' style='margin-top:12px;padding:8px 16px;"
+            + "<button onclick='location.href=\"" + safeBase + "\"' style='margin-top:12px;padding:8px 16px;"
             + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
             + "</body></html>";
     }
 
-    private static String serverNotReadyHtml() {
-        return errorHtml("服务还没就绪",
+    private static String serverNotReadyHtml(String baseUrl) {
+        return errorHtml(baseUrl, "服务还没就绪",
             "dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。");
     }
 
-    private static String authExpiredHtml() {
+    private static String authExpiredHtml(String baseUrl) {
         // r72（P3-4）：401（鉴权过期）与“服务未就绪”分开提示，避免误导排障方向
-        return errorHtml("需要重新登录",
+        return errorHtml(baseUrl, "需要重新登录",
             "dsh 的登录状态已过期（401）。请完全退出应用后重新打开，应用会重新获取登录凭证。");
     }
 
@@ -148,6 +172,14 @@ public class DshWebViewClient extends WebViewClient {
      */
     private boolean handleUrl(WebView view, String url) {
         if (DshOrigin.isLocalUrl(url)) return false;
+        // v2.3 批 B：当前档案自己的 origin 也算可信源（relay 档是远端 origin）。
+        // 判定失败时落不到这里 → 继续按外链处理（fail-safe）。
+        try {
+            if (DshOrigin.sameOrigin(url,
+                    HostProfile.get(view.getContext().getApplicationContext()).current().baseOrigin())) {
+                return false;
+            }
+        } catch (Throwable ignored) { }
         Uri u = Uri.parse(url);
         String scheme = u.getScheme();
         if (scheme == null) return true;          // 判不出协议 → 拦
@@ -188,9 +220,14 @@ public class DshWebViewClient extends WebViewClient {
     private static long sLastFailureAt = 0L;
     private static boolean sRetryScheduled = false;
 
-    /** 页面成功落到本地 dsh 文档时清零，别把上一轮失败算进新一轮。 */
-    private static void noteLoadSucceeded(String url) {
-        if (url == null || !DshOrigin.isLocalUrl(url)) return;  // data: 错误文档不算
+    /** 页面成功落到当前档案的可信文档时清零，别把上一轮失败算进新一轮。 */
+    private static void noteLoadSucceeded(Context ctx, String url) {
+        if (url == null) return;                                    // data: 错误文档不算
+        if (!DshOrigin.isLocalUrl(url)) {
+            try {
+                if (!DshOrigin.sameOrigin(url, HostProfile.get(ctx).current().baseOrigin())) return;
+            } catch (Throwable t) { return; }
+        }
         synchronized (RETRY_LOCK) {
             sRetryCount = 0;
         }
@@ -199,6 +236,13 @@ public class DshWebViewClient extends WebViewClient {
     /** 主帧失败统一入口：先自动重试，超过上限才出错误文档。 */
     private static void handleMainFrameFailure(final WebView view, final int httpCode) {
         if (view == null) return;
+        final Context appCtx = view.getContext().getApplicationContext();
+        // v2.3 批 B：relay 档不做本机就绪探测重试（DshProbe 探的是本机 3080，
+        // 对远端反代毫无意义）—— 直接出错误页，由用户刷新。
+        if (!HostProfile.get(appCtx).current().needsLocalEngine()) {
+            showFinalError(view, httpCode);
+            return;
+        }
         synchronized (RETRY_LOCK) {
             final long now = SystemClock.elapsedRealtime();
             // onReceivedError 与 onReceivedHttpError 常对同一次失败各回调一次
@@ -217,6 +261,7 @@ public class DshWebViewClient extends WebViewClient {
                 view.loadDataWithBaseURL(null, connectingHtml(), "text/html", "utf-8", null);
             }
             final long delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+            final String base = dshBaseUrl(appCtx);
             MAIN.postDelayed(new Runnable() {
                 @Override public void run() {
                     synchronized (RETRY_LOCK) { sRetryScheduled = false; }
@@ -229,15 +274,15 @@ public class DshWebViewClient extends WebViewClient {
                                 if (ready != null && ready.cookiePair != null) {
                                     CookieManager cm = CookieManager.getInstance();
                                     cm.setAcceptCookie(true);
-                                    cm.setCookie(dshBaseUrl(), ready.cookiePair);
+                                    cm.setCookie(base, ready.cookiePair);
                                     cm.flush();
                                 }
                             } catch (Throwable ignored) { }
                             MAIN.post(new Runnable() {
                                 @Override public void run() {
                                     Log.i("DshWebViewClient", "[dsh-retry] attempt=" + (attempt + 1)
-                                            + " url=" + dshBaseUrl());
-                                    view.loadUrl(dshBaseUrl());
+                                            + " url=" + base);
+                                    view.loadUrl(base);
                                 }
                             });
                         }
@@ -250,10 +295,11 @@ public class DshWebViewClient extends WebViewClient {
     /** 重试耗尽：显示错误文档（必须主线程）。 */
     private static void showFinalError(final WebView view, final int httpCode) {
         Log.w("DshWebViewClient", "[dsh-retry] 重试耗尽，显示错误页 httpCode=" + httpCode);
+        final String base = dshBaseUrl(view.getContext().getApplicationContext());
         MAIN.post(new Runnable() {
             @Override public void run() {
                 view.loadDataWithBaseURL(null,
-                        httpCode == 401 ? authExpiredHtml() : serverNotReadyHtml(),
+                        httpCode == 401 ? authExpiredHtml(base) : serverNotReadyHtml(base),
                         "text/html", "utf-8", null);
             }
         });
@@ -303,8 +349,9 @@ public class DshWebViewClient extends WebViewClient {
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
         // r198：本地 dsh 文档真正加载完成 → 清掉自动重试计数。
-        // 错误页是 data: URL，DshOrigin.isLocalUrl 不认它，所以不会误清。
-        noteLoadSucceeded(url);
+        // 错误页是 data: URL，可信判定不认它，所以不会误清。
+        // v2.3 批 B：relay 档的成功页是档案 origin，同样算成功。
+        noteLoadSucceeded(view.getContext().getApplicationContext(), url);
         // r80（P0）：首次 dsh 页面加载完成后，立刻清掉 WebView 历史的"栈底" ——
         //   预热阶段的 about:blank 条目。原 onResume 的 clearHistory() 在
         //   loadUrl(dsh) **之前**执行，只清掉当时的 [blank]，随后 loadUrl 又把
@@ -314,7 +361,7 @@ public class DshWebViewClient extends WebViewClient {
         //   → 32.246 path=blank → 33.420 退出 App）。
         //   在这里清发生在 dsh 文档**已经落顶**之后，一刀剪掉底部 blank；
         //   SPA 自己的 pushState 条目是之后才压的，不受影响。
-        if (!sHistoryBased && url != null && DshOrigin.isLocalUrl(url)) {
+        if (!sHistoryBased && isTrustedPage(view, url)) {
             sHistoryBased = true;
             try {
                 view.clearHistory();
@@ -343,8 +390,8 @@ public class DshWebViewClient extends WebViewClient {
         //      不注入任何 CSS、不改布局 —— 页面观感与官方 WebView 一致。
         //      历史上更早的三层（mobile.css / mobile.js / market*.css / dvh 结构修复）
         //      保持移除状态，不要因回滚而复活。
-        if (url != null && DshOrigin.isLocalUrl(url)) {
-            com.dsh.harness.webview.OfficialShell.inject(view);
+        if (isTrustedPage(view, url)) {
+            com.dsh.harness.webview.OfficialShell.injectIfAllowed(view);
         }
     }
 

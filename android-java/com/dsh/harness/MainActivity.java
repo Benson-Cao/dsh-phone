@@ -165,6 +165,45 @@ public class MainActivity extends Activity {
         webView.loadUrl(EngineEndpoints.currentUrl(this));
     }
 
+    /**
+     * v2.3 批 B（S-6.9 骨架）：切换档案。
+     *
+     * <p>切档铁律（挡 R-22 串会话）：<b>进程级 cookie 必须清空</b> ——
+     * CookieManager 是单例，上一台主机的 dsh-auth / Relay 反代会话 cookie
+     * 若带进下一台，就是跨主机串会话。同时销毁重建 WebView（不复用实例），
+     * 让缓存/历史/表单态跟着档案一起归零。
+     *
+     * <p>必须在主线程调用（悬浮球面板点击回调天然在主线程）。
+     * 本批只落骨架：持久化 + 清 cookie + recreate()；悬浮球 UI 批 D 接。
+     */
+    public void switchProfile(String profileId) {
+        HostProfile hp = HostProfile.get(this);
+        if (!hp.setCurrent(profileId)) {
+            Log.w("MainActivity", "切档失败：未知或未配置完整的档案 " + profileId);
+            return;
+        }
+        Log.i("MainActivity", "切档 -> " + profileId
+                + "（" + hp.current().describe() + "）");
+        try {
+            android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+            cm.removeAllCookies(null);
+            cm.flush();
+        } catch (Throwable t) {
+            Log.w("MainActivity", "切档清 cookie 失败: " + t.getMessage());
+        }
+        // 预热的常驻 WebView 装的是本机首页：切档后 epoch 必须作废，
+        // 否则 prepareWebView() 可能领养一张旧档案的页面。
+        DshPreloadWeb.invalidate();
+        if (webView != null) {
+            try {
+                webView.removeAllViews();
+                webView.destroy();
+            } catch (Throwable ignored) { }
+            webView = null;
+        }
+        recreate();   // onCreate 按新档案走对应分支
+    }
+
     private void setStatus(final String s) {
         main.post(new Runnable() {
             @Override public void run() {
@@ -213,14 +252,21 @@ public class MainActivity extends Activity {
         // DshService.start() deliberately stays in the original thread --
         // startForegroundService has a hard 5s deadline to call startForeground().
         // SAF proxy must already be up (r107 hard constraint, see above).
-        new Thread(new Runnable() {
-            @Override public void run() {
-                Log.i("Startup", "[mark] onCreate->NodeLaunch="
-                        + (System.currentTimeMillis() - sCreateAt) + "ms");
-                Log.i("Startup", "[mark] earlySpawn="
-                        + DshProcessManager.ensureEngineStarted(MainActivity.this));
-            }
-        }, "dsh-engine-early-start").start();
+        //
+        // v2.3 批 B：只有 local 档需要拉本机引擎；relay/ssh 档后台线程里另有分支。
+        if (HostProfile.get(this).current().needsLocalEngine()) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    Log.i("Startup", "[mark] onCreate->NodeLaunch="
+                            + (System.currentTimeMillis() - sCreateAt) + "ms");
+                    Log.i("Startup", "[mark] earlySpawn="
+                            + DshProcessManager.ensureEngineStarted(MainActivity.this));
+                }
+            }, "dsh-engine-early-start").start();
+        } else {
+            Log.i("Startup", "[mark] 档案 " + HostProfile.get(this).currentId()
+                    + " 不需要本机引擎，跳过 earlySpawn");
+        }
 
         // r79：必须在任何取色之前读上次记住的 dsh 主题，
         // 否则启动页会先按系统主题画一遍、再改一次（肉眼可见的闪色）。
@@ -357,6 +403,14 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 final long tBoot = System.currentTimeMillis();
 
+                // v2.3 批 B：档案分支 —— 只有 local 档才走本机引擎全套流程；
+                // relay 直连 Relay origin，ssh 等隧道（批 C）。见 handleNonLocalProfile()。
+                final HostProfile.Profile prof = HostProfile.get(MainActivity.this).current();
+                if (!prof.needsLocalEngine()) {
+                    handleNonLocalProfile(prof, tBoot);
+                    return;
+                }
+
                 // ===== 常驻服务 =====
                 // 启动 DshService，让 dsh 在 App 退出后仍存活。
                 // 这样第二次打开只需探测端口（亚秒级），不必等 node 冷启动。
@@ -415,6 +469,46 @@ public class MainActivity extends Activity {
                 waitThenShowWeb(tBoot, reused ? 0 : (tBootDone - tBoot), 0, reused);
             }
         }).start();
+    }
+
+    /**
+     * v2.3 批 B：非 local 档案的启动分支（后台线程）。
+     *
+     * <p>relay：三要素齐 → 直接进 WebView 开反代 URL（无引擎、无 cookie 下发、
+     * 无就绪探测 —— 反代页自身有登录态）；未配置 → 结构化诊断页。
+     * ssh：隧道未接（批 C），诚实占位，不假装连接。
+     *
+     * <p>故意<b>不</b>调 DshService.start()：前台服务是为了保活本机 node，
+     * relay/ssh 档没有本机引擎，常驻服务纯属浪费电（S-6.6 省电目标）。
+     */
+    private void handleNonLocalProfile(final HostProfile.Profile prof, final long tBoot) {
+        Log.i("MainActivity", "[档案] " + prof.describe());
+        if (HostProfile.KIND_RELAY.equals(prof.kind)) {
+            if (!prof.relayConfigured()) {
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        showDiagnostics("Relay 档案未配置完整。\n\n"
+                            + "需要在悬浮球面板里填入 Relay 地址、主机 ID 和手机令牌。\n"
+                            + "（配对方式见 wb-cloud-sync 项目的手机配对流程）");
+                    }
+                });
+                return;
+            }
+            setStatus("直连 Relay（" + prof.baseOrigin() + "）…");
+            final long tReady = System.currentTimeMillis();
+            Log.i("MainActivity", "[计时] relay 直连=" + (tReady - tBoot) + "ms");
+            main.post(new Runnable() {
+                @Override public void run() { showWebView(prof.loadUrl()); }
+            });
+            return;
+        }
+        // ssh：隧道批 C 接（TOFU 指纹 + 断线重连）；本批先诚实占位。
+        main.post(new Runnable() {
+            @Override public void run() {
+                showDiagnostics("SSH 档案（" + prof.describe() + "）已保存。\n\n"
+                    + "本地隧道将在下一批接入；目前请先用「本机」或「Relay」档案。");
+            }
+        });
     }
 
     /**
@@ -544,12 +638,14 @@ public class MainActivity extends Activity {
         if (webView != null) return;
         if (isFinishing() || isDestroyed()) return;   // Activity 已退出就不必建了
         try {
-            if (DshPreloadWeb.isAvailable()) {
+            if (DshPreloadWeb.isAvailable()
+                    && HostProfile.get(this).current().needsLocalEngine()) {
                 webView = DshPreloadWeb.adopt();
                 bindActivityClients();
                 // 领养时页面早已 onPageFinished，注入钩子不会再触发；主动补一次
                 // （脚本自带 __dshOfficialBridge 守卫，重复注入是 no-op）。
-                com.dsh.harness.webview.OfficialShell.inject(webView);
+                // v2.3 批 B：injectIfAllowed —— relay 档不领养也不注入（见上 needsLocalEngine 门）。
+                com.dsh.harness.webview.OfficialShell.injectIfAllowed(webView);
                 Log.i("MainActivity", "已领养常驻预热的 WebView（首页已加载）");
                 return;
             }
@@ -587,6 +683,13 @@ public class MainActivity extends Activity {
         chromeClient = new DshChromeClient(this);
         webView.setWebChromeClient(chromeClient);
         webView.setWebViewClient(new DshWebViewClient());
+        // v2.3 批 B（A-02 边界随档案走）：JS 桥只进回环档案（local/ssh）。
+        // relay 档的页面是远端 origin，dshNative 能下载并执行代码，
+        // 绝不能暴露给远端页面 —— 一个桥都不挂（dsh-bridge 消息通道同理）。
+        if (!HostProfile.get(this).current().bridgeAllowed()) {
+            Log.i("MainActivity", "relay 档：不注册任何 JS 桥（远端 origin）");
+            return;
+        }
         // JS bridge：设置页的「插件市场」入口靠它触发原生安装
         // （dshmarket 要落盘到 $HOME/.dsh/profiles/web/，WebView 里的 JS 没有文件系统权限）
         try {
@@ -702,10 +805,18 @@ public class MainActivity extends Activity {
      * 反馈「打开后无法使用」）。v41 之后的回归验证必须先点首页确认可交互。
      */
     private void showWebView(String url) {
-        // 以引擎配置为准：调用方即使传了旧的 3080 常量也重算一遍，
-        // 并按需拉起 3082 本地反代（本机引擎时是 no-op）。
-        EngineEndpoints.apply(this);
-        url = EngineEndpoints.currentUrl(this);
+        // v2.3 批 B：以档案为准 —— local 档维持引擎配置 + 3082 反代原语义；
+        // relay/ssh 档绝不调 EngineEndpoints.apply（那是本机引擎/反代的拉起器），
+        // URL 一律用档案自己的 loadUrl。
+        HostProfile.Profile prof = HostProfile.get(this).current();
+        if (prof.needsLocalEngine()) {
+            // 以引擎配置为准：调用方即使传了旧的 3080 常量也重算一遍，
+            // 并按需拉起 3082 本地反代（本机引擎时是 no-op）。
+            EngineEndpoints.apply(this);
+            url = EngineEndpoints.currentUrl(this);
+        } else {
+            url = prof.loadUrl();
+        }
         if (webView == null) prepareWebView();   // 极端情况：预热还没跑就就绪
         // r163 方案 B 领养兜底：到这一刻（已就绪、主线程）预热若刚完成，
         // 而本 Activity 自建的 WebView 还没加载过真首页（webShown=false 保证），
@@ -724,9 +835,9 @@ public class MainActivity extends Activity {
         //   而 showWebView() 也没有重新下发配色，于是沿用了 applyPalette() 当时的值。
         // 这里用**当前页面的实际主题**重刷一次系统栏。
         applyPalette();
-        // 领养的预热 WebView 加载的是本机 3080 首页；若当前选的是远程引擎，
-        // 必须强制 loadUrl 到 3082，否则会停在本机引擎上（切换看似无效）。
-        if (DshPreloadWeb.adopted() && !EngineEndpoints.isRemote(this)) {
+        // 领养的预热 WebView 加载的是本机 3080 首页；只有 local 档可以沿用，
+        // relay/ssh 档必须强制 loadUrl 到档案自己的地址，否则会停在旧档案页面上。
+        if (prof.needsLocalEngine() && DshPreloadWeb.adopted() && !EngineEndpoints.isRemote(this)) {
             // 领养的常驻 WebView 已加载首页：绝不能再 loadUrl ——
             // 那会把已就绪的页面整个重刷（白屏 + 前端重新初始化），领养白费。
             Log.i("MainActivity", "领养的预热 WebView 已在首页，跳过 loadUrl");
