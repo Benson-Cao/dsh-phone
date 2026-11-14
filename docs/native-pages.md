@@ -401,9 +401,15 @@ ssh 输出 `Warning: Permanently added … to the list of known hosts` 后
 
 ### 18.4 仍未做/未验
 
+- **SSH 档案没有任何配置入口**（最卡的一条）：`HostProfile.setSsh(host, port, user, localPort)`
+  写好了，但**全仓库没有调用方** —— 没有页面、没有表单、切换器也只列 Relay 侧的主机。
+  也就是说 SSH 档现在对真实用户不可达：隧道层通了，却没有地方填主机地址。
+  接法：第四块原生页（主机 / 端口 / 用户名 / 本地端口 + 「测试连接」沿用本节的验证序列），
+  在配对页与切换器加「连 SSH 主机」入口；`sshConfigured()` 已经能兜住缺字段。
 - **UI 全链路（点「连接」→ 进 SSH 档案 → WebView 打开）未在真机点过**：
   它需要一台真正接受手机公钥的 sshd（把 `id_ed25519.pub` 加进 `authorized_keys`）。
   隧道层已验，Java 侧只是把同样的命令用 `ProcessBuilder` 拼出来 + 等端口。
+  测试替身接受任意公钥，所以**配置页做出来后就能直接用它验全链路**。
 - **断线自动重连没写**：现在进程退出只报错，用户重进才重连。接法是
   `running()` 之外加守护轮询，1s→2s→4s…→30s 退避，重连成功不需要重建 WebView
   （回环端口不变）。
