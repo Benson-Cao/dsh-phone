@@ -50,7 +50,7 @@ echo "  FILES_ROOT = $FILES_ROOT"
 #      bundle 版本旧于 App，等于把用户升级好的 dsh 静默降级；版本新于 App
 #      则可能与壳层（启动脚本/端口/注入约定）未验证组合。确认无误用 FORCE=1。
 DSH_VER="$(node -p "require('$HOME_DIR/node_modules/@deepseek-ai/dsh/package.json').version" 2>/dev/null || echo unknown)"
-EXPECTED_DSH_VER="${EXPECTED_DSH_VER:-0.2.2-rc1}"
+EXPECTED_DSH_VER="${EXPECTED_DSH_VER:-0.2.2-rc.1}"
 case "$DSH_VER" in
   0.2.*) echo "  ✓ dsh 世代正确: $DSH_VER" ;;
   *)

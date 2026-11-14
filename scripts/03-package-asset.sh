@@ -35,12 +35,22 @@ fi
 
 mkdir -p "$ASSETS"
 
-# ---- patch.sh：总是从本仓库覆盖（它是本仓库的真相源）----
-if [ -f "$HERE/patch.sh" ]; then
-  cp -f "$HERE/patch.sh" "$ASSETS/patch.sh"
-  echo "  ✓ patch.sh -> assets/patch.sh"
+# ---- 仓库侧 assets：总是从 android-java/assets 整体覆盖（唯一真源）----
+# 内容：patch.sh（0.2.x 版：NAS 部署 + pnpm 供给 + WebView 缓存清理）、
+#       dsh/（official-bridge / engine-switcher / engine-proxy / saf-fs-shim）、
+#       dsh-nas-sync/（内置 NAS 同步插件 + pnpm tarball）。
+# 历史教训：曾另有一份 scripts/patch.sh（0.1 时代 stub），03 会拿它覆盖 assets，
+# 导致首启补丁缩水（NAS 部署/pnpm 失效）——已删除，本目录是唯一拷贝来源。
+ASSET_SRC="$HERE/../android-java/assets"
+if [ -d "$ASSET_SRC" ]; then
+  cp -f  "$ASSET_SRC/patch.sh"      "$ASSETS/patch.sh"
+  echo "  ✓ patch.sh -> assets/patch.sh ($(wc -c < "$ASSETS/patch.sh") 字节，0.2.x 版)"
+  rm -rf "$ASSETS/dsh" "$ASSETS/dsh-nas-sync"
+  cp -rf "$ASSET_SRC/dsh"           "$ASSETS/dsh"
+  cp -rf "$ASSET_SRC/dsh-nas-sync"  "$ASSETS/dsh-nas-sync"
+  echo "  ✓ dsh/ + dsh-nas-sync/ -> assets/（official-bridge、engine-proxy、内置插件、pnpm tarball）"
 else
-  echo "  ! scripts/patch.sh 不存在，assets 里的旧 patch.sh 保持不变"
+  echo "  ! 找不到 $ASSET_SRC —— assets 不含运行时脚本与内置插件，首启会缺件"
 fi
 
 # ---- dsh-bundle.tar.gz ----
