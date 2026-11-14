@@ -18,8 +18,15 @@
 
 set -euo pipefail
 
+# 输出目录：优先 ~/storage/shared（adb 可直接 pull）；
+# 未跑过 termux-setup-storage 时退回 $HOME（此时 PC 拉不到，脚本会明确提示）。
 OUT_DIR="$HOME/storage/shared/dsh-build"
-mkdir -p "$OUT_DIR"
+if ! mkdir -p "$OUT_DIR" 2>/dev/null; then
+  OUT_DIR="$HOME/dsh-build"
+  mkdir -p "$OUT_DIR"
+  echo "  ! ~/storage/shared 不可用（未跑过 termux-setup-storage），输出退到: $OUT_DIR"
+  echo "    这个目录 PC 的 adb 拉不到，跑完后请在 Termux 里手动拷到共享存储。"
+fi
 
 PREFIX="${PREFIX:-$HOME/../usr}"          # /data/data/<pkg>/files/usr
 HOME_DIR="${HOME:-$PREFIX/../home}"       # /data/data/<pkg>/files/home
@@ -35,22 +42,52 @@ echo "  FILES_ROOT = $FILES_ROOT"
 [ -x "$PREFIX/bin/bash" ]        || { echo "✗ 找不到可执行的 $PREFIX/bin/bash"; exit 1; }
 [ -d "$HOME_DIR/node_modules" ]  || { echo "✗ 找不到 $HOME_DIR/node_modules"; exit 1; }
 
+# ---- 世代守卫：bundle 里的 dsh 必须是 0.2.x ----
+# com.termux 的 HOME 可能还停着 0.1.x 的 node_modules（历史上就发生过）。
+# App 端 DshBootstrap 按 0.2.1-rc.5 的启动脚本/端口/注入约定走，
+# 混进 0.1.x 的 node_modules 会「能启动但全错配」，而且极难排查。
+DSH_VER="$(node -p "require('$HOME_DIR/node_modules/@deepseek-ai/dsh/package.json').version" 2>/dev/null || echo unknown)"
+case "$DSH_VER" in
+  0.2.*) echo "  ✓ dsh 世代正确: $DSH_VER" ;;
+  *)
+    echo "  ✗ Termux HOME 里的 dsh 版本 = $DSH_VER，不是 0.2.x —— 0.1.x 的运行环境不能打进 v2.3 的 bundle。"
+    echo "    先在 Termux 里升级：npm i -g @deepseek-ai/dsh@0.2.1-rc.5 或按当时升级文档操作。"
+    echo "    确认无误要强行打包（不推荐）： FORCE=1 bash $0"
+    [ "${FORCE:-0}" = "1" ] || exit 1 ;;
+esac
+
+# ---- 打包清单：node/bash/lib/node_modules + （可选）openssh 客户端 ----
+# v2.3 S-6.7 的 SSH 档案要在 App 内起 `ssh -L` 本地隧道，bundle 里必须有 ssh。
+# Termux 的 openssh 装好后 ssh/ssh-keygen/scp/sftp 落在 usr/bin，
+# 依赖的 libcrypto/libz 等已随整个 usr/lib 进包 —— 所以装了就能带。
+# 没装也不报错（本机档案用不到 ssh），只在最后提示。
+TAR_ARGS=( -C "$FILES_ROOT" usr/bin/node usr/bin/bash usr/lib home/node_modules )
+HAS_SSH=0
+for b in ssh ssh-keygen scp sftp; do
+  if [ -x "$PREFIX/bin/$b" ]; then
+    TAR_ARGS+=( "usr/bin/$b" )
+    HAS_SSH=1
+  fi
+done
+if [ "$HAS_SSH" = "1" ]; then
+  echo "  ✓ openssh 客户端随包：ssh ssh-keygen scp sftp"
+else
+  echo "  ! Termux 里没有 openssh —— bundle 将不含 ssh（SSH 档案不可用）。"
+  echo "    补装： pkg install -y openssh   然后重跑本脚本。"
+fi
+
 # 保留软链是硬要求：不用 -h / --dereference。
 echo "==> tar（保留符号链接，不加 -h）"
-tar -czf "$BUNDLE" \
-  -C "$FILES_ROOT" \
-  usr/bin/node \
-  usr/bin/bash \
-  usr/lib \
-  home/node_modules
+tar -czf "$BUNDLE" "${TAR_ARGS[@]}"
 
 echo "==> 打包完成: $BUNDLE"
 ls -lh "$BUNDLE"
 echo
 echo "==> 自检（应看到 usr/bin/node、以及 libz.so.1 -> libz.so.1.x 这类软链）"
 tar -tzvf "$BUNDLE" 2>/dev/null \
-  | grep -E "usr/bin/(node|bash)$|usr/lib/(libz\.so\.1|libicuuc\.so\.78|libsqlite3\.so|libreadline\.so\.8)$" \
-  | head -10
+  | grep -E "usr/bin/(node|bash|ssh|ssh-keygen|scp|sftp)$|usr/lib/(libz\.so\.1|libicuuc\.so\.78|libsqlite3\.so|libreadline\.so\.8)$" \
+  | head -12
 echo
 echo "==> 把上面的文件传到 PC，放进 termux-app/app/src/main/assets/dsh-bundle.tar.gz"
 echo "    注意：传完后必须改 App 的 DshBootstrap.BUNDLE_REV，否则旧安装会跳过解包。"
+echo "    （本次随包已约定 REV=v6-dsh-0.2.1-rc.5-ssh1，仓库里已同步改好）"

@@ -59,8 +59,13 @@ public final class DshBootstrap {
      *  package.json 与 lib + 给 dsh-session-persistence-jsonl 打
      *  「link() 失败降级 rename」补丁（Android 应用数据目录禁硬链接，否则每次
      *  开新会话 EACCES）。重解包时由 cleanupExtracted 保留 home/.dsh 不丢用户数据。
+     *
+     *  v6（v2.3 批 B）：bundle 加入 usr/bin/{ssh,ssh-keygen,scp,sftp}
+     *  （02-build-bundle.sh 在手机 Termux 重打时一并装入）—— S-6.7 SSH 档案
+     *  要在 App 内起 ssh -L 本地隧道，bundle 里没有 ssh 客户端就无从谈起。
+     *  内容变了必须推 REV，否则旧安装命中 stamp 直接跳过重解包，ssh 永远装不上。
      */
-    private static final String BUNDLE_REV = "v5-dsh-0.2.1-rc.5-r199-headerv6";
+    private static final String BUNDLE_REV = "v6-dsh-0.2.1-rc.5-ssh1";
 
     /**
      * 内置插件（assets/dsh-nas-sync）的内容版本戳。
