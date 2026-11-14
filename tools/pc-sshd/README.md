@@ -108,15 +108,34 @@ npm test
    全部 401。也就是说，除非这一版 dsh web 是**你自己在终端里起**的（那样 stdout 就在你眼前），
    否则手机拿不到令牌，隧道通了也只能看到 401。
 
-2. **所以 SSH 档指向「你自己起的 dsh web」**：
+2. **所以 SSH 档指向「你自己起的 dsh web」**。本机 PATH 里没有 `dsh`，
+   但安装目录里的 `runtime/cli/bin/dsh.cmd` 就是个包装：设 `ELECTRON_RUN_AS_NODE=1`
+   再让 `DeepSeek Harness.exe` 跑 asar 内的 `dsh-desktop-host/lib/cli.js`。等价命令：
 
-   ```cmd
-   dsh web --port 3080
-   :: 输出里有一行：dsh web: http://127.0.0.1:3080/?token=XXXX
+   ```bash
+   EXE="D:/Program AI/Deepseek Harness/DeepSeek Harness.exe"
+   CLI="D:/Program AI/Deepseek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js"
+   env -u NODE_OPTIONS ELECTRON_RUN_AS_NODE=1 "$EXE" --expose-internals "$CLI" \
+     web --no-open --port 3080
+   # 输出一行：dsh web: http://127.0.0.1:3080/?token=XXXX
    ```
 
-   把 `3080` 填进「电脑上 dsh 的端口」，把 `XXXX` 填进「访问令牌」，测试连接应报
-   `✓ 电脑侧 dsh 应答 200`。
+   `--no-open` 是不弹浏览器；`web --help` 可看全部参数（含 `--host` / `--trusted-host`）。
+   把 `3080` 填进「电脑上 dsh 的端口」，把 `XXXX` 填进「访问令牌」。
+   **令牌每次启动都变**，这个实例一重启，手机里的令牌就要跟着换。
+
+   2026-11-15 本机实测（`dsh web --help` 与 `--port 3080` 都跑通）：
+
+   - 带令牌首载返回 **303**，不是 200：`Location: ./` + 下发 `HttpOnly;
+     SameSite=Strict` 的签名 cookie；WebView 跟随跳转后 `GET /` 才是 200。
+     所以「测试连接」若只认 200 会误报失败，认 303 才对。
+   - cookie 里的 `authority` **按请求 Host 签**：手机经隧道时 Host 是
+     `127.0.0.1:3081`，签出来的也是 `127.0.0.1:3081`，不会因为「监听 3080 /
+     访问 3081」被浏览器信任围栏拦下，无需额外加 `--trusted-host`。
+   - 临时 pc-sshd 实例 + 临时密钥模拟手机，端到端 **6/6 断言通过**：首载 303 →
+     下发 cookie → authority=3081 → 跟随跳转 200 → body 43015 字符且**不含**
+     `FAKE 3080`。也就是说从替身换成真页面，链路一行都不用改。
+   - 桌面版那个 61167 与这个实例是两个独立进程，互不干扰；61167 仍是 401。
 
 3. **本机的桌面版 dsh，正确工具是 Relay 档**（`wbsync-host.json` 已注册、手机已配对）。
    Relay 持有令牌，手机用 `?pt=<deviceToken>` 换页面，不需要知道端口和令牌。
