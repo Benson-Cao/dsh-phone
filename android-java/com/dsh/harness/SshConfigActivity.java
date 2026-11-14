@@ -83,11 +83,14 @@ public class SshConfigActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView hint = new TextView(this);
-        hint.setText("手机上的 dsh 界面照常在本地，通过 SSH 隧道连到那台机器上的 dsh。\n"
-                + "不用配对码：认证靠一把本机密钥，第一次要把下面的公钥加到那台机器的"
-                + " ~/.ssh/authorized_keys。\n"
-                + "隧道另一头打的是「电脑上 dsh 的端口」，不是手机的 3080 —— 那台机器上 dsh"
-                + " 监听哪个端口就填哪个；它的 web 对回环请求也要令牌，所以令牌一起填。");
+        hint.setText("SSH 档不启动手机上的本机引擎：WebView 里的页面由那台电脑的 dsh web"
+                + " 经隧道提供。\n"
+                + "不用配对码：认证靠一把本机密钥。首次连接要把下面的公钥登记到那台机器 ——"
+                + " 本项目自带的 pc-sshd 读用户目录下的 .dsh/ssh/authorized_keys，"
+                + " 标准 sshd 读 ~/.ssh/authorized_keys。\n"
+                + "「电脑上 dsh 的端口」填那台机器上 dsh web 实际监听的端口；它不是手机端"
+                + " 引擎的 3080，也与这里的「本机端口」无关。它的 web 对回环请求也要令牌，"
+                + " 所以令牌一起填。");
         hint.setTextColor(muted);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         hint.setLineSpacing(dp(2), 1f);
