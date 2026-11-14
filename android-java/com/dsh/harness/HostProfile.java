@@ -250,6 +250,10 @@ public final class HostProfile {
     private Profile read() {
         try {
             JSONObject o = new JSONObject(prefs().getString(KEY_STATE, "{}"));
+            // 明文令牌迁移必须**无条件**跑：早先写在 build() 的 relay 分支里，
+            // 而当前档常常是 local（例如切回本机之后），那条分支根本不执行，
+            // 明文就一直留在文件里 —— 真机验证时正是这么漏掉的。
+            migrateLegacyToken(o);
             String cur = o.optString("current", KIND_LOCAL);
             return build(cur, o);
         } catch (Throwable t) {
@@ -269,14 +273,6 @@ public final class HostProfile {
             // 早期版本把明文写进 conf.deviceToken —— 真机验证时在 dsh_profiles.xml 里
             // 直接读到了它，与「加密落盘」自相矛盾。这里做一次性迁移：收进 store 后抹掉。
             String token = DshTokenStore.load(appCtx);
-            String legacy = conf.optString("deviceToken", "");
-            if ((token == null || token.isEmpty()) && legacy != null && !legacy.trim().isEmpty()) {
-                DshTokenStore.save(appCtx, legacy.trim());
-                token = DshTokenStore.load(appCtx);
-            }
-            if (state != null && !legacy.isEmpty()) {
-                stripLegacyToken(state);
-            }
             Profile p = new Profile(k,
                     conf.optString("origin", ""), conf.optString("hostId", ""),
                     token == null ? "" : token,
@@ -372,20 +368,26 @@ public final class HostProfile {
     }
 
     /**
-     * 把旧版本留在档案 JSON 里的明文令牌抹掉（只保留 origin/hostId）。
+     * 一次性迁移：把旧版本写在档案 JSON 里的明文 `deviceToken` 收进
+     * {@link DshTokenStore}（Keystore AES-GCM 密文），并从 JSON 里抹掉。
      *
-     * <p>为什么不直接重写整份 state：`build()` 可能在启动早期被调用，
-     * 那时只解析了一部分；只动 relay.deviceToken 这一个键最安全。
+     * <p>幂等：没有明文键就什么都不做。**必须与"当前是哪个档案"无关**——
+     * 用户切回本机后当前档是 local，但明文还躺在文件里，照样得清。
      */
-    private void stripLegacyToken(JSONObject state) {
+    private void migrateLegacyToken(JSONObject state) {
         try {
-            JSONObject relay = state.optJSONObject(KIND_RELAY);
+            JSONObject relay = state == null ? null : state.optJSONObject(KIND_RELAY);
             if (relay == null || !relay.has("deviceToken")) return;
+            String legacy = relay.optString("deviceToken", "");
+            if (legacy != null && !legacy.trim().isEmpty()
+                    && (DshTokenStore.load(appCtx) == null || DshTokenStore.load(appCtx).isEmpty())) {
+                DshTokenStore.save(appCtx, legacy.trim());
+            }
             relay.remove("deviceToken");
             prefs().edit().putString(KEY_STATE, state.toString()).apply();
-            Log.i(TAG, "已在档案里抹掉明文令牌");
+            Log.i(TAG, "已在档案里抹掉明文令牌（已迁入 DshTokenStore）");
         } catch (Throwable t) {
-            Log.w(TAG, "抹除明文令牌失败: " + t.getMessage());
+            Log.w(TAG, "明文令牌迁移失败: " + t.getMessage());
         }
     }
 
