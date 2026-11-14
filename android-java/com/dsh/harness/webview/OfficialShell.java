@@ -27,10 +27,11 @@ public final class OfficialShell {
 
     private static final String TAG = "OfficialShell";
 
-    /** 顺序有意义：官方桥先建立，切换 UI 后挂。 */
+    /** 顺序有意义：官方桥先建立，切换 UI 后挂，连接入口最后（依赖 dshSaf 桥已存在）。 */
     private static final String[] ASSETS = {
         "dsh/official-bridge.js",
-        "dsh/engine-switcher.js"
+        "dsh/engine-switcher.js",
+        "dsh/connection-entry.js"
     };
 
     private static final Map<String, String> CACHE = new HashMap<>();

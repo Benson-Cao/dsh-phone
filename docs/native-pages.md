@@ -10,6 +10,7 @@
 | 配对页 | 已落地 | `android-java/com/dsh/harness/PairActivity.java` | 电脑地址 + 6 位配对码，两步配对，失败按错误码给处置 |
 | PC 离线页 | 已落地 | `android-java/com/dsh/harness/OfflineActivity.java` | 探 `/health`，区分「地址不通 / Relay 在但电脑没上线 / 在线 N 台」 |
 | 主机切换器 | 已落地（r113） | `android-java/com/dsh/harness/HostSwitcherActivity.java` | `GET /api/hosts` 列可切电脑，确认后 `POST /api/hosts/select` 带 `confirmNoMigration:true`；切完清 cookie + 作废预热 |
+| 入口（侧栏图标） | 已落地（r114） | `android-java/assets/dsh/connection-entry.js` | 窄栏 `#dsh-rail-foot` 加「连接」图标；按 `pairStatus()` 路由：已配对有令牌→切换器，其余→配对页 |
 
 两点口径：
 
@@ -208,3 +209,28 @@ r111 的客户端按**顶层字段**解析（`json.deviceToken` / `json.online`�
 写的是 **22.22.2**。两者必须一致，否则 `version_code` / `BUNDLE_REV` 的判定依据是错的。
 处理方式二选一：出包前核实 bundle 实际版本并改 `version.ini`，或在 `02-build-bundle.sh`
 收尾加一条 `$PREFIX/bin/node -v` 与 `version.ini` 的断言，让漂移在出包时就失败。
+
+## 13. 三块页面的入口（r114 补）
+
+**此前三页在默认 `local` 档下没有入口**：配对页只能从离线页 / 切换器进，而离线页只在
+远端档案启动时出现。功能做完了却点不到，等于没做。现在补在官方窄栏：
+
+- `connection-entry.js` 在 `#dsh-rail-foot` 插一个「连接」图标（与「设置」「引擎」并列）；
+- 点击路由：`dshSaf.pairStatus()` 返回 `paired && hasToken` → 切换器；其余 → 配对页；
+- 只加图标：不写页面、不注入 CSS 改布局、不重绘宿主组件（与 `engine-switcher.js` 同一先例）；
+- `relay` 档页面是远端 origin，壳不注入任何桥，脚本读到 `dshSaf` 缺失即整体退出 ——
+  不会在远端页面上留下一个点不动的按钮。
+
+`OfficialShell.ASSETS` 的注入顺序有意义：official-bridge（建桥/侧栏）→ engine-switcher →
+connection-entry（依赖 `dshSaf` 已存在）。
+
+## 14. SSH 档（批 C）的真实阻塞
+
+`02-build-bundle.sh` 第 72 行起支持 openssh 随包，但**当前安装包没有**：真机
+`files/usr/bin` 下没有 `ssh` / `ssh-keygen` / `scp` / `sftp`（已用 run-as 核实）。
+没有 ssh 客户端，`ssh -L` 隧道在本安装包上不可能跑起来，所以这批先不动。
+
+解阻条件：在出包的 Termux 里 `pkg install -y openssh` 后重跑 `02b-harvest-bundle.sh` +
+`02-build-bundle.sh`，新 bundle 会带上这四个二进制；那时再接 `DshSshTunnel`
+（TOFU 主机指纹守卫 + 断线退避）才有意义。顺带说明：SSH 认证应走密钥而非密码
+（`ssh-keygen` 生成到 `$HOME/.ssh`），密码认证需要 askpass/sshpass，而这两者都不在包内。
