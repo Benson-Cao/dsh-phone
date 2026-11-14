@@ -378,6 +378,70 @@ public final class DshSafBridge {
         }
     }
 
+    // ============================================================
+    // 连接（配对 / 离线页）—— 原生页面 2 块
+    //
+    // 为什么挂在同一个桥：官方设置页是 Web UI，它要渲染「连接电脑」这一行，
+    // 就得有一个原生入口可点。这里只提供**入口与只读状态**，
+    // 页面内容仍是原生 Activity（D-005：手机侧不写 Web UI 皮肤）。
+    //
+    // 暴露边界：pairStatus 只回「配没配过 + 连的是谁 + 指纹前 16 位」，
+    // 不回令牌、不回完整指纹 —— 令牌属 client-core 的存储层，
+    // 完整指纹不该出现在 WebView 可读的 JS 对象里。
+    // ============================================================
+
+    /** 连接状态（只读，JSON）。 */
+    @JavascriptInterface
+    public String pairStatus() {
+        Activity a = act();
+        if (a == null) return "{}";
+        try {
+            String host = DshDeviceIdentity.lastHostDeviceId(a);
+            String relay = DshDeviceIdentity.lastRelayUrl(a);
+            long at = DshDeviceIdentity.lastPairedAt(a);
+            String fp = DshDeviceKey.fingerprintOrNull();
+            JSONObject o = new JSONObject();
+            o.put("paired", host != null && relay != null);
+            o.put("hostDeviceId", host == null ? JSONObject.NULL : host);
+            o.put("relayUrl", relay == null ? JSONObject.NULL : relay);
+            o.put("lastPairedAt", at);
+            o.put("powerExempt", DshPowerGuard.isExempt(a));
+            o.put("deviceKey", fp != null);
+            o.put("fingerprintPrefix", fp == null ? JSONObject.NULL : fp.substring(0, 16));
+            return o.toString();
+        } catch (Throwable t) {
+            return "{}";
+        }
+    }
+
+    /** 打开配对页。返回 1 已打开 / -1 拒绝或不可用。 */
+    @JavascriptInterface
+    public int openPairPage() {
+        return openNativePage("openPairPage", PairActivity.class);
+    }
+
+    /** 打开 PC 离线页。 */
+    @JavascriptInterface
+    public int openOfflinePage() {
+        return openNativePage("openOfflinePage", OfflineActivity.class);
+    }
+
+    private int openNativePage(String tag, Class<?> target) {
+        final Activity a = act();
+        if (a == null || !localOriginAllowed(tag)) return -1;
+        final android.content.Intent i = new android.content.Intent(a, target);
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    a.startActivity(i);
+                } catch (Throwable t) {
+                    Log.w(TAG, "打开原生页失败: " + t.getMessage());
+                }
+            }
+        });
+        return 1;
+    }
+
     /** 探一次代理（带 token），验证 HTTP + 鉴权这一环。 */
     private boolean pingProxy() {
         if (!SafProxyServer.isRunning()) return false;

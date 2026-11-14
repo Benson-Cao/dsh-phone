@@ -247,6 +247,20 @@
         android:foregroundServiceType="dataSync"
         android:stopWithTask="false" />
 
+<!-- r111 · 原生页面：配对页与 PC 离线页。
+     两页都不导出（只有本 App 能起），因为它们是「本机身份 + 配对」的入口，
+     暴露 intent 等于让任意应用替用户发起配对。
+     真正生效的清单是 termux-app 源码树里那份，由 scripts/01-modify-termux.sh 第 6.9 步注入。 -->
+    <activity android:name="com.dsh.harness.PairActivity"
+        android:exported="false"
+        android:label="@string/application_name"
+        android:windowSoftInputMode="adjustResize"
+        android:configChanges="orientation|screenSize|keyboardHidden" />
+    <activity android:name="com.dsh.harness.OfflineActivity"
+        android:exported="false"
+        android:label="@string/application_name"
+        android:configChanges="orientation|screenSize|keyboardHidden" />
+
 </application>
 
 </manifest>

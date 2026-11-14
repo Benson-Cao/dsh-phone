@@ -133,8 +133,13 @@ cp -f "$SRC_DIR"/res/xml/dsh_file_paths.xml "$APP/src/main/res/xml/"
 echo "  ✓ 拷贝 dsh_file_paths.xml -> $APP/src/main/res/xml/"
 
 # python 解释器探测（5.7 起就要用，因此提到这里；第 6 步直接复用）
+# ⚠️ Windows 坑：python3 可能命中 Microsoft Store 的假 stub —— 必须真执行一次确认。
 PY=""
-for c in python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'print("ok")' >/dev/null 2>&1; then
+    PY="$c"; break
+  fi
+done
 
 # ---- 5.7) 注入第三方依赖（官方 dsh-bridge 通道 + NAS 的 SFTP/SMB 传输）----
 # 1) androidx.webkit: DshWebBridge 用 WebViewCompat.addWebMessageListener，需 1.4.0+；
@@ -329,6 +334,52 @@ elif grep -q "com.dsh.harness.DshService" "$MANIFEST"; then
   exit 1
 else
   echo "  · 未注册 DshService（常驻保活未启用）"
+fi
+
+# ---- 6.9) 注册原生页面 PairActivity / OfflineActivity + 省电放行权限（幂等）----
+# 为什么要有这两页：配对与「电脑不可达」发生在 WebView 还没起来（首启解包中）
+# 或压根连不上电脑的时候 —— 寄生在 Web UI 上的入口在这两种场景下点不到。
+# 省电放行权限是 DshPowerGuard 直接弹系统对话框的前提；缺了它只能退到设置列表页，
+# 用户多走两步，还容易在列表里找不到本应用。
+if grep -q "com.dsh.harness.PairActivity" "$MANIFEST"; then
+  echo "  · 原生页已注册，跳过"
+elif [ -z "$PY" ]; then
+  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity"
+else
+  "$PY" - "$MANIFEST" <<'PYEOF_PAGES'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+
+# 1) 权限必须在 <application> 之前
+perm = 'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS'
+if perm not in s:
+    s = s.replace('<application',
+                  '    <uses-permission android:name="%s" />\n\n    <application' % perm, 1)
+
+# 2) 两个页面：都不导出（只有本 App 自己能起），主题跟随 dsh 的 DayNight
+pages = (
+    '    <activity android:name="com.dsh.harness.PairActivity"\n'
+    '        android:exported="false"\n'
+    '        android:label="@string/application_name"\n'
+    '        android:windowSoftInputMode="adjustResize"\n'
+    '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'
+    '    <activity android:name="com.dsh.harness.OfflineActivity"\n'
+    '        android:exported="false"\n'
+    '        android:label="@string/application_name"\n'
+    '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'
+)
+s = s.replace('</application>', pages + '</application>')
+open(p, 'w', encoding='utf-8').write(s)
+print("  ✓ 注册 PairActivity / OfflineActivity + 省电放行权限")
+PYEOF_PAGES
+fi
+
+# ---- 6.10) 自检：省电放行权限与 DshPowerGuard 的直呼路径成对 ----
+if grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"; then
+  echo "  ✓ 省电放行权限存在（DshPowerGuard 可直接弹系统对话框）"
+else
+  echo "  ! 缺 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS —— 省电放行只能退到设置列表页"
 fi
 
 # ---- 7) 创建 assets 目录，放 bundle + patch（由 build.sh 拷入实际文件） ----

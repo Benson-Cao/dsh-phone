@@ -101,7 +101,14 @@ if [ -s "$BZ" ]; then
     #   2) 完整 `tar -tzf` 列全部条目：700MB 要几分钟（实测 195MB 就很慢）。
     # 走 python 只读前若干条目判断，秒级完成。
     PY=""
-    for c in python3 python; do command -v "$c" >/dev/null 2>&1 && { PY="$c"; break; }; done
+    # ⚠️ Windows 坑：python3 可能命中 Microsoft Store 的假 stub（打印
+    #    "Python was not found" 后非零退出），光 command -v 探到不够，
+    #    必须真的执行一次确认能跑，否则 || echo BAD 会把好 bundle 误杀。
+    for c in python3 python; do
+      if command -v "$c" >/dev/null 2>&1 && "$c" -c 'print("ok")' >/dev/null 2>&1; then
+        PY="$c"; break
+      fi
+    done
     if [ -z "$PY" ]; then
       echo "  ! 没有 python，跳过布局自检（布局错只能在真机暴露，建议装 python）"
     else
