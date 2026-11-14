@@ -128,6 +128,19 @@ public class PairActivity extends Activity {
         });
         root.addView(pairButton, marginTop(matchWrap(), 16));
 
+        // 配对是「连 Relay 上的电脑」这一条路；SSH 走另一条（公钥认证、不需要配对码）。
+        // 未配对的人本来就停在本页，所以另一条路必须从这里也能进去。
+        Button sshButton = new Button(this);
+        sshButton.setText("改用 SSH 连一台机器");
+        sshButton.setAllCaps(false);
+        sshButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(SshConfigActivity.intent(PairActivity.this));
+            }
+        });
+        root.addView(sshButton, marginTop(matchWrap(), 8));
+
         rotateButton = new Button(this);
         rotateButton.setText("重新开始（作为新设备配对）");
         rotateButton.setAllCaps(false);

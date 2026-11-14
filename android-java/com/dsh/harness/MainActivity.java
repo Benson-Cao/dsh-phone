@@ -598,7 +598,7 @@ public class MainActivity extends Activity {
                     });
                     return;
                 }
-                if (!waitLocalPort(prof.localPort, 15000)) {
+                if (!DshSshTunnel.waitLocalPort(prof.localPort, 15000)) {
                     DshSshTunnel.stop();
                     main.post(new Runnable() {
                         @Override public void run() {
@@ -621,27 +621,9 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 等本地端口可连（隧道真正的就绪信号）。
-     *
-     * <p>为什么不用「进程还活着」当就绪：`ssh -L` 在密钥未被接受时会先建立连接再失败，
-     * 进程可能存活数秒；只有端口 accept 了才说明转发真的建立。
+     * 等本地端口可连 —— 已下沉到 {@link DshSshTunnel#waitLocalPort(int, int)}：
+     * 主界面启动隧道与配置页的「测试连接」共用同一份判据，避免两处超时/退避漂移。
      */
-    private boolean waitLocalPort(int port, int timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            java.net.Socket s = null;
-            try {
-                s = new java.net.Socket();
-                s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 400);
-                return true;
-            } catch (Throwable t) {
-                try { Thread.sleep(300); } catch (InterruptedException ignored) { }
-            } finally {
-                if (s != null) { try { s.close(); } catch (Throwable ignored) { } }
-            }
-        }
-        return false;
-    }
 
     /**
      * 等待 dsh 就绪并进入 WebView —— 常驻命中与冷启动两条路径**共用**。

@@ -291,6 +291,37 @@ public final class HostProfile {
     /** 当前档案（不可变快照，直接读无锁）。 */
     public Profile current() { return cur; }
 
+    /**
+     * 用给定参数造一个 ssh 档快照：**不落盘、不改当前档**。
+     *
+     * <p>配置页的「测试连接」需要 prof 来起隧道，但用户此时还没点保存 ——
+     * 拿它测，不能顺手把档案改掉。
+     */
+    public static Profile sshProfileFor(String host, int port, String user, int localPort) {
+        return new Profile(KIND_SSH, "", "", "", host, port, user, localPort);
+    }
+
+    /**
+     * 读已存的 ssh 档配置（**即使当前不是 ssh 档**）；没配过或不完整返回 {@code null}。
+     *
+     * <p>为什么需要：配置页要回填上一次填的地址。若用 `setCurrent(KIND_SSH)` 取快照
+     * 再设回原档，中间会落盘两次 —— 用户只是打开一次配置页，档案就变了两次。
+     */
+    public Profile savedSsh() {
+        try {
+            JSONObject o = new JSONObject(prefs().getString(KEY_STATE, "{}"));
+            JSONObject conf = o.optJSONObject(KIND_SSH);
+            if (conf == null) return null;
+            Profile p = new Profile(KIND_SSH, "", "", "",
+                    conf.optString("host", ""), conf.optInt("port", 22),
+                    conf.optString("user", ""), conf.optInt("localPort", 3081));
+            return p.sshConfigured() ? p : null;
+        } catch (Throwable t) {
+            Log.w(TAG, "读 ssh 档失败: " + t.getMessage());
+            return null;
+        }
+    }
+
     /** 当前档案 id（local/ssh/relay）。 */
     public String currentId() { return cur.kind; }
 

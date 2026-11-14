@@ -199,6 +199,32 @@ public final class DshSshTunnel {
         return forwardedPort;
     }
 
+    /**
+     * 等本地端口可连（隧道真正的就绪信号）。
+     *
+     * <p>为什么不用「进程还活着」当就绪：`ssh -L` 在密钥未被接受时会先建立连接再失败，
+     * 进程可能存活数秒；只有端口 accept 了才说明转发真的建立。
+     *
+     * <p>放在本类而不是调用方：主界面启动隧道与配置页的「测试连接」都要用它，
+     * 两处各写一份早晚会漂移（一处 400ms 超时、一处忘了 sleep）。
+     */
+    public static boolean waitLocalPort(int port, int timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            java.net.Socket s = null;
+            try {
+                s = new java.net.Socket();
+                s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 400);
+                return true;
+            } catch (Throwable t) {
+                try { Thread.sleep(300); } catch (InterruptedException ignored) { }
+            } finally {
+                if (s != null) { try { s.close(); } catch (Throwable ignored) { } }
+            }
+        }
+        return false;
+    }
+
     // ---- 主机指纹（TOFU）----
 
     /** 已钉住的指纹（host:port），没有返回 {@code null}。 */

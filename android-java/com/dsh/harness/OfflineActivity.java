@@ -171,6 +171,19 @@ public class OfflineActivity extends Activity {
         });
         root.addView(pairButton, marginTop(matchWrap(), 8));
 
+        // 第三台「电脑」不一定走 Relay：能 ssh 的机器用 SSH 档，不需要配对码。
+        // 这台电脑连不上的时候，用户最可能就在这一页找别的路。
+        Button sshButton = new Button(this);
+        sshButton.setText("连 SSH 主机");
+        sshButton.setAllCaps(false);
+        sshButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(SshConfigActivity.intent(OfflineActivity.this));
+            }
+        });
+        root.addView(sshButton, marginTop(matchWrap(), 8));
+
         Button powerButton = new Button(this);
         powerButton.setText("后台保活设置");
         powerButton.setAllCaps(false);

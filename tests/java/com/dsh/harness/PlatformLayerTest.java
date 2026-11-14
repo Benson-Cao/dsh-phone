@@ -29,6 +29,7 @@ public final class PlatformLayerTest {
         errors();
         hosts();
         urls();
+        testSshForm();
 
         System.out.println();
         System.out.println("# " + passed + " passed, " + failed + " failed");
@@ -287,6 +288,46 @@ public final class PlatformLayerTest {
         check("端点拼接无重复斜杠",
                 "http://h:1/pair/verify".equals(PairUrl.endpoint("h:1/", "pair/verify")));
         check("非法 base 拼出 null", PairUrl.endpoint("   ", "/pair") == null);
+    }
+
+    // ---- SSH 配置页校验（r123）----
+
+    private static void testSshForm() {
+        // 合法：主机名 / IPv4 / 带点域名都行
+        check("合法输入通过", SshForm.validate("192.168.0.5", 22, "benson", 3081) == null);
+        check("域名通过", SshForm.validate("nas.local", 2222, "dsh", 3081) == null);
+        check("首尾空白被忽略", SshForm.validate("  10.0.0.2  ", 22, " root ", 3081) == null);
+
+        // 主机栏塞了别的东西：这几种都会拼出错误命令，必须拦
+        check("空主机被拒", SshForm.validate("", 22, "u", 3081) != null);
+        check("主机含空格被拒", SshForm.validate("192.168 0.5", 22, "u", 3081) != null);
+        check("ssh:// 前缀被拒", SshForm.validate("ssh://box", 22, "u", 3081) != null);
+        check("user@host 被拒", SshForm.validate("bob@box", 22, "bob", 3081) != null);
+        check("主机带端口被拒", SshForm.validate("box:2222", 2222, "u", 3081) != null);
+        check("主机以 - 开头被拒", SshForm.validate("-oProxyCommand=x", 22, "u", 3081) != null);
+
+        // 端口边界
+        check("端口 0 被拒", SshForm.validate("box", 0, "u", 3081) != null);
+        check("端口 65536 被拒", SshForm.validate("box", 65536, "u", 3081) != null);
+        check("端口 65535 通过", SshForm.validate("box", 65535, "u", 3081) == null);
+
+        // 用户名
+        check("空用户名被拒", SshForm.validate("box", 22, "", 3081) != null);
+        check("用户名含空格被拒", SshForm.validate("box", 22, "a b", 3081) != null);
+        check("用户名以 - 开头被拒", SshForm.validate("box", 22, "-l root", 3081) != null);
+
+        // 本机端口
+        check("本机端口 80 被拒", SshForm.validate("box", 22, "u", 80) != null);
+        check("本机端口 1024 通过", SshForm.validate("box", 22, "u", 1024) == null);
+        check("本机端口与 SSH 端口相同被拒", SshForm.validate("box", 3081, "u", 3081) != null);
+
+        // 解析：空白回落默认值，非法数字给 -1（交给 validate 报错，不静默回落）
+        check("空端口回落默认", SshForm.parsePort("", 22) == 22);
+        check("null 端口回落默认", SshForm.parsePort(null, 3081) == 3081);
+        check("数字端口解析", SshForm.parsePort(" 2222 ", 22) == 2222);
+        check("非法端口给 -1", SshForm.parsePort("22a2", 22) == -1);
+        check("非法端口能被 validate 拦住",
+                SshForm.validate("box", SshForm.parsePort("22a2", 22), "u", 3081) != null);
     }
 
     // ---- 小工具 ----

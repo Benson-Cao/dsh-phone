@@ -116,6 +116,19 @@ public class HostSwitcherActivity extends Activity {
         });
         root.addView(pairButton, marginTop(matchWrap(), 8));
 
+        // SSH 档不走 Relay，也就不需要配对码 —— 它的入口不能只挂在配对流程里，
+        // 否则「只想连一台能 ssh 的机器」的人得先假装配一次对。
+        Button sshButton = new Button(this);
+        sshButton.setText("连 SSH 主机");
+        sshButton.setAllCaps(false);
+        sshButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(SshConfigActivity.intent(HostSwitcherActivity.this));
+            }
+        });
+        root.addView(sshButton, marginTop(matchWrap(), 8));
+
         Button localButton = new Button(this);
         localButton.setText("改用本机引擎");
         localButton.setAllCaps(false);

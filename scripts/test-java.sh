@@ -75,6 +75,7 @@ fi
 if ! "$JDK/bin/javac" -encoding UTF-8 -nowarn -d "$OUT" \
     "$SRC/DeviceKeyFingerprint.java" "$SRC/PairProof.java" "$SRC/PairRequest.java" \
     "$SRC/PairError.java" "$SRC/PairUrl.java" "$SRC/HostsError.java" "$SRC/SshHostKey.java" \
+    "$SRC/SshForm.java" \
     "$TEST/com/dsh/harness/PlatformLayerTest.java"; then
   bad "纯逻辑源码编译失败"
   exit 1

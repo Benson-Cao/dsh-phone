@@ -336,15 +336,20 @@ else
   echo "  · 未注册 DshService（常驻保活未启用）"
 fi
 
-# ---- 6.9) 注册原生页面 PairActivity / OfflineActivity + 省电放行权限（幂等）----
+# ---- 6.9) 注册原生页面 PairActivity / OfflineActivity / HostSwitcher / SshConfig + 省电放行权限（幂等）----
 # 为什么要有这两页：配对与「电脑不可达」发生在 WebView 还没起来（首启解包中）
 # 或压根连不上电脑的时候 —— 寄生在 Web UI 上的入口在这两种场景下点不到。
 # 省电放行权限是 DshPowerGuard 直接弹系统对话框的前提；缺了它只能退到设置列表页，
 # 用户多走两步，还容易在列表里找不到本应用。
-if grep -q "com.dsh.harness.HostSwitcherActivity" "$MANIFEST"; then
+# 守卫必须逐页全查：只看其中一页（曾经只看 HostSwitcherActivity）会让**新增**的页
+# 永远进不了注入块 —— 已存在的页挡住了还没注册的页。
+if grep -q "com.dsh.harness.PairActivity" "$MANIFEST" \
+   && grep -q "com.dsh.harness.OfflineActivity" "$MANIFEST" \
+   && grep -q "com.dsh.harness.HostSwitcherActivity" "$MANIFEST" \
+   && grep -q "com.dsh.harness.SshConfigActivity" "$MANIFEST"; then
   echo "  · 原生页已注册，跳过"
 elif [ -z "$PY" ]; then
-  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity / HostSwitcherActivity"
+  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity / HostSwitcherActivity / SshConfigActivity"
 else
   "$PY" - "$MANIFEST" <<'PYEOF_PAGES'
 import sys
@@ -376,9 +381,15 @@ pages = {
         '        android:exported="false"\n'
         '        android:label="@string/application_name"\n'
         '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
+    'SshConfigActivity': (
+        '    <activity android:name="com.dsh.harness.SshConfigActivity"\n'
+        '        android:exported="false"\n'
+        '        android:label="@string/application_name"\n'
+        '        android:windowSoftInputMode="adjustResize"\n'
+        '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
 }
 added = []
-for name in ('PairActivity', 'OfflineActivity', 'HostSwitcherActivity'):
+for name in ('PairActivity', 'OfflineActivity', 'HostSwitcherActivity', 'SshConfigActivity'):
     if 'com.dsh.harness.' + name not in s:
         s = s.replace('</application>', pages[name] + '</application>')
         added.append(name)
