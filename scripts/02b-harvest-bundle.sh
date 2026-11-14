@@ -17,7 +17,7 @@
 # 用法：
 #   bash 02b-harvest-bundle.sh [输出.tar.gz]
 #   SERIAL=<serial> ADB=<adb路径> bash 02b-harvest-bundle.sh
-#   EXPECTED_DSH_VER=0.2.2-rc.1 FORCE=1 bash 02b-harvest-bundle.sh   # 版本不一致强收
+#   EXPECTED_DSH_VER=0.2.2-rc.3 FORCE=1 bash 02b-harvest-bundle.sh   # 版本不一致强收
 #
 # 产出：默认 D:/work/dsh-bundle-<ver>-harvest.tar.gz（喂给 00-build-apk.sh 的 BUNDLE=）
 # ============================================================================
@@ -25,7 +25,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ADB="${ADB:-D:/AndroidSDK/platform-tools/adb.exe}"
-EXPECTED_DSH_VER="${EXPECTED_DSH_VER:-0.2.2-rc.1}"
+EXPECTED_DSH_VER="${EXPECTED_DSH_VER:-0.2.2-rc.3}"
 OUT="${1:-}"
 
 [ -x "$ADB" ] || { echo "✗ 找不到 adb：$ADB"; exit 1; }
@@ -72,9 +72,18 @@ if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt 600000 ] 2>/dev/null; then
 fi
 
 # ---- 5) App 内打包（toybox tar 保留软链；清单与 02 脚本同款）----
-echo "==> App 内 tar（node + bash + usr/lib + home/node_modules）"
+echo "==> App 内 tar（node + bash + usr/lib + home/node_modules + 可选 ssh）"
 R 'rm -f files/dsh-harvest.tar.gz' 2>/dev/null || true
-R 'toybox tar -czf files/dsh-harvest.tar.gz -C files usr/bin/node usr/bin/bash usr/lib home/node_modules' \
+# SSH 客户端（批 C）：prefix 里**有才打**，没有就静默跳过 —— tar 对不存在的成员会直接报错，
+# 而没装 openssh 的环境本来就该继续出包（本机档案用不到 ssh）。
+SSH_LIST=""
+for b in ssh ssh-keygen scp sftp; do
+  if R "test -f files/usr/bin/$b" >/dev/null 2>&1; then
+    SSH_LIST="$SSH_LIST usr/bin/$b"
+  fi
+done
+[ -n "$SSH_LIST" ] && echo "  · 随包 ssh：$SSH_LIST" || echo "  · 未发现 ssh（bundle 将不含 SSH 客户端）"
+R "toybox tar -czf files/dsh-harvest.tar.gz -C files usr/bin/node usr/bin/bash usr/lib home/node_modules$SSH_LIST" \
   || { echo "✗ App 内打包失败"; exit 1; }
 SZ="$(R 'ls -l files/dsh-harvest.tar.gz' 2>/dev/null | tr -d '\r' | awk '{print $5}')"
 echo "  ✓ 打包完成: ${SZ} bytes"
@@ -107,7 +116,7 @@ for p in usr/bin/node usr/bin/bash usr/bin/ssh \
   if grep -qx "$p" "$LIST_FILE"; then
     echo "  ✓ $p"
   else
-    echo "  · 缺 $p（ssh 缺属预期：批 C 再注入）"
+    echo "  · 缺 $p（ssh 缺 = prefix 里没装 openssh，跑 scripts/fetch-openssh.sh）"
   fi
 done
 SYML="$(tar -tvzf "$OUT_TAR" 2>/dev/null | grep -E '^l.*usr/lib/libz\.so\.1 -> ' | head -1 || true)"

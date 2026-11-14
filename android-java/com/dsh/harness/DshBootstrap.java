@@ -70,7 +70,7 @@ public final class DshBootstrap {
      *  静默降级。版本门见 02-build-bundle.sh 的 EXPECTED_DSH_VER。
      *  内容变了必须推 REV，否则旧安装命中 stamp 直接跳过重解包，ssh 永远装不上。
      */
-    private static final String BUNDLE_REV = "v6-dsh-0.2.2-rc.1-ssh1";
+    private static final String BUNDLE_REV = "v6-dsh-0.2.2-rc.3-ssh2";
 
     /**
      * 内置插件（assets/dsh-nas-sync）的内容版本戳。

@@ -259,3 +259,37 @@ connection-entry（依赖 `dshSaf` 已存在）。
 **仍未做**：断线自动重连（现在进程退出只报错，由用户重进）。接法是在
 `DshSshTunnel.running()` 之外加一个守护轮询，按 1s→2s→4s…→30s 退避重启，
 并在重连成功后不需要重建 WebView（回环端口不变）。
+
+## 16. 出包流程：让 bundle 带上 openssh（r117）
+
+`02b-harvest-bundle.sh` 从**已装 App 的私有目录**收割运行环境，而 App 的
+`files/usr/bin` 只有 node/bash/pnpm/dsh-web.sh —— 没有包管理器，设备上也 `pkg install` 不了。
+所以「bundle 带 openssh」的正确顺序是「先塞进 prefix，再收割」，不是改打包脚本。
+
+```bash
+# 1) 取 openssh 客户端进 prefix（PC 侧解 deb，不依赖 ar/7z）
+bash scripts/fetch-openssh.sh
+#    → 校验依赖库 → 下载 openssh_<ver>_aarch64.deb → 解出 ssh/ssh-keygen/scp/sftp
+#    → run-as 落到 files/usr/bin → 真跑 `ssh -V` 自证
+
+# 2) 递增 BUNDLE_REV（否则老安装命中旧戳、跳过重新解包，新 bundle 永远装不上）
+#    android-java/com/dsh/harness/DshBootstrap.java: BUNDLE_REV
+
+# 3) 收割（tar 清单自动包含 ssh 四个二进制，缺则不写进清单）
+bash scripts/02b-harvest-bundle.sh
+
+# 4) 出包
+bash scripts/00-build-apk.sh BUNDLE=D:/work/dsh-bundle-0.2.2-rc.1-harvest.tar.gz
+
+# 5) 出包前后各跑一次版本一致性
+bash scripts/check-node-version.sh
+```
+
+两个 Windows 路径陷阱（`fetch-openssh.sh` 已处理，手写命令时要自己躲）：
+MSYS 会把 adb 的**参数**当路径改写（`/data/local/tmp/x` → `D:/…/PortableGit/data/local/tmp/x`，
+报 `secure_mkdirs() failed`），要 `MSYS_NO_PATHCONV=1`；关掉改写后源路径又得自己给
+Windows 形式（`cygpath -w`），否则 adb.exe 按 `C:/tmp` 解析。
+
+**随包的 ssh 是 Termux 构建**，RUNPATH 指向 `/data/data/com.termux/files/usr/lib`。
+运行时必须靠 `LD_LIBRARY_PATH=$PREFIX/lib` 覆盖（`DshSshTunnel` 与 `dsh-web.sh` 都设了）。
+在**没装 com.termux 的手机**上这一点尤其关键 —— 别把「本机能跑」当成「到处能跑」。
