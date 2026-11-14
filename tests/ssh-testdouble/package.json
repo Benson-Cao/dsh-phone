@@ -1,0 +1,14 @@
+{
+  "name": "dsh-phone-ssh-testdouble",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "SSH 档联调用的测试替身（不随 APK 发布）。见 README.md",
+  "scripts": {
+    "server": "node server.mjs",
+    "fake-dsh": "node fake-dsh.mjs"
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  }
+}

@@ -19,15 +19,19 @@ import java.util.Map;
  * <p>对 WebView 而言隧道口仍是<b>回环</b>，所以信任边界不变、桥照常注入
  * （与 relay 档的远端 origin 完全相反）。
  *
- * <h3>当前的真实状态：跑不起来，且必须如实说</h3>
- * 本安装包的 bundle（`files/usr/bin`）里**没有** ssh / ssh-keygen：`02-build-bundle.sh`
- * 支持随包，但这一版没带。因此 {@link #available} 会返回 false，{@link #unavailableReason}
- * 给出可执行的处置。**不要**在不可用时假装连接并加载一个空端口 —— 那只会得到白屏。
+ * <h3>当前的真实状态</h3>
+ * r117 之后本安装包的 bundle 已带 openssh（ssh / ssh-keygen / scp / sftp，r122 起还有
+ * ssh-keyscan），{@link #available} 在真机上为 true；隧道层已在真机上端到端跑通
+ * （见 `docs/native-pages.md` §18）。bundle 万一没带，{@link #available} 返回 false，
+ * {@link #unavailableReason} 给出可执行的处置。**不要**在不可用时假装连接并加载一个空端口
+ * —— 那只会得到白屏。
  *
  * <h3>三条安全与稳定性约束</h3>
  * <ol>
- *   <li><b>主机指纹 TOFU</b>：`ssh-keyscan` 取指纹 → 与上次记录比对 → 不同即阻断
- *       （{@link SshHostKey#decide}）。不用 `StrictHostKeyChecking=no`：那等于关掉中间人防线。</li>
+ *   <li><b>主机指纹 TOFU</b>：取对端主机公钥（首选 `ssh-keyscan`，缺它时用一次试探连接，
+ *       见 {@link #scanKeyLine}）→ 算指纹 → 与上次记录比对 → 不同即阻断
+ *       （{@link SshHostKey#decide}）。正式连接永远 `StrictHostKeyChecking=yes` +
+ *       正式 known_hosts：那等于关掉中间人防线的事一件都不做。</li>
  *   <li><b>密钥认证而非密码</b>：包内既无 askpass 也无 sshpass，密码认证无法非交互完成；
  *       首次使用生成 ed25519 密钥，用户把公钥加到对端 `authorized_keys`。</li>
  *   <li><b>断线可见</b>：`ServerAliveInterval` 让死连接自己退出，进程退出由调用方重试，
@@ -68,6 +72,19 @@ public final class DshSshTunnel {
     /** bundle 里是否带了 ssh 客户端（决定整档能否工作）。 */
     public static boolean available(Context c) {
         return sshBin(c).isFile() && sshBin(c).canExecute();
+    }
+
+    /**
+     * bundle 里是否带了 `ssh-keyscan`（取主机公钥的首选工具）。
+     *
+     * <p>r122 之前收割的包**只有** ssh / ssh-keygen / scp / sftp 四个二进制
+     * （`fetch-openssh.sh` 的白名单漏了 keyscan），所以首次连接取不到主机公钥。
+     * 现在 keyscan 已随包；{@link #scanKeyLine} 另有试探连接兜底，缺它也能用，
+     * 但界面要能说清是「包里没有」还是「对端不可达」。
+     */
+    public static boolean keyscanAvailable(Context c) {
+        File bin = new File(prefix(c), "bin/ssh-keyscan");
+        return bin.isFile() && bin.canExecute();
     }
 
     /** 不可用时的可执行处置（直接展示给用户，不要含糊）。 */
@@ -197,12 +214,18 @@ public final class DshSshTunnel {
     /**
      * 用 `ssh-keyscan` 取对端主机公钥**原始行**（写 known_hosts 需要它，指纹不够）。
      *
+     * <p>r122：keyscan 不在包里时改走 {@link #scanKeyLineViaConnect}，不再直接判失败 ——
+     * 否则「本包缺一个二进制」会被界面说成「对端不可达」，把人引到错的方向。
+     *
      * @return 形如 `host ssh-ed25519 AAAA…`；取不到返回 {@code null}
      */
     public static String scanKeyLine(Context c, String host, int port) {
         if (!available(c)) return null;
+        if (!keyscanAvailable(c)) {
+            Log.i(TAG, "ssh-keyscan 不在 bundle 里，改用试探连接取主机公钥");
+            return scanKeyLineViaConnect(c, host, port);
+        }
         File keyscan = new File(prefix(c), "bin/ssh-keyscan");
-        if (!keyscan.isFile()) return null;
         try {
             List<String> cmd = new ArrayList<String>();
             cmd.add(keyscan.getAbsolutePath());
@@ -211,15 +234,92 @@ public final class DshSshTunnel {
             cmd.add("-t"); cmd.add("ed25519");
             cmd.add(host);
             String out = runOnce(c, cmd, null, 12000);
-            if (out == null) return null;
-            for (String line : out.split("\n")) {
-                if (SshHostKey.blobOfKeyLine(line) != null) return line.trim();
+            String line = firstKeyLine(out);
+            if (line == null) {
+                // keyscan 在但什么都没扫到（对端不可达 / 只提供 rsa）：再用一次试探连接。
+                // 两条路都失败才判「取不到」，避免单一工具的兼容性问题变成功能不可用。
+                Log.i(TAG, "ssh-keyscan 无输出，改用试探连接重试");
+                return scanKeyLineViaConnect(c, host, port);
             }
-            return null;
+            return line;
         } catch (Exception e) {
             Log.w(TAG, "ssh-keyscan 失败: " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 备用取主机公钥：用一次「不做主机校验」的**试探连接**，让 ssh 自己把对端公钥
+     * 写进临时 known_hosts，再读出来。
+     *
+     * <p>为什么不是安全降级：host key 在密钥交换阶段就完成校验并落盘，**早于**用户认证；
+     * 这与 `ssh-keyscan` 的信任模型完全一致（都信任「第一次看到的那把」）。真正的
+     * TOFU 比对仍在调用方：拿到 line → 算指纹 → 与上次记录比 → 不同即阻断。
+     * 之后的正式连接依旧 `StrictHostKeyChecking=yes` + 正式 known_hosts。
+     *
+     * <p>试探连接故意用不存在的用户名 + BatchMode，认证必然失败 —— 我们要的只是公钥，
+     * 所以进程退出也算「可以读文件了」，不当作失败。
+     */
+    private static String scanKeyLineViaConnect(Context c, String host, int port) {
+        File dir = new File(home(c), ".ssh");
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        File tmp = new File(dir, "scan_known_hosts.tmp");
+        try { if (tmp.exists() && !tmp.delete()) return null; } catch (Throwable ignored) { }
+
+        Process pr = null;
+        try {
+            List<String> cmd = new ArrayList<String>();
+            cmd.add(sshBin(c).getAbsolutePath());
+            cmd.add("-N"); cmd.add("-T");
+            cmd.add("-o"); cmd.add("BatchMode=yes");
+            cmd.add("-o"); cmd.add("StrictHostKeyChecking=no");   // 只为拿公钥，随后由本类钉住
+            cmd.add("-o"); cmd.add("UpdateHostKeys=no");
+            cmd.add("-o"); cmd.add("UserKnownHostsFile=" + tmp.getAbsolutePath());
+            cmd.add("-o"); cmd.add("GlobalKnownHostsFile=/dev/null");
+            cmd.add("-o"); cmd.add("ConnectTimeout=8");
+            cmd.add("-p"); cmd.add(String.valueOf(port));
+            cmd.add("-l"); cmd.add("dsh-keyscan");                // 不存在的用户：不让它真的登进去
+            cmd.add(host);
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            Map<String, String> env = pb.environment();
+            env.put("PREFIX", prefix(c).getAbsolutePath());
+            env.put("HOME", home(c).getAbsolutePath());
+            env.put("PATH", prefix(c).getAbsolutePath() + "/bin:" + env.get("PATH"));
+            env.put("LD_LIBRARY_PATH", prefix(c).getAbsolutePath() + "/lib");
+            env.put("TMPDIR", prefix(c).getAbsolutePath() + "/tmp");
+            env.put("OPENSSL_CONF", prefix(c).getAbsolutePath() + "/etc/tls/openssl.cnf");
+            pb.redirectErrorStream(true);
+            pr = pb.start();
+
+            long deadline = System.currentTimeMillis() + 14000;
+            while (System.currentTimeMillis() < deadline) {
+                String line = firstKeyLine(readText(tmp));
+                if (line != null) return line;
+                if (!alive(pr)) break;      // 进程已退出（认证失败也算）：再读一次就收工
+                try { Thread.sleep(150); } catch (InterruptedException e) { break; }
+            }
+            return firstKeyLine(readText(tmp));
+        } catch (Exception e) {
+            Log.w(TAG, "试探连接取主机公钥失败: " + e.getMessage());
+            return null;
+        } finally {
+            if (pr != null) { try { pr.destroy(); } catch (Throwable ignored) { } }
+            try { if (tmp.exists()) tmp.delete(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** 从多行文本里挑出第一行「主机 算法 base64」形态的公钥行。 */
+    private static String firstKeyLine(String text) {
+        if (text == null || text.isEmpty()) return null;
+        for (String line : text.split("\n")) {
+            if (SshHostKey.blobOfKeyLine(line) != null) return line.trim();
+        }
+        return null;
+    }
+
+    private static boolean alive(Process pr) {
+        try { pr.exitValue(); return false; } catch (IllegalThreadStateException running) { return true; }
     }
 
     /** 取对端主机公钥指纹（`SHA256:…`）；取不到返回 {@code null}。 */

@@ -77,7 +77,8 @@ R 'rm -f files/dsh-harvest.tar.gz' 2>/dev/null || true
 # SSH 客户端（批 C）：prefix 里**有才打**，没有就静默跳过 —— tar 对不存在的成员会直接报错，
 # 而没装 openssh 的环境本来就该继续出包（本机档案用不到 ssh）。
 SSH_LIST=""
-for b in ssh ssh-keygen scp sftp; do
+# r122：ssh-keyscan 必须随包 —— 首次连接取主机公钥靠它（缺它 TOFU 无法建立）。
+for b in ssh ssh-keygen ssh-keyscan scp sftp; do
   if R "test -f files/usr/bin/$b" >/dev/null 2>&1; then
     SSH_LIST="$SSH_LIST usr/bin/$b"
   fi
@@ -111,7 +112,7 @@ case "$OUT_TAR" in /*) ;; *) OUT_TAR="/$OUT_TAR" ;; esac
 LIST_FILE="$OUT.list.txt"
 tar -tzf "$OUT_TAR" > "$LIST_FILE"
 echo "  ✓ 清单落盘: $(wc -l < "$LIST_FILE" | tr -d ' ') 个成员"
-for p in usr/bin/node usr/bin/bash usr/bin/ssh \
+for p in usr/bin/node usr/bin/bash usr/bin/ssh usr/bin/ssh-keygen usr/bin/ssh-keyscan \
          home/node_modules/@deepseek-ai/dsh/package.json; do
   if grep -qx "$p" "$LIST_FILE"; then
     echo "  ✓ $p"

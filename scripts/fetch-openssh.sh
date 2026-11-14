@@ -10,7 +10,8 @@
 # 而 App 的 `files/usr/bin` 只有 node/bash/pnpm/dsh-web.sh —— 没有包管理器，
 # 也没法在设备上 `pkg install`。所以「bundle 带 openssh」的真实做法是：
 #   1) 从 Termux 官方仓库取 aarch64 的 openssh deb（PC 侧解包，不依赖 ar/7z）；
-#   2) 把 ssh / ssh-keygen / scp / sftp 四个二进制放进 App 的 files/usr/bin；
+#   2) 把 ssh / ssh-keygen / ssh-keyscan / scp / sftp 放进 App 的 files/usr/bin
+#      （r122 起补上 ssh-keyscan：缺它时首次连接取不到主机公钥，TOFU 无从谈起）；
 #   3) 再跑 02b 收割 —— 之后每份 bundle 都自带 ssh。
 #
 # 为什么只取二进制不取依赖库：这台机器的 prefix 里已经有 libcrypto.so.3 / libssl.so.3 /
@@ -111,7 +112,7 @@ if not member:
 name, payload = member
 tarball = lzma.decompress(payload) if name.endswith(".xz") else gzip.decompress(payload)
 
-WANT = ("ssh", "ssh-keygen", "scp", "sftp")
+WANT = ("ssh", "ssh-keygen", "ssh-keyscan", "scp", "sftp")
 got = []
 with tarfile.open(fileobj=io.BytesIO(tarball)) as tf:
     for m in tf.getmembers():
@@ -144,7 +145,7 @@ else
   TMP_WIN="$TMP"
 fi
 
-for b in ssh ssh-keygen scp sftp; do
+for b in ssh ssh-keygen ssh-keyscan scp sftp; do
   "$ADB" -s "$SERIAL" push "$TMP_WIN\\$b" "/data/local/tmp/dsh-$b" >/dev/null 2>&1 || {
     echo "✗ push 失败：$b（源 $TMP_WIN\\$b）"; exit 1; }
   "$ADB" -s "$SERIAL" shell "run-as $PKG sh -c 'mkdir -p files/usr/bin && cp /data/local/tmp/dsh-$b files/usr/bin/$b && chmod 700 files/usr/bin/$b'" >/dev/null 2>&1 || {

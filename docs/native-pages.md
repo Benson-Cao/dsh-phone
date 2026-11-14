@@ -293,3 +293,119 @@ Windows 形式（`cygpath -w`），否则 adb.exe 按 `C:/tmp` 解析。
 **随包的 ssh 是 Termux 构建**，RUNPATH 指向 `/data/data/com.termux/files/usr/lib`。
 运行时必须靠 `LD_LIBRARY_PATH=$PREFIX/lib` 覆盖（`DshSshTunnel` 与 `dsh-web.sh` 都设了）。
 在**没装 com.termux 的手机**上这一点尤其关键 —— 别把「本机能跑」当成「到处能跑」。
+
+## 17. 远端档加载失败：文案按档案分流（r121）
+
+**现象**：relay 档连不上电脑时，屏幕上是「服务还没就绪 / dsh 后台可能仍在启动，或已退出」。
+
+**为什么是错的**：`serverNotReadyHtml` 是给**本机引擎**写的诊断文档，它假设「后端在
+本机、正在启动」。而 relay 档 `needsLocalEngine() == false` —— 按设计不启 `DshService`、
+不跑 node，本机根本没有后端可等。于是这句话把用户指向「重启应用/等一等」，
+而真实原因是「那台电脑不在」，重试永远不会成功。
+
+**修法**：`DshWebViewClient.showFinalError` 在加载 HTML 错误文档之前按档案分流：
+
+```java
+HostProfile.Profile prof = HostProfile.get(view.getContext()).current();
+if (!prof.needsLocalEngine() && view.getContext() instanceof MainActivity) {
+    ((MainActivity) view.getContext()).showRemoteUnreachable(prof);
+    return;
+}
+```
+
+| 档案 | `needsLocalEngine()` | 失败页 |
+| --- | --- | --- |
+| `local` | true | `serverNotReadyHtml` / `authExpiredHtml`（原有诊断） |
+| `ssh` | false | 原生页「连不上这台电脑」 |
+| `relay` | false | 原生页「连不上这台电脑」 |
+
+原生页内容与三个出口：
+
+- 标题「连不上这台电脑」，下面一行等宽字体的 `origin`（连的是哪台）；
+- 说明「这台手机现在连的是电脑，不是本机引擎，所以这里没有 dsh 后台可等」；
+- 四条常见原因：电脑休眠或关机 / Relay 没在运行 / 不在同一网络 / 已被管理台收回；
+- 出口：**重试**（`finish()` + `startActivity(getIntent())`，走完整启动流程而不是只 reload）、
+  **改用本机引擎**（`setCurrent(KIND_LOCAL)` + `ProfileSession.resetRuntime()` + 重启）、
+  **退出**（`finish()`）。
+
+`ProfileSession.resetRuntime()` 与切换器、离线页共用 —— R-22（切档必须清 cookie 与
+预热实例，防跨主机串会话）只有一条实现路径，不在第四处再写一遍。
+
+**幂等**：WebView 对同一次失败可能多次回调 `onReceivedError`/`onReceivedHttpError`，
+用 `remoteErrorShown` 挡住重复渲染（否则视图被反复重建、按钮状态丢失）。
+
+## 18. SSH 档隧道层：真机联调与被它揪出的缺口（r122）
+
+### 18.1 为什么需要一个测试替身
+
+本机（Windows）只有 OpenSSH **客户端**：`C:\Windows\System32\OpenSSH` 里没有 `sshd.exe`；
+Windows 的 sshd 必须由 SYSTEM 起服务，普通账户跑不起来。于是 `tests/ssh-testdouble/`
+用 `ssh2` 写了一个最小服务端：**接受任意公钥 + 只转发 direct-tcpip**，配一个只绑回环的
+假 3080（页面打出大字 `FAKE 3080`）。它验的正是手机侧隧道要的四个条件，不需要真 sshd。
+
+```bash
+cd tests/ssh-testdouble && npm install
+node fake-dsh.mjs            # 127.0.0.1:3080，只绑回环 → 必须经隧道才到得了
+PORT=2222 node server.mjs    # 0.0.0.0:2222，日志里有主机指纹与客户端公钥指纹
+bash device-tunnel-test.sh   # 推 device-tunnel-test.sh 到设备，run-as 里跑
+```
+
+### 18.2 真机证据（2026-11-14，vivo X200s / Android 15）
+
+设备经 Tailscale（`100.99.226.70`）连电脑，全程 `run-as` 在 App 的 prefix 里跑，
+不经过 UI、不抢前台。
+
+| 环节 | 实测结果 |
+| --- | --- |
+| bundle 里的 ssh 可执行 | `OpenSSH_10.6p2, OpenSSL 3.6.3` |
+| 客户端密钥 | 新生成 ed25519，`SHA256:R72D7mGQA5EcDsHA1WDDlizxkCkOr5jZ7jyI3yydFfM` |
+| 服务端看到的客户端公钥 | `SHA256:R72D7mGQ…`（与服务端日志一致 → 确实是本机这把） |
+| known_hosts 行首形态 | `[100.99.226.70]:2222 ssh-ed25519 AAAA…`（非 22 端口必须带方括号） |
+| `StrictHostKeyChecking=yes` | 通过（没有「未知主机」提示） |
+| direct-tcpip | 服务端日志 `direct-tcpip 127.0.0.1:3080 ← 127.0.0.1:37656` + `✓ 隧道已建立` |
+| 经隧道取页面 | `HTTP 200 ✓ 含 FAKE 3080 标记`，页面里 `host=127.0.0.1:3081` |
+
+最后一行是关键：页面看到的 Host 是**手机侧隧道口** `127.0.0.1:3081`，而内容来自
+电脑的回环 3080 —— 只有真的走了通道才会同时成立。
+
+### 18.3 被揪出的缺口：bundle 里没有 `ssh-keyscan`
+
+`fetch-openssh.sh` 的二进制白名单是 `ssh / ssh-keygen / scp / sftp`，
+`02b-harvest-bundle.sh` 的 tar 清单照抄了这四个 —— **`ssh-keyscan` 从来没进过包**
+（真机 `ls files/usr/bin` 已确认）。后果：
+
+1. `DshSshTunnel.scanKeyLine` 第一行 `keyscan.isFile()` 为假，直接返回 `null`；
+2. 调用方把 `null` 呈现成「取不到主机公钥，确认主机可达/sshd 在运行/同网段」——
+   方向错了：包缺一个二进制，用户怎么查网络都不会好；
+3. `SshHostKey.decide(null, …)` 按「实际指纹为 null ⇒ MISMATCH」保守处理，
+   于是真要往下走只会得到「指纹不一致，已拒绝」，更难自查。
+
+所以 r122 做了三件事：
+
+- **补包**：两个清单都加上 `ssh-keyscan`，`BUNDLE_REV` `v6-…-ssh2` → `v7-…-ssh3`
+  （内容变了不推 REV，老安装会命中旧戳跳过重解包，新二进制永远装不上）。
+- **兜底**：`scanKeyLine` 在 keyscan 缺失、或 keyscan 扫不到时，改走
+  `scanKeyLineViaConnect()` —— 用一次 `StrictHostKeyChecking=no` 的**试探连接**
+  让 ssh 自己把对端公钥写进临时 `known_hosts`，再读出来。
+  这**不是安全降级**：host key 在密钥交换阶段就完成校验并落盘，**早于**用户认证，
+  信任模型与 `ssh-keyscan` 完全一致（都信任「第一次看到的那把」）；真正的比对
+  （`FIRST_SEEN` / `MATCH` / `MISMATCH`）仍在调用方，正式连接永远
+  `StrictHostKeyChecking=yes` + 正式 `known_hosts`。
+- **说清原因**：失败文案区分「包里没有 keyscan 且试探也没成」与「对端不可达」。
+
+兜底已在真机单独验过（`tests/ssh-testdouble/device-keyscan-fallback-test.sh`）：
+临时文件里得到 `[100.99.226.70]:2222 ssh-ed25519 AAAAC3…`，指纹
+`SHA256:MRPEZ8PGUIxK+z0xHpFf+hIsd1XnrpD89umRoA1ZtEs` 与服务端一致，
+ssh 输出 `Warning: Permanently added … to the list of known hosts` 后
+`Permission denied (publickey)` —— 认证失败是**预期**的（试探用的用户名不存在）。
+
+### 18.4 仍未做/未验
+
+- **UI 全链路（点「连接」→ 进 SSH 档案 → WebView 打开）未在真机点过**：
+  它需要一台真正接受手机公钥的 sshd（把 `id_ed25519.pub` 加进 `authorized_keys`）。
+  隧道层已验，Java 侧只是把同样的命令用 `ProcessBuilder` 拼出来 + 等端口。
+- **断线自动重连没写**：现在进程退出只报错，用户重进才重连。接法是
+  `running()` 之外加守护轮询，1s→2s→4s…→30s 退避，重连成功不需要重建 WebView
+  （回环端口不变）。
+- 试探连接的 `-l dsh-keyscan` 是刻意的假用户；如果某天要给真机 sshd 用，
+  这条路径同样能取到公钥（认证失败不影响 host key 落盘）。

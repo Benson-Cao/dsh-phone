@@ -298,6 +298,14 @@ public class DshWebViewClient extends WebViewClient {
         final String base = dshBaseUrl(view.getContext().getApplicationContext());
         MAIN.post(new Runnable() {
             @Override public void run() {
+                // r121：远端档失败**不能**复用本机那套文案。本机档失败时说「dsh 后台可能仍在
+                // 启动，或已退出」是对的；远端档失败的真实原因是「连不上那台电脑」，
+                // 而 relay 档按设计不跑本机引擎 —— 说成引擎问题会把人引到错的方向去排查。
+                HostProfile.Profile prof = HostProfile.get(view.getContext()).current();
+                if (!prof.needsLocalEngine() && view.getContext() instanceof MainActivity) {
+                    ((MainActivity) view.getContext()).showRemoteUnreachable(prof);
+                    return;
+                }
                 view.loadDataWithBaseURL(null,
                         httpCode == 401 ? authExpiredHtml(base) : serverNotReadyHtml(base),
                         "text/html", "utf-8", null);

@@ -545,13 +545,20 @@ public class MainActivity extends Activity {
                 final int port = prof.sshPort;
 
                 // 1) 主机指纹 TOFU：先取对端公钥，再与记录比对，不同即拒绝
+                final boolean hasKeyscan = DshSshTunnel.keyscanAvailable(MainActivity.this);
                 String line = DshSshTunnel.scanKeyLine(MainActivity.this, host, port);
                 final String fp = SshHostKey.fingerprintOfKeyLine(line);
                 if (fp == null) {
                     main.post(new Runnable() {
                         @Override public void run() {
+                            // r122：区分「工具缺失」与「对端不可达」。这两种情况的处置完全不同，
+                            // 说成一句「确认主机可达」会让缺二进制的包永远查不出问题。
                             showDiagnostics("取不到 " + host + ":" + port + " 的主机公钥。\n\n"
-                                    + "确认：主机与端口可达、对端 sshd 在运行、手机与它同网段。");
+                                    + (hasKeyscan ? "" :
+                                       "本安装包的 bundle 里没有 ssh-keyscan，且试探连接也没拿到公钥"
+                                       + "（试探连接同样依赖包内的 ssh）。\n\n")
+                                    + "确认：主机地址与端口正确、对端 sshd 在运行、手机与它同网段"
+                                    + "（或已连上同一 VPN）、对端放行该端口。");
                         }
                     });
                     return;
@@ -709,6 +716,112 @@ public class MainActivity extends Activity {
      * 自检没通过时把原始证据摊在屏幕上（这是没有 adb 时唯一能看到真相的渠道）。
      * 文本可长按选中复制；底部给一个"重试"。
      */
+    /** 远端错误页是否已显示（WebView 对同一次失败可能回调多次，避免反复重建视图）。 */
+    private boolean remoteErrorShown = false;
+
+    /**
+     * r121：远端档案（relay / ssh）加载失败时的原生错误页。
+     *
+     * <p>为什么不能复用 {@link #showDiagnostics}：那套文案是给**本机引擎**的
+     * （「dsh 后台可能仍在启动，或已退出」）。远端档失败的真实原因是「连不上那台电脑」，
+     * 而 relay 档按设计**不跑**本机引擎 —— 说成引擎问题会把用户引到错误的排查方向，
+     * 也解释不了为什么「重试」永远不成功。
+     *
+     * <p>三个出口对应三种真实意图：再试一次 / 不连了用本机 / 退出。
+     */
+    void showRemoteUnreachable(final HostProfile.Profile prof) {
+        if (remoteErrorShown) return;
+        remoteErrorShown = true;
+
+        int bg = DshPalette.bg(this);
+        int fg = DshPalette.text(this);
+        int muted = DshPalette.muted(this);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(26), dp(22), dp(26));
+        box.setBackgroundColor(bg);
+
+        TextView head = new TextView(this);
+        head.setText("连不上这台电脑");
+        head.setTextColor(fg);
+        head.setTextSize(20);
+        head.setTypeface(head.getTypeface(), android.graphics.Typeface.BOLD);
+        box.addView(head);
+
+        TextView target = new TextView(this);
+        String origin = prof == null ? null : prof.origin;
+        target.setText(origin == null || origin.isEmpty() ? "（未记录地址）" : origin);
+        target.setTextColor(muted);
+        target.setTextSize(13);
+        target.setTypeface(android.graphics.Typeface.MONOSPACE);
+        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tLp.topMargin = dp(6);
+        box.addView(target, tLp);
+
+        TextView why = new TextView(this);
+        why.setText("这台手机现在连的是电脑，不是本机引擎，所以这里没有 dsh 后台可等。\n\n"
+                + "常见原因：电脑休眠或关机；电脑上的 Relay 没在运行；手机与电脑不在同一网络；"
+                + "或这台手机已被管理台收回。");
+        why.setTextColor(muted);
+        why.setTextSize(13);
+        why.setLineSpacing(dp(2), 1f);
+        LinearLayout.LayoutParams wLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wLp.topMargin = dp(14);
+        box.addView(why, wLp);
+
+        Button retry = new Button(this);
+        retry.setText("重试");
+        retry.setAllCaps(false);
+        retry.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                remoteErrorShown = false;
+                finish();
+                startActivity(getIntent());
+            }
+        });
+        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rLp.topMargin = dp(20);
+        box.addView(retry, rLp);
+
+        Button local = new Button(this);
+        local.setText("改用本机引擎");
+        local.setAllCaps(false);
+        local.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                HostProfile hp = HostProfile.get(MainActivity.this);
+                if (!hp.setCurrent(HostProfile.KIND_LOCAL)) return;
+                // 切档必须归零 cookie 与预热实例（R-22：防跨主机串会话）
+                ProfileSession.resetRuntime();
+                finish();
+                startActivity(new android.content.Intent(MainActivity.this, MainActivity.class));
+            }
+        });
+        LinearLayout.LayoutParams lLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lLp.topMargin = dp(8);
+        box.addView(local, lLp);
+
+        Button quit = new Button(this);
+        quit.setText("退出");
+        quit.setAllCaps(false);
+        quit.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { finish(); }
+        });
+        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        qLp.topMargin = dp(8);
+        box.addView(quit, qLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(bg);
+        scroll.addView(box);
+        setContentView(scroll);
+    }
+
     private void showDiagnostics(String report) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);

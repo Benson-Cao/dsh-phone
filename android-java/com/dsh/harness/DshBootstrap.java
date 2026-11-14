@@ -69,8 +69,14 @@ public final class DshBootstrap {
      *  home/node_modules，如果 bundle 里是旧版，等于把用户升级好的 dsh
      *  静默降级。版本门见 02-build-bundle.sh 的 EXPECTED_DSH_VER。
      *  内容变了必须推 REV，否则旧安装命中 stamp 直接跳过重解包，ssh 永远装不上。
+     *
+     *  v7（r122）：bundle 补上 usr/bin/ssh-keyscan。
+     *  真机联调发现 v6 只带了 ssh / ssh-keygen / scp / sftp —— `fetch-openssh.sh`
+     *  的白名单漏了 keyscan，于是首次连接取不到对端主机公钥，TOFU 根本建立不起来
+     *  （现象是「取不到主机公钥」，但原因不是对端不可达）。v7 起随包，
+     *  同时 DshSshTunnel.scanKeyLine 加了试探连接兜底，老包也不会彻底不可用。
      */
-    private static final String BUNDLE_REV = "v6-dsh-0.2.2-rc.3-ssh2";
+    private static final String BUNDLE_REV = "v7-dsh-0.2.2-rc.3-ssh3";
 
     /**
      * 内置插件（assets/dsh-nas-sync）的内容版本戳。

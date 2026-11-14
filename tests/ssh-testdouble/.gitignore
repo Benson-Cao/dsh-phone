@@ -1,0 +1,3 @@
+node_modules/
+hostkey_ed25519
+*.log
