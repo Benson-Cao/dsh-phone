@@ -116,6 +116,26 @@ public class HostSwitcherActivity extends Activity {
         });
         root.addView(pairButton, marginTop(matchWrap(), 8));
 
+        Button localButton = new Button(this);
+        localButton.setText("改用本机引擎");
+        localButton.setAllCaps(false);
+        localButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // 闭环：从本页进来的人也能从这里回到本机，不用绕回选择页
+                HostProfile hp = HostProfile.get(HostSwitcherActivity.this);
+                if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
+                    statusView.setText("切回本机失败：档案状态异常，重启应用后再试。");
+                    return;
+                }
+                ProfileSession.resetRuntime();
+                startActivity(new Intent(HostSwitcherActivity.this, MainActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
+                finish();
+            }
+        });
+        root.addView(localButton, marginTop(matchWrap(), 8));
+
         Button backButton = new Button(this);
         backButton.setText("返回");
         backButton.setAllCaps(false);
