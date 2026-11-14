@@ -265,9 +265,21 @@ public final class HostProfile {
         JSONObject conf = state == null ? null : state.optJSONObject(k);
         if (conf == null) conf = new JSONObject();
         if (KIND_RELAY.equals(k)) {
+            // 令牌**只**从 DshTokenStore（Keystore 包裹的密文）取，绝不留在本档案 JSON 里。
+            // 早期版本把明文写进 conf.deviceToken —— 真机验证时在 dsh_profiles.xml 里
+            // 直接读到了它，与「加密落盘」自相矛盾。这里做一次性迁移：收进 store 后抹掉。
+            String token = DshTokenStore.load(appCtx);
+            String legacy = conf.optString("deviceToken", "");
+            if ((token == null || token.isEmpty()) && legacy != null && !legacy.trim().isEmpty()) {
+                DshTokenStore.save(appCtx, legacy.trim());
+                token = DshTokenStore.load(appCtx);
+            }
+            if (state != null && !legacy.isEmpty()) {
+                stripLegacyToken(state);
+            }
             Profile p = new Profile(k,
                     conf.optString("origin", ""), conf.optString("hostId", ""),
-                    conf.optString("deviceToken", ""),
+                    token == null ? "" : token,
                     "", 22, "", 3081);
             // 未配置完整的 relay 档不能当当前档案用（会加载坏 URL）→ 回落 local
             return p.relayConfigured() ? p : build(KIND_LOCAL, null);
@@ -342,10 +354,13 @@ public final class HostProfile {
     public void setRelay(String origin, String hostId, String deviceToken) {
         try {
             JSONObject state = new JSONObject(prefs().getString(KEY_STATE, "{}"));
+            // 令牌进 DshTokenStore（密文），档案里只留 origin/hostId
+            if (deviceToken != null && !deviceToken.trim().isEmpty()) {
+                DshTokenStore.save(appCtx, deviceToken.trim());
+            }
             JSONObject conf = new JSONObject()
                     .put("origin", normalizeOrigin(origin))
-                    .put("hostId", hostId == null ? "" : hostId.trim())
-                    .put("deviceToken", deviceToken == null ? "" : deviceToken.trim());
+                    .put("hostId", hostId == null ? "" : hostId.trim());
             state.put(KIND_RELAY, conf);
             prefs().edit().putString(KEY_STATE, state.toString()).apply();
             if (KIND_RELAY.equals(cur.kind)) cur = build(KIND_RELAY, state);
@@ -353,6 +368,24 @@ public final class HostProfile {
                     + " hostId=" + conf.optString("hostId") + "）");
         } catch (Throwable t) {
             Log.w(TAG, "setRelay 失败: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 把旧版本留在档案 JSON 里的明文令牌抹掉（只保留 origin/hostId）。
+     *
+     * <p>为什么不直接重写整份 state：`build()` 可能在启动早期被调用，
+     * 那时只解析了一部分；只动 relay.deviceToken 这一个键最安全。
+     */
+    private void stripLegacyToken(JSONObject state) {
+        try {
+            JSONObject relay = state.optJSONObject(KIND_RELAY);
+            if (relay == null || !relay.has("deviceToken")) return;
+            relay.remove("deviceToken");
+            prefs().edit().putString(KEY_STATE, state.toString()).apply();
+            Log.i(TAG, "已在档案里抹掉明文令牌");
+        } catch (Throwable t) {
+            Log.w(TAG, "抹除明文令牌失败: " + t.getMessage());
         }
     }
 
