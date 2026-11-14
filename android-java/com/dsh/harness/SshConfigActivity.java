@@ -43,6 +43,8 @@ public class SshConfigActivity extends Activity {
     private EditText portInput;
     private EditText userInput;
     private EditText localPortInput;
+    private EditText targetPortInput;
+    private EditText tokenInput;
     private Button testButton;
     private Button saveButton;
     private TextView statusView;
@@ -83,7 +85,9 @@ public class SshConfigActivity extends Activity {
         TextView hint = new TextView(this);
         hint.setText("手机上的 dsh 界面照常在本地，通过 SSH 隧道连到那台机器上的 dsh。\n"
                 + "不用配对码：认证靠一把本机密钥，第一次要把下面的公钥加到那台机器的"
-                + " ~/.ssh/authorized_keys。");
+                + " ~/.ssh/authorized_keys。\n"
+                + "隧道另一头打的是「电脑上 dsh 的端口」，不是手机的 3080 —— 那台机器上 dsh"
+                + " 监听哪个端口就填哪个；它的 web 对回环请求也要令牌，所以令牌一起填。");
         hint.setTextColor(muted);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         hint.setLineSpacing(dp(2), 1f);
@@ -95,6 +99,10 @@ public class SshConfigActivity extends Activity {
         userInput = field(root, "用户名，如 benson", InputType.TYPE_CLASS_TEXT, muted, fg);
         localPortInput = field(root, "本机端口（默认 3081，改它只在端口被占用时）",
                 InputType.TYPE_CLASS_NUMBER, muted, fg);
+        targetPortInput = field(root, "电脑上 dsh 的端口（默认 3080；lsof/netstat 里看它监听哪个）",
+                InputType.TYPE_CLASS_NUMBER, muted, fg);
+        tokenInput = field(root, "电脑上 dsh 的访问令牌（多数情况需要；粘贴即可）",
+                InputType.TYPE_CLASS_TEXT, muted, fg);
 
         testButton = new Button(this);
         testButton.setText("测试连接");
@@ -184,12 +192,15 @@ public class SshConfigActivity extends Activity {
         if (p == null) {
             portInput.setText("22");
             localPortInput.setText("3081");
+            targetPortInput.setText(String.valueOf(SshForm.DEFAULT_TARGET_PORT));
             return;
         }
         hostInput.setText(p.sshHost);
         portInput.setText(String.valueOf(p.sshPort));
         userInput.setText(p.sshUser);
         localPortInput.setText(String.valueOf(p.localPort));
+        targetPortInput.setText(String.valueOf(p.sshTargetPort));
+        tokenInput.setText(p.sshToken);
     }
 
     // ---- 测试连接 ----
@@ -199,7 +210,11 @@ public class SshConfigActivity extends Activity {
         final int port = SshForm.parsePort(portInput.getText().toString(), 22);
         final String user = userInput.getText().toString().trim();
         final int localPort = SshForm.parsePort(localPortInput.getText().toString(), 3081);
-        String bad = validate(host, port, user, localPort);
+        final int targetPort = SshForm.parsePort(targetPortInput.getText().toString(),
+                SshForm.DEFAULT_TARGET_PORT);
+        final String token = tokenInput.getText().toString().trim();
+        String bad = validate(host, port, user, localPort, targetPort);
+        if (bad == null) bad = SshForm.validateToken(token);
         if (bad != null) {
             setStatus(bad, true);
             return;
@@ -219,7 +234,7 @@ public class SshConfigActivity extends Activity {
                 final StringBuilder log = new StringBuilder();
                 boolean ok = false;
                 try {
-                    ok = runTest(host, port, user, localPort, log);
+                    ok = runTest(host, port, user, localPort, targetPort, token, log);
                 } catch (Throwable t) {
                     log.append("测试过程异常：").append(t.getMessage()).append('\n');
                 }
@@ -237,8 +252,9 @@ public class SshConfigActivity extends Activity {
         }, "dsh-ssh-test").start();
     }
 
-    /** 真实序列：取公钥 → 比对指纹 → 生成密钥 → 写 known_hosts → 起隧道 → 等端口。 */
-    private boolean runTest(String host, int port, String user, int localPort, StringBuilder log) {
+    /** 真实序列：取公钥 → 比对指纹 → 生成密钥 → 写 known_hosts → 起隧道 → 等端口 → 试取页面。 */
+    private boolean runTest(String host, int port, String user, int localPort,
+                            int targetPort, String token, StringBuilder log) {
         // 1) 主机公钥
         final boolean hasKeyscan = DshSshTunnel.keyscanAvailable(this);
         String line = DshSshTunnel.scanKeyLine(this, host, port);
@@ -276,23 +292,67 @@ public class SshConfigActivity extends Activity {
 
         // 4) 起隧道，等本地端口 accept 才算通
         DshSshTunnel.writeKnownHost(this, host, port, line);
-        Process pr = DshSshTunnel.start(this, HostProfile.sshProfileFor(host, port, user, localPort));
+        Process pr = DshSshTunnel.start(this,
+                HostProfile.sshProfileFor(host, port, user, localPort, targetPort, token));
         if (pr == null) {
             log.append("✗ 隧道进程没能创建（bundle 里的 ssh 不可执行？）。\n");
             return false;
         }
         boolean up = DshSshTunnel.waitLocalPort(localPort, 12000);
-        DshSshTunnel.stop();
         if (!up) {
+            DshSshTunnel.stop();
             log.append("✗ 隧道起来了但 127.0.0.1:").append(localPort).append(" 没通。\n")
                .append("  最常见：本机公钥还没加到对端的 authorized_keys。\n")
                .append("  把上面那行公钥追加到 ~/.ssh/authorized_keys 后再测一次。\n");
             return false;
         }
         log.append("✓ 隧道已建立：127.0.0.1:").append(localPort)
-           .append(" → ").append(host).append(":3080\n")
-           .append("  点「保存并连接」即可进入。\n");
+           .append(" → ").append(host).append(":").append(targetPort).append("\n");
+
+        // 5) 端口通不等于页面能进：隧道那一头的 dsh 对回环请求也要令牌。
+        //    这一步把「通了但 401」和「通了且能进」分开，否则用户点进去只看到一张 401。
+        int code = httpStatus(SshForm.sshUrl(localPort, token));
+        DshSshTunnel.stop();
+        if (code == 200) {
+            log.append("✓ 电脑侧 dsh 应答 200，点「保存并连接」即可进入。\n");
+            return true;
+        }
+        if (code == 401 || code == 403) {
+            log.append("✗ 隧道通了，但电脑侧 dsh 拒绝访问（HTTP ").append(code).append("）。\n")
+               .append("  访问令牌不对或没填。在电脑上取一次令牌再填到上面那栏。\n");
+            return false;
+        }
+        if (code <= 0) {
+            log.append("✗ 隧道通了，但请求没有应答（").append(code == 0 ? "连不上" : "超时").append("）。\n")
+               .append("  多半是远端端口填错了：电脑上那个端口没有 dsh。\n");
+            return false;
+        }
+        log.append("· 隧道通了，电脑侧应答 HTTP ").append(code)
+           .append("（那一头有服务，但不像是 dsh 的界面）。\n");
         return true;
+    }
+
+    /**
+     * 取一次 HTTP 状态码（后台线程同步调用）。
+     *
+     * @return 状态码；连不上返回 0，超时返回 -1
+     */
+    private static int httpStatus(String url) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(6000);
+            c.setReadTimeout(6000);
+            c.setInstanceFollowRedirects(false);
+            c.setRequestProperty("User-Agent", "dsh-phone-sshtest");
+            return c.getResponseCode();
+        } catch (java.net.SocketTimeoutException e) {
+            return -1;
+        } catch (Throwable t) {
+            return 0;
+        } finally {
+            if (c != null) { try { c.disconnect(); } catch (Throwable ignored) { } }
+        }
     }
 
     // ---- 保存并连接 ----
@@ -302,28 +362,32 @@ public class SshConfigActivity extends Activity {
         final int port = SshForm.parsePort(portInput.getText().toString(), 22);
         final String user = userInput.getText().toString().trim();
         final int localPort = SshForm.parsePort(localPortInput.getText().toString(), 3081);
-        String bad = validate(host, port, user, localPort);
+        final int targetPort = SshForm.parsePort(targetPortInput.getText().toString(),
+                SshForm.DEFAULT_TARGET_PORT);
+        final String token = tokenInput.getText().toString().trim();
+        String bad = validate(host, port, user, localPort, targetPort);
+        if (bad == null) bad = SshForm.validateToken(token);
         if (bad != null) {
             setStatus(bad, true);
             return;
         }
         HostProfile hp = HostProfile.get(this);
-        hp.setSsh(host, port, user, localPort);
+        hp.setSsh(host, port, user, localPort, targetPort, token);
         if (!hp.setCurrent(HostProfile.KIND_SSH)) {
             setStatus("保存失败：档案状态异常。重启应用后再试。", true);
             return;
         }
         // 切档必须归零 cookie 与预热实例（R-22：防跨主机串会话）
         ProfileSession.resetRuntime();
-        startActivity(new Intent(this, MainActivity.class)
-                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
-        finish();
+        // 必须重启到**新实例**：CLEAR_TOP 会复用栈里已有的主界面，onCreate 不跑，
+        // 它继续用切档前的档案（真机上表现为「host 对、令牌空 → 401」）。
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true));
     }
 
     /** 校验委托给 {@link SshForm}（纯函数，桌面 JDK 里有断言）。 */
-    private String validate(String host, int port, String user, int localPort) {
-        return SshForm.validate(host, port, user, localPort);
+    private String validate(String host, int port, String user, int localPort, int targetPort) {
+        return SshForm.validate(host, port, user, localPort, targetPort);
     }
 
     // ---- 小工具 ----

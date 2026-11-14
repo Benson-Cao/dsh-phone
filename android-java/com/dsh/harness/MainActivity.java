@@ -613,7 +613,9 @@ public class MainActivity extends Activity {
                 }
                 main.post(new Runnable() {
                     @Override public void run() {
-                        showWebView("http://127.0.0.1:" + prof.localPort);
+                        // 带上令牌：电脑侧 dsh 对回环请求也鉴权（GET / 直接 401）。
+                        // 拼 URL 的逻辑在 SshForm.sshUrl（纯函数，桌面有断言）。
+                        showWebView(SshForm.sshUrl(prof.localPort, prof.sshToken));
                     }
                 });
             }
@@ -732,8 +734,21 @@ public class MainActivity extends Activity {
         box.addView(head);
 
         TextView target = new TextView(this);
-        String origin = prof == null ? null : prof.origin;
-        target.setText(origin == null || origin.isEmpty() ? "（未记录地址）" : origin);
+        // 远端地址按档案类型呈现：ssh 档的 origin 是空串，早年这里统一显示 origin，
+        // 于是 SSH 失败时页面上写着「（未记录地址）」—— 明明填过地址，却等于什么都没说。
+        String where;
+        if (prof == null) {
+            where = "（未记录地址）";
+        } else if (HostProfile.KIND_SSH.equals(prof.kind)) {
+            where = prof.sshUser + "@" + prof.sshHost + ":" + prof.sshPort
+                    + "  →  127.0.0.1:" + prof.localPort
+                    + "（电脑侧端口 " + prof.sshTargetPort + "）";
+        } else if (prof.origin == null || prof.origin.isEmpty()) {
+            where = "（这台电脑的地址还没记录）";
+        } else {
+            where = prof.origin;
+        }
+        target.setText(where);
         target.setTextColor(muted);
         target.setTextSize(13);
         target.setTypeface(android.graphics.Typeface.MONOSPACE);
@@ -743,9 +758,13 @@ public class MainActivity extends Activity {
         box.addView(target, tLp);
 
         TextView why = new TextView(this);
+        boolean ssh = prof != null && HostProfile.KIND_SSH.equals(prof.kind);
         why.setText("这台手机现在连的是电脑，不是本机引擎，所以这里没有 dsh 后台可等。\n\n"
-                + "常见原因：电脑休眠或关机；电脑上的 Relay 没在运行；手机与电脑不在同一网络；"
-                + "或这台手机已被管理台收回。");
+                + (ssh
+                   ? "常见原因：电脑上的 sshd 没在运行；本机公钥还没加到对端的 "
+                     + "authorized_keys；SSH 端口或「电脑侧端口」填错；手机与电脑不在同一网络。"
+                   : "常见原因：电脑休眠或关机；电脑上的 Relay 没在运行；手机与电脑不在同一网络；"
+                     + "或这台手机已被管理台收回。"));
         why.setTextColor(muted);
         why.setTextSize(13);
         why.setLineSpacing(dp(2), 1f);

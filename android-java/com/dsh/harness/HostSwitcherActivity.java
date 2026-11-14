@@ -78,7 +78,9 @@ public class HostSwitcherActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView lead = new TextView(this);
-        lead.setText("切换主机不会带走会话、文件与插件；切过去之后看到的是那台电脑自己的内容。");
+        lead.setText("切换主机不会带走会话、文件与插件；切过去之后看到的是那台电脑自己的内容。\n"
+                + "「绑定目标」是 Relay 侧记录的归属（这台手机指向哪台电脑），不等于此刻正在用它；"
+                + "「在线」只看电脑最近一次心跳，20 秒内没有心跳就显示离线。");
         lead.setTextColor(muted);
         lead.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         lead.setLineSpacing(dp(2), 1f);
@@ -142,9 +144,8 @@ public class HostSwitcherActivity extends Activity {
                     return;
                 }
                 ProfileSession.resetRuntime();
-                startActivity(new Intent(HostSwitcherActivity.this, MainActivity.class)
-                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
-                finish();
+                ProfileSession.restartInto(HostSwitcherActivity.this,
+                        new Intent(HostSwitcherActivity.this, MainActivity.class));
             }
         });
         root.addView(localButton, marginTop(matchWrap(), 8));
@@ -242,8 +243,8 @@ public class HostSwitcherActivity extends Activity {
             @Override
             public void onClick(View v) {
                 if (h.bound) {
-                    // 已是当前主机：不弹确认、不发请求（同主机 select 是 no-op）
-                    statusView.setText(h.hostId + " 已经是当前电脑");
+                    // 已是绑定目标：不弹确认、不发请求（同主机 select 是 no-op）
+                    statusView.setText(h.hostId + " 已经是这台手机的绑定目标（不代表此刻正在使用）");
                     return;
                 }
                 confirmSwitch(h);
@@ -258,7 +259,7 @@ public class HostSwitcherActivity extends Activity {
         if (h.platform != null && !h.platform.isEmpty()) sb.append(" · ").append(h.platform);
         if (h.sessionCount > 0) sb.append(" · ").append(h.sessionCount).append(" 个会话");
         if ("safe-mode".equals(h.engineState)) sb.append(" · 引擎安全模式");
-        if (h.bound) sb.append(" · 当前使用中");
+        if (h.bound) sb.append(" · 这台手机的绑定目标");
         sb.append('\n').append(h.hostId);
         return sb.toString();
     }
@@ -315,11 +316,9 @@ public class HostSwitcherActivity extends Activity {
             return;
         }
         ProfileSession.resetRuntime();
-        Intent i = new Intent(this, MainActivity.class)
-                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        startActivity(i);
-        finish();
+        // 同 SshConfigActivity：必须重启到新实例，否则主界面复用旧档案、仍是上一台主机
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true));
     }
 
     // ---- 小工具 ----

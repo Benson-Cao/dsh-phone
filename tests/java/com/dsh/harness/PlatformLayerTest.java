@@ -328,6 +328,29 @@ public final class PlatformLayerTest {
         check("非法端口给 -1", SshForm.parsePort("22a2", 22) == -1);
         check("非法端口能被 validate 拦住",
                 SshForm.validate("box", SshForm.parsePort("22a2", 22), "u", 3081) != null);
+
+        // 远端 dsh 端口（r124）：电脑上的 dsh 不在 3080 是常态，这栏必须可配且要校验
+        check("远端端口默认 3080", SshForm.DEFAULT_TARGET_PORT == 3080);
+        check("远端端口 61167 通过", SshForm.validate("box", 22, "u", 3081, 61167) == null);
+        check("远端端口 0 被拒", SshForm.validate("box", 22, "u", 3081, 0) != null);
+        check("远端端口 65536 被拒", SshForm.validate("box", 22, "u", 3081, 65536) != null);
+        check("远端端口可与本机端口相同", SshForm.validate("box", 22, "u", 3081, 3081) == null);
+
+        // 令牌（r124）：电脑侧 dsh 对回环也鉴权
+        check("空令牌合法", SshForm.validateToken("") == null);
+        check("null 令牌合法", SshForm.validateToken(null) == null);
+        check("正常令牌合法", SshForm.validateToken("abcDEF123-_.~") == null);
+        check("含空格的令牌被拒", SshForm.validateToken("abc def") != null);
+        check("含换行的令牌被拒", SshForm.validateToken("abc\ndef") != null);
+
+        // 隧道地址：不带令牌时不拼查询串；带令牌时编码
+        check("无令牌地址", "http://127.0.0.1:3081/".equals(SshForm.sshUrl(3081, "")));
+        check("null 令牌地址", "http://127.0.0.1:3081/".equals(SshForm.sshUrl(3081, null)));
+        check("带令牌地址", "http://127.0.0.1:3081/?token=abc".equals(SshForm.sshUrl(3081, "abc")));
+        check("令牌被 URL 编码",
+                "http://127.0.0.1:3081/?token=a%2Fb%2Bc".equals(SshForm.sshUrl(3081, "a/b+c")));
+        check("令牌首尾空白被去掉",
+                "http://127.0.0.1:3081/?token=abc".equals(SshForm.sshUrl(3081, "  abc  ")));
     }
 
     // ---- 小工具 ----

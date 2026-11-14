@@ -21,6 +21,8 @@ public final class SshForm {
     /** 本机端口下限：低于 1024 需要 root/系统权限，普通应用 bind 会被拒。 */
     public static final int MIN_LOCAL_PORT = 1024;
     public static final int MAX_PORT = 65535;
+    /** 隧道远端（电脑侧）dsh 端口默认值。 */
+    public static final int DEFAULT_TARGET_PORT = 3080;
 
     private SshForm() {}
 
@@ -41,11 +43,22 @@ public final class SshForm {
     }
 
     /**
-     * 校验四个字段。
+     * 校验四个字段（远端端口按默认 3080）。
      *
      * @return {@code null} 表示通过；否则是给用户看的一句话（直接显示，不要再包一层）
      */
     public static String validate(String host, int port, String user, int localPort) {
+        return validate(host, port, user, localPort, DEFAULT_TARGET_PORT);
+    }
+
+    /**
+     * 校验五个字段。
+     *
+     * <p>{@code targetPort} 是**电脑侧** dsh 的端口 —— 隧道另一头打到哪里。默认 3080 只是
+     * 手机端引擎的习惯值；真实电脑上 dsh 往往监听别的端口（实测这台 Windows 上的 dsh 在
+     * 61167，3080 上什么都没有），所以必须可配，否则隧道打通也只是打到空端口。
+     */
+    public static String validate(String host, int port, String user, int localPort, int targetPort) {
         String h = host == null ? "" : host.trim();
         String u = user == null ? "" : user.trim();
 
@@ -70,7 +83,37 @@ public final class SshForm {
             return "本机端口要在 1024–65535 之间（更低的端口需要系统权限）。";
         }
         if (localPort == port) return "本机端口不能和 SSH 端口相同。";
+        if (targetPort < 1 || targetPort > MAX_PORT) return "远端 dsh 端口要在 1–65535 之间。";
         return null;
+    }
+
+    /** 令牌里不能有空白（要拼进 URL 查询串）。空令牌合法（多数本机 dsh 不需要）。 */
+    public static String validateToken(String token) {
+        if (token == null) return null;
+        String t = token.trim();
+        if (t.isEmpty()) return null;
+        if (hasSpace(t)) return "访问令牌里不能有空格或换行（复制时多带了空白）。";
+        return null;
+    }
+
+    /**
+     * 隧道打通后要加载的地址。
+     *
+     * <p>为什么带令牌：电脑上的 dsh web **对回环请求也要鉴权**（实测
+     * `GET http://127.0.0.1:61167/` 返回 401）。不带令牌打开隧道只会看到 401，
+     * 而不是界面 —— 那不是"连上了"，是"连上了但进不去"。
+     *
+     * @param token 可为空；非空时拼成 `?token=…`（URL 编码）
+     */
+    public static String sshUrl(int localPort, String token) {
+        String base = "http://127.0.0.1:" + localPort + "/";
+        String t = token == null ? "" : token.trim();
+        if (t.isEmpty()) return base;
+        try {
+            return base + "?token=" + java.net.URLEncoder.encode(t, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            return base;   // UTF-8 一定存在；兜底不拼令牌，好过拼个坏 URL
+        }
     }
 
     private static boolean hasSpace(String s) {

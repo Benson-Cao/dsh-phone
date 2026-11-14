@@ -150,7 +150,9 @@ public final class DshSshTunnel {
             cmd.add("-o"); cmd.add("ServerAliveCountMax=3");
             cmd.add("-i"); cmd.add(new File(home(c), ".ssh/id_ed25519").getAbsolutePath());
             cmd.add("-p"); cmd.add(String.valueOf(p.sshPort));
-            cmd.add("-L"); cmd.add("127.0.0.1:" + p.localPort + ":127.0.0.1:3080");
+            // 远端目标端口来自档案：电脑上的 dsh 不一定在 3080（实测这台 Windows 在 61167），
+            // 写死 3080 会让隧道"通"但打到空端口 —— 症状是端口 accept 了、页面却是空白/连接被重置。
+            cmd.add("-L"); cmd.add("127.0.0.1:" + p.localPort + ":127.0.0.1:" + p.sshTargetPort);
             cmd.add(p.sshUser + "@" + p.sshHost);
 
             ProcessBuilder pb = new ProcessBuilder(cmd);

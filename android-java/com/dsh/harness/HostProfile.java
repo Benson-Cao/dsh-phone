@@ -45,6 +45,9 @@ import java.net.URLEncoder;
  */
 public final class HostProfile {
 
+    /** 隧道远端（电脑侧）dsh 端口的默认值。见 {@link #setSsh} 的说明。 */
+    static final int DEFAULT_TARGET_PORT = SshForm.DEFAULT_TARGET_PORT;
+
     private static final String TAG = "DshProfile";
     private static final String PREF = "dsh_profiles";
     private static final String KEY_STATE = "state";
@@ -92,9 +95,18 @@ public final class HostProfile {
         public final int sshPort;
         public final String sshUser;
         public final int localPort;    // 隧道本地端口（ssh 档的 WebView 地址）
+        public final int sshTargetPort; // 隧道**远端**（电脑侧）dsh 端口
+        public final String sshToken;   // 电脑侧 dsh 的访问令牌（回环也鉴权，可为空）
 
         Profile(String kind, String origin, String hostId, String deviceToken,
                 String sshHost, int sshPort, String sshUser, int localPort) {
+            this(kind, origin, hostId, deviceToken, sshHost, sshPort, sshUser, localPort,
+                    DEFAULT_TARGET_PORT, "");
+        }
+
+        Profile(String kind, String origin, String hostId, String deviceToken,
+                String sshHost, int sshPort, String sshUser, int localPort,
+                int sshTargetPort, String sshToken) {
             this.kind = kind;
             this.origin = origin;
             this.hostId = hostId;
@@ -103,6 +115,8 @@ public final class HostProfile {
             this.sshPort = sshPort;
             this.sshUser = sshUser;
             this.localPort = localPort;
+            this.sshTargetPort = sshTargetPort > 0 ? sshTargetPort : DEFAULT_TARGET_PORT;
+            this.sshToken = sshToken == null ? "" : sshToken;
         }
 
         /** 桥（dshNative / dshSaf / dsh-bridge / 脚本注入）是否允许。 */
@@ -142,7 +156,10 @@ public final class HostProfile {
                 }
             }
             if (KIND_SSH.equals(kind)) {
-                return "http://127.0.0.1:" + (localPort > 0 ? localPort : 3081) + "/";
+                // 令牌必须拼在这里：`showWebView()` 对所有远端档统一用 loadUrl() 覆盖传进来的
+                // url（r113 的防串档措施），所以在调用点拼令牌会被它冲掉 —— 真机上表现为
+                // 「配置里令牌填对了，请求里却没有 ?token，WebView 拿到 401」。
+                return SshForm.sshUrl(localPort > 0 ? localPort : 3081, sshToken);
             }
             return localUrl();
         }
@@ -283,7 +300,9 @@ public final class HostProfile {
         if (KIND_SSH.equals(k)) {
             return new Profile(k, "", "", "",
                     conf.optString("host", ""), conf.optInt("port", 22),
-                    conf.optString("user", ""), conf.optInt("localPort", 3081));
+                    conf.optString("user", ""), conf.optInt("localPort", 3081),
+                    conf.optInt("targetPort", DEFAULT_TARGET_PORT),
+                    conf.optString("token", ""));
         }
         return new Profile(KIND_LOCAL, "", "", "", "", 22, "", 3081);
     }
@@ -298,7 +317,13 @@ public final class HostProfile {
      * 拿它测，不能顺手把档案改掉。
      */
     public static Profile sshProfileFor(String host, int port, String user, int localPort) {
-        return new Profile(KIND_SSH, "", "", "", host, port, user, localPort);
+        return sshProfileFor(host, port, user, localPort, DEFAULT_TARGET_PORT, "");
+    }
+
+    /** 同上，带远端 dsh 端口与访问令牌（配置页「测试连接」按用户当次填写起隧道）。 */
+    public static Profile sshProfileFor(String host, int port, String user, int localPort,
+                                        int targetPort, String token) {
+        return new Profile(KIND_SSH, "", "", "", host, port, user, localPort, targetPort, token);
     }
 
     /**
@@ -314,7 +339,9 @@ public final class HostProfile {
             if (conf == null) return null;
             Profile p = new Profile(KIND_SSH, "", "", "",
                     conf.optString("host", ""), conf.optInt("port", 22),
-                    conf.optString("user", ""), conf.optInt("localPort", 3081));
+                    conf.optString("user", ""), conf.optInt("localPort", 3081),
+                    conf.optInt("targetPort", DEFAULT_TARGET_PORT),
+                    conf.optString("token", ""));
             return p.sshConfigured() ? p : null;
         } catch (Throwable t) {
             Log.w(TAG, "读 ssh 档失败: " + t.getMessage());
@@ -422,20 +449,39 @@ public final class HostProfile {
         }
     }
 
-    /** 写 ssh 档配置。 */
+    /** 写 ssh 档配置（远端端口按默认 3080、无令牌）。 */
     public void setSsh(String host, int port, String user, int localPort) {
+        setSsh(host, port, user, localPort, DEFAULT_TARGET_PORT, "");
+    }
+
+    /**
+     * 写 ssh 档配置。
+     *
+     * <p>{@code targetPort} 是**电脑侧** dsh 的端口：隧道 `-L localPort:127.0.0.1:targetPort`。
+     * 早先写死 3080 是拿手机端的引擎端口想当然，实测电脑上 dsh 根本不在 3080，
+     * 隧道打通也只会打到空端口。
+     *
+     * <p>{@code token} 是电脑侧 dsh 的访问令牌：dsh web 对**回环请求也要鉴权**
+     * （`GET /` 直接 401），不带令牌进隧道只会看到 401 页面。
+     */
+    public void setSsh(String host, int port, String user, int localPort,
+                       int targetPort, String token) {
         try {
             JSONObject state = new JSONObject(prefs().getString(KEY_STATE, "{}"));
             JSONObject conf = new JSONObject()
                     .put("host", host == null ? "" : host.trim())
                     .put("port", port > 0 ? port : 22)
                     .put("user", user == null ? "" : user.trim())
-                    .put("localPort", localPort > 0 ? localPort : 3081);
+                    .put("localPort", localPort > 0 ? localPort : 3081)
+                    .put("targetPort", targetPort > 0 ? targetPort : DEFAULT_TARGET_PORT)
+                    .put("token", token == null ? "" : token.trim());
             state.put(KIND_SSH, conf);
             prefs().edit().putString(KEY_STATE, state.toString()).apply();
             if (KIND_SSH.equals(cur.kind)) cur = build(KIND_SSH, state);
             Log.i(TAG, "ssh 档已保存（" + conf.optString("user") + "@"
-                    + conf.optString("host") + ":" + conf.optInt("port", 22) + "）");
+                    + conf.optString("host") + ":" + conf.optInt("port", 22)
+                    + " → 远端 " + conf.optInt("targetPort", DEFAULT_TARGET_PORT)
+                    + (conf.optString("token").isEmpty() ? "，无令牌" : "，带令牌") + "）");
         } catch (Throwable t) {
             Log.w(TAG, "setSsh 失败: " + t.getMessage());
         }

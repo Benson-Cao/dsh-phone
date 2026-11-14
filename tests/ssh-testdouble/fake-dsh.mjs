@@ -16,9 +16,19 @@ import http from 'node:http';
 
 const PORT = Number(process.env.PORT || 3080);
 const TAG = process.env.TAG || 'PC SIDE';
+// TOKEN=xxx 时要求 ?token=xxx —— 用来验「隧道通了但电脑侧 dsh 拒绝访问（401）」这条分支。
+// 真 dsh 的行为就是这样：实测 `GET http://127.0.0.1:61167/` 返回 401，回环也不放过。
+const TOKEN = process.env.TOKEN || '';
 
 const server = http.createServer((req, res) => {
   const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const url = new URL(req.url, 'http://127.0.0.1');
+  if (TOKEN && url.searchParams.get('token') !== TOKEN) {
+    console.log(`[${new Date().toISOString().slice(11, 19)}] 401 ${req.url} ← ${ip} `
+      + `（令牌 ${url.searchParams.get('token') ? '不匹配' : '缺失'}）`);
+    res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(TAG === 'PC SIDE' ? 'Unauthorized' : '401');
+  }
   console.log(`[${new Date().toISOString().slice(11, 19)}] ${req.method} ${req.url} ← ${ip} `
     + `host=${req.headers.host || '-'} ua=${(req.headers['user-agent'] || '-').slice(0, 60)}`);
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -43,5 +53,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`fake-dsh 就绪：http://127.0.0.1:${PORT}（只绑回环 —— 必须经隧道才到得了）`);
+  console.log(`fake-dsh 就绪：http://127.0.0.1:${PORT}（只绑回环 —— 必须经隧道才到得了）`
+    + (TOKEN ? `；要求 ?token=${TOKEN}` : '；不校验令牌'));
 });
