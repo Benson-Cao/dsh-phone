@@ -21,6 +21,7 @@
   if (!S || typeof S.openPairPage !== 'function') return;
 
   var BTN_ID = 'dsh-conn-rail-btn';
+  var FAB_ID = 'dsh-conn-fab';
 
   // 链条图标：与「设置」「引擎」同一套线性风格，24x24 viewBox
   var ICON =
@@ -47,13 +48,62 @@
   }
 
   function mount() {
+    // 首选：官方窄栏底部（与「设置」「引擎」并列）。但 #dsh-rail-foot 只在**侧栏展开成
+    // 图标态**时才由 official-bridge.js 创建 —— 真机实测 360px 窄屏下它并不存在，
+    // 于是按「等侧栏出现」写的入口（包括既有的 engine-switcher）实际上点不到。
+    // 所以必须有兜底：侧栏在就放侧栏，不在就放一个固定浮动入口。
+    if (mountRail()) return true;
+    return mountFab();
+  }
+
+  function mountRail() {
     var foot = document.getElementById('dsh-rail-foot');
     if (!foot || !foot.isConnected) return false;
     var existing = document.getElementById(BTN_ID);
     if (existing && existing.isConnected) return true;
+    var btn = makeButton(BTN_ID);
+    // 与「设置」并列：优先插在设置前，找不到就插在引擎按钮前，再不行就追加
+    var gear = document.getElementById('dsh-rail-settings');
+    var engine = document.getElementById('dsh-eng-rail-btn');
+    if (gear && gear.parentNode === foot) foot.insertBefore(btn, gear);
+    else if (engine && engine.parentNode === foot) foot.insertBefore(btn, engine);
+    else foot.appendChild(btn);
+    return true;
+  }
 
+  /**
+   * 兜底：固定浮动入口。
+   *
+   * 边界说明：这不是「写皮肤」，只在窄栏且没有官方侧栏容器时出现一个 44px 圆钮，
+   * 点它打开的是**原生页面**。不用它的话，三块原生页在默认 local 档下没有任何入口。
+   */
+  function mountFab() {
+    if (document.getElementById(FAB_ID)) return true;
+    var btn = makeButton(FAB_ID);
+    btn.style.cssText = [
+      'position:fixed',
+      'right:14px',
+      'bottom:96px',
+      'width:44px',
+      'height:44px',
+      'z-index:2147483000',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'border-radius:22px',
+      'border:1px solid rgba(127,127,127,.45)',
+      'background:rgba(127,127,127,.22)',
+      'color:inherit',
+      'backdrop-filter:none',
+      'padding:0'
+    ].join(';');
+    document.body.appendChild(btn);
+    return true;
+  }
+
+  function makeButton(id) {
     var btn = document.createElement('button');
-    btn.id = BTN_ID;
+    btn.id = id;
     btn.type = 'button';
     btn.setAttribute('aria-label', '连接电脑');
     btn.setAttribute('title', '连接电脑 / 切换主机');
@@ -62,14 +112,7 @@
       ev.stopPropagation();
       try { route(); } catch (e) { }
     });
-
-    // 与「设置」并列：优先插在设置前，找不到就插在引擎按钮前，再不行就追加
-    var gear = document.getElementById('dsh-rail-settings');
-    var engine = document.getElementById('dsh-eng-rail-btn');
-    if (gear && gear.parentNode === foot) foot.insertBefore(btn, gear);
-    else if (engine && engine.parentNode === foot) foot.insertBefore(btn, engine);
-    else foot.appendChild(btn);
-    return true;
+    return btn;
   }
 
   // #dsh-rail-foot 由 official-bridge.js 在窄栏态挂载；React 重渲染会重建它，
