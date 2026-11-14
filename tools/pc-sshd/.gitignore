@@ -1,0 +1,6 @@
+# 本机生成的配置、日志、主机私钥都不入库。
+# 主机密钥默认在 %USERPROFILE%\.dsh\pc-sshd\host_ed25519，这里只防手滑放进目录。
+pc-sshd.json
+*.log
+host_ed25519
+host_ed25519.pub

@@ -33,6 +33,9 @@ local.properties
 Thumbs.db
 __pycache__/
 
+# PC 侧工具与测试替身的 npm 依赖（ssh2 编译产物约 12MB，靠 npm install 重建）
+node_modules/
+
 # 代理临时目录（javac 校验、探测脚本等中间产物，不入库）
 .temp/
 

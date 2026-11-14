@@ -1,0 +1,14 @@
+{
+  "name": "dsh-pc-sshd",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "电脑侧 SSH 服务端（仅公钥 + 仅回环转发），给 dsh-phone 的「SSH 主机」档案做隧道对端",
+  "scripts": {
+    "start": "node pc-sshd.mjs",
+    "test": "node selfcheck.mjs"
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  }
+}
