@@ -408,6 +408,9 @@ public final class DshSafBridge {
             o.put("powerExempt", DshPowerGuard.isExempt(a));
             o.put("deviceKey", fp != null);
             o.put("fingerprintPrefix", fp == null ? JSONObject.NULL : fp.substring(0, 16));
+            // 只说「有没有令牌」，不给令牌本体：页面里跑着官方 UI 与第三方插件，
+            // 令牌进 window 等于把整台电脑的读写权交出去（见 DshTokenStore 头注释）
+            o.put("hasToken", DshTokenStore.has(a));
             return o.toString();
         } catch (Throwable t) {
             return "{}";

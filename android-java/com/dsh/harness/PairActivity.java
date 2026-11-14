@@ -268,8 +268,14 @@ public class PairActivity extends Activity {
         pairButton.setEnabled(true);
         if (r.ok()) {
             DshDeviceIdentity.rememberBinding(this, r.hostDeviceId, r.relayUrl);
+            // 令牌只落壳（Keystore 包裹），不进页面、不进日志。存失败要说出来：
+            // 「配对成功但令牌没存下」等于下次还得重配，不能显示成一切正常。
+            boolean stored = DshTokenStore.save(this, r.deviceToken);
             setStatus("配对成功：" + r.hostDeviceId + "（协议 " + r.protocol + "）。\n"
-                    + "下一步：在桌面端「主机切换器」里选中这台电脑。", false);
+                    + (stored
+                        ? "令牌已加密保存在本机。"
+                        : "但令牌没能保存（设备密钥不可用），下次仍需重新配对。")
+                    + "\n下一步：在桌面端「主机切换器」里选中这台电脑。", !stored);
             codeInput.setText("");
             return;
         }

@@ -76,6 +76,9 @@ public final class DshDeviceIdentity {
      */
     public static String rotate(Context ctx) {
         DshDeviceKey.clear();
+        // 令牌必须跟着一起清：留着旧令牌配新身份，等于「新设备拿旧凭据」，
+        // 服务端会按 HOST_MISMATCH / UNAUTHORIZED 拒绝，且用户无法自愈
+        DshTokenStore.clear(ctx);
         String fresh = newPhoneId();
         prefs(ctx).edit()
                 .putString(K_PHONE_ID, fresh)
