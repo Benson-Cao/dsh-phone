@@ -311,33 +311,56 @@ public class SshConfigActivity extends Activity {
 
         // 5) 端口通不等于页面能进：隧道那一头的 dsh 对回环请求也要令牌。
         //    这一步把「通了但 401」和「通了且能进」分开，否则用户点进去只看到一张 401。
-        int code = httpStatus(SshForm.sshUrl(localPort, token));
+        HttpProbe p = probe(SshForm.sshUrl(localPort, token));
         DshSshTunnel.stop();
-        if (code == 200) {
-            log.append("✓ 电脑侧 dsh 应答 200，点「保存并连接」即可进入。\n");
+        // 判定统一走 SshForm.probeVerdict（纯函数，桌面断言覆盖）。
+        // 真 dsh web 接受令牌后并不直接给页面：回 303 + Location: ./，
+        // 同时下发 HttpOnly / SameSite=Strict 的签名 cookie，WebView 跟随跳转后才拿到 200。
+        // 探针关掉了自动跟随，所以这里拿到的是 303；只认 200 会把正常的登录流程
+        // 误报成「那一头不像是 dsh 的界面」。
+        int verdict = SshForm.probeVerdict(p.code, p.location);
+        if (verdict == SshForm.VERDICT_OK) {
+            if (p.code == 303) {
+                log.append("✓ 电脑侧 dsh 已接受访问令牌（HTTP 303 → 跳转发签名 cookie），")
+                   .append("点「保存并连接」即可进入。\n");
+            } else {
+                log.append("✓ 电脑侧 dsh 应答 200，点「保存并连接」即可进入。\n");
+            }
             return true;
         }
-        if (code == 401 || code == 403) {
-            log.append("✗ 隧道通了，但电脑侧 dsh 拒绝访问（HTTP ").append(code).append("）。\n")
+        if (verdict == SshForm.VERDICT_TOKEN) {
+            log.append("✗ 隧道通了，但电脑侧 dsh 拒绝访问（HTTP ").append(p.code).append("）。\n")
                .append("  访问令牌不对或没填。在电脑上取一次令牌再填到上面那栏。\n");
             return false;
         }
-        if (code <= 0) {
-            log.append("✗ 隧道通了，但请求没有应答（").append(code == 0 ? "连不上" : "超时").append("）。\n")
+        if (verdict == SshForm.VERDICT_NO_REPLY) {
+            log.append("✗ 隧道通了，但请求没有应答（").append(p.code == 0 ? "连不上" : "超时").append("）。\n")
                .append("  多半是远端端口填错了：电脑上那个端口没有 dsh。\n");
             return false;
         }
-        log.append("· 隧道通了，电脑侧应答 HTTP ").append(code)
+        log.append("· 隧道通了，电脑侧应答 HTTP ").append(p.code)
            .append("（那一头有服务，但不像是 dsh 的界面）。\n");
         return true;
     }
 
+    /** 一次探测的结果：状态码 + 重定向目标。 */
+    private static final class HttpProbe {
+        final int code;
+        final String location;
+        HttpProbe(int code, String location) {
+            this.code = code;
+            this.location = location;
+        }
+    }
+
     /**
-     * 取一次 HTTP 状态码（后台线程同步调用）。
+     * 取一次 HTTP 状态码与 Location（后台线程同步调用）。
+     * 不跟随重定向：真 dsh 的 303 就是「令牌被接受」的信号；跟过去反而会因为
+     * 没有 CookieManager 拿着 cookie 而拿到 401，把成功误判成失败。
      *
-     * @return 状态码；连不上返回 0，超时返回 -1
+     * @return code：连不上 0，超时 -1；location 可能为 null
      */
-    private static int httpStatus(String url) {
+    private static HttpProbe probe(String url) {
         java.net.HttpURLConnection c = null;
         try {
             c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
@@ -345,11 +368,12 @@ public class SshConfigActivity extends Activity {
             c.setReadTimeout(6000);
             c.setInstanceFollowRedirects(false);
             c.setRequestProperty("User-Agent", "dsh-phone-sshtest");
-            return c.getResponseCode();
+            int code = c.getResponseCode();
+            return new HttpProbe(code, c.getHeaderField("Location"));
         } catch (java.net.SocketTimeoutException e) {
-            return -1;
+            return new HttpProbe(-1, null);
         } catch (Throwable t) {
-            return 0;
+            return new HttpProbe(0, null);
         } finally {
             if (c != null) { try { c.disconnect(); } catch (Throwable ignored) { } }
         }

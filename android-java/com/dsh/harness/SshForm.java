@@ -116,6 +116,28 @@ public final class SshForm {
         }
     }
 
+    // 「测试连接」拿到 HTTP 应答后的四种结论。抽成纯函数，让判定可断言，
+    // 不用每次靠真机点一遍才知道文案对不对。
+    public static final int VERDICT_OK = 0;          // 200，或 303 + Location: ./
+    public static final int VERDICT_TOKEN = 1;      // 401 / 403
+    public static final int VERDICT_NO_REPLY = 2;   // 0 连不上 / -1 超时
+    public static final int VERDICT_OTHER = 3;      // 那一头有服务，但形态不对
+
+    /**
+     * 由探测状态码与 Location 判定「测试连接」该报哪一句。
+     *
+     * <p>真 dsh web 接受令牌后回 303 + Location: ./ 并下发签名 cookie，而不是 200。
+     * 只认 200 会把正常的登录流程判成「不像是 dsh 的界面」，让用户填对了令牌
+     * 反而以为连错了机器。
+     */
+    public static int probeVerdict(int code, String location) {
+        if (code == 200) return VERDICT_OK;
+        if (code == 303 && "./".equals(location)) return VERDICT_OK;
+        if (code == 401 || code == 403) return VERDICT_TOKEN;
+        if (code <= 0) return VERDICT_NO_REPLY;
+        return VERDICT_OTHER;
+    }
+
     private static boolean hasSpace(String s) {
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);

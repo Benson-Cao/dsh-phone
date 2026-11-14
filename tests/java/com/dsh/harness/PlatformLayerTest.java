@@ -351,6 +351,17 @@ public final class PlatformLayerTest {
                 "http://127.0.0.1:3081/?token=a%2Fb%2Bc".equals(SshForm.sshUrl(3081, "a/b+c")));
         check("令牌首尾空白被去掉",
                 "http://127.0.0.1:3081/?token=abc".equals(SshForm.sshUrl(3081, "  abc  ")));
+
+        // 探测判定（r127）：真 dsh 接受令牌回 303 + Location: ./ 并下发签名 cookie，不是 200
+        check("200 判可进入", SshForm.probeVerdict(200, null) == SshForm.VERDICT_OK);
+        check("303 + ./ 判可进入", SshForm.probeVerdict(303, "./") == SshForm.VERDICT_OK);
+        check("303 但 Location 不对不判成功", SshForm.probeVerdict(303, "/login") == SshForm.VERDICT_OTHER);
+        check("303 缺 Location 不判成功", SshForm.probeVerdict(303, null) == SshForm.VERDICT_OTHER);
+        check("401 判令牌不对", SshForm.probeVerdict(401, null) == SshForm.VERDICT_TOKEN);
+        check("403 判令牌不对", SshForm.probeVerdict(403, null) == SshForm.VERDICT_TOKEN);
+        check("0 判无应答", SshForm.probeVerdict(0, null) == SshForm.VERDICT_NO_REPLY);
+        check("超时 -1 判无应答", SshForm.probeVerdict(-1, null) == SshForm.VERDICT_NO_REPLY);
+        check("502 判形态不对", SshForm.probeVerdict(502, null) == SshForm.VERDICT_OTHER);
     }
 
     // ---- 小工具 ----
