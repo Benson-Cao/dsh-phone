@@ -295,12 +295,24 @@ public class OfflineActivity extends Activity {
     // ---- 按需连接的三条出口 ----
 
     /**
-     * 进入 remote 档（relay）。
+     * 「进入这台电脑」：只跳过按需连接守卫，**不改变档案类型**。
      *
-     * <p>三要素必须齐：origin、hostId、令牌。缺令牌时**不能**降级成「无令牌也进」——
-     * 反代页会因为拿不到会话票而白屏，用户只会觉得「点了没用」。
+     * <p>r128：SSH 档必须原样保留（主机、隧道端口、令牌都是用户填的）。早年版在这里
+     * 无条件 `setRelay(...) + setCurrent(relay)`，把 SSH 档悄悄换成一个没在运行的
+     * Relay，用户看到的是「连不上这台电脑 / 127.0.0.1:8899」和一串 Relay 原因。
+     * Relay 档仍走三要素补齐：地址、主机 ID、令牌缺一不可，缺令牌不能降级成
+     * 「无令牌也进」—— 反代页会因为拿不到会话票而白屏。
+     *
+     * <p>两个出口都用 `restartInto()`：`CLEAR_TOP` 命中已有 MainActivity 时只走
+     * `onNewIntent`，`onCreate` 不执行，主界面会继续用切档前的档案快照（r125）。
      */
     private void enterRemote() {
+        HostProfile hp = HostProfile.get(this);
+        if (RemoteEntryRules.keepCurrentProfile(hp.current().kind)) {
+            ProfileSession.restartInto(this, new Intent(this, MainActivity.class)
+                    .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true));
+            return;
+        }
         String relay = DshDeviceIdentity.lastRelayUrl(this);
         String host = DshDeviceIdentity.lastHostDeviceId(this);
         String token = DshTokenStore.load(this);
@@ -309,7 +321,6 @@ public class OfflineActivity extends Activity {
             detailView.setText("点下面的「重新配对」，把手机重新连上电脑（配对码在电脑上生成）。");
             return;
         }
-        HostProfile hp = HostProfile.get(this);
         hp.setRelay(relay, host, token);
         if (!hp.setCurrent(HostProfile.KIND_RELAY)) {
             stateView.setText("进入失败：relay 档案没有配置完整");
@@ -317,10 +328,8 @@ public class OfflineActivity extends Activity {
             return;
         }
         ProfileSession.resetRuntime();
-        startActivity(new Intent(this, MainActivity.class)
-                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
-        finish();
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true));
     }
 
     /** 改用本机引擎：把档案切回 local，然后让 MainActivity 重新走本机流程。 */
@@ -332,9 +341,7 @@ public class OfflineActivity extends Activity {
             return;
         }
         ProfileSession.resetRuntime();
-        startActivity(new Intent(this, MainActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
-        finish();
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class));
     }
 
     // ---- 小工具 ----

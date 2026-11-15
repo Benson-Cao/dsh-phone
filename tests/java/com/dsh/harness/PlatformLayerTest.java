@@ -362,6 +362,13 @@ public final class PlatformLayerTest {
         check("0 判无应答", SshForm.probeVerdict(0, null) == SshForm.VERDICT_NO_REPLY);
         check("超时 -1 判无应答", SshForm.probeVerdict(-1, null) == SshForm.VERDICT_NO_REPLY);
         check("502 判形态不对", SshForm.probeVerdict(502, null) == SshForm.VERDICT_OTHER);
+
+        // r128：「进入这台电脑」按当前档案分流，SSH 档不能被改成 Relay 档
+        check("SSH 档保持原档案", RemoteEntryRules.keepCurrentProfile("ssh"));
+        check("Relay 档不保持原档案", !RemoteEntryRules.keepCurrentProfile("relay"));
+        check("本机档不保持原档案", !RemoteEntryRules.keepCurrentProfile("local"));
+        check("null 档案不保持原档案", !RemoteEntryRules.keepCurrentProfile(null));
+        check("档名大小写严格匹配", !RemoteEntryRules.keepCurrentProfile("SSH"));
     }
 
     // ---- 小工具 ----
