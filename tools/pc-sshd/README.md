@@ -123,6 +123,11 @@ node dsh-web-daemon.mjs
 规则是纯函数 `web-proxy-rules.mjs`，覆盖「已登录不注入」「畸形 URL 不抛」
 「含 `-` / `_` 的令牌不失真」等分支。
 
+**链路体检**：`npm run check:link`（或 `node check-link.mjs --adb <serial>`）一次验完
+三段端口、无令牌 401、令牌注入、签名 cookie 授权域、真实 HTML 与手机档案；
+纯只读、不改状态。代理是会话后台任务，被回收时先用这条命令定位，
+不用再手工发六条 curl。
+
 2026-11-15 本机实测：WorkBuddy 会话里 `--detach` 起的进程会被进程管理回收
 （node 与上游一起消失、端口无监听），改用会话后台任务跑前台模式后正常。
 

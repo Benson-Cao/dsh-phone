@@ -9,7 +9,8 @@
     "start:web": "node dsh-web-daemon.mjs --detach",
     "test": "node selfcheck.mjs && node selfcheck-web.mjs",
     "test:sshd": "node selfcheck.mjs",
-    "test:web": "node selfcheck-web.mjs"
+    "test:web": "node selfcheck-web.mjs",
+    "check:link": "node check-link.mjs"
   },
   "dependencies": {
     "ssh2": "^1.16.0"
