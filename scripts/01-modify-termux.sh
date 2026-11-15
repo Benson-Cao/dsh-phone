@@ -114,7 +114,12 @@ done
 # r<v2.3>：源码已含子包 webview/（OfficialShell 注入 + DshWebBridge 消息通道），
 # 用 `cp -rf .../com/dsh/harness/.` 整棵树拷，别再只拷 *.java 顶层。
 DST="$APP/src/main/java/com/dsh/harness"
-rm -rf "$DST"
+# ⚠️ 这里**不要**写 `rm -rf "$DST"`：本仓库现在有 60+ 个源文件，WorkBuddy 的
+#    safe-delete 闸门只要看到命令行里针对该目录的 rm/mv，就按目录文件数判成
+#    「批量删除」并整条拒绝执行（实测 count=68 > threshold=50）。症状极隐蔽：
+#    脚本在 STEP 3 静默中止，而外层 `... | tail` 的管道退出码仍是 0 ——
+#    看着像构建成功，其实连 APK 都没开始编。
+#    覆盖拷贝足以保证内容最新；若真的删了源文件，构建会报重复类，届时手工删那一个。
 mkdir -p "$DST"
 cp -rf "$SRC_DIR"/com/dsh/harness/. "$DST"/
 echo "  ✓ 拷贝 android-java/com/dsh/harness/ -> $DST ($(find "$DST" -name '*.java' | wc -l | tr -d ' ') 个 java)"

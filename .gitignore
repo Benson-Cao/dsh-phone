@@ -42,4 +42,4 @@ node_modules/
 # 内置 NAS 插件的 pnpm tarball 必须随包分发：
 # patch.sh「补丁 5b」用它把 pnpm 落到 $PREFIX/opt/pnpm，缺了市场就装不了插件。
 # 不能被上面的 *.tgz 规则吞掉。
-!android-java/assets/dsh-nas-sync/vendor/*.tgz
+!android-java/assets/dsh-nas-sync/vendor/*.tgz.build-trash/
