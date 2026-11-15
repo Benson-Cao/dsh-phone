@@ -6,7 +6,10 @@
   "description": "电脑侧 SSH 服务端（仅公钥 + 仅回环转发），给 dsh-phone 的「SSH 主机」档案做隧道对端",
   "scripts": {
     "start": "node pc-sshd.mjs",
-    "test": "node selfcheck.mjs"
+    "start:web": "node dsh-web-daemon.mjs --detach",
+    "test": "node selfcheck.mjs && node selfcheck-web.mjs",
+    "test:sshd": "node selfcheck.mjs",
+    "test:web": "node selfcheck-web.mjs"
   },
   "dependencies": {
     "ssh2": "^1.16.0"
