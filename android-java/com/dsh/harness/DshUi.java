@@ -225,7 +225,11 @@ final class DshUi {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         if (backGlyph != null) {
-            bar.addView(roundButton(c, backGlyph, back), marginEnd(c, 10));
+            // ⚠️ 必须用「34dp 固定尺寸」的 LayoutParams 加进去：`addView(v, lp)` 会**覆盖**
+            // 视图自己 setLayoutParams 设的尺寸。早年版这里传的是 WRAP_CONTENT 参数，
+            // 于是 34dp 圆钮被压成一个字形宽 —— 真机截图上就是「‹ 没有底框」。
+            TextView backBtn = roundButton(c, backGlyph, back);
+            bar.addView(backBtn, fixedEnd(c, 34, 10));
         }
         bar.addView(label(c, title, 15, ink(c), true));
         View spacer = new View(c);
@@ -406,11 +410,16 @@ final class DshUi {
         });
     }
 
-    private static LinearLayout.LayoutParams marginEnd(Context c, int dp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.rightMargin = dp(c, dp);
+    /**
+     * 带右边距的「固定尺寸」LayoutParams。
+     *
+     * <p>存在的理由：{@code LinearLayout.addView(v, lp)} 会用传入的 lp <b>覆盖</b>
+     * 视图自己 setLayoutParams 设的宽高，所以圆钮这类定尺控件必须由调用方给出
+     * 同样的尺寸，否则会被压成 WRAP_CONTENT（真机表现：底框消失、只剩一个字形）。
+     */
+    static LinearLayout.LayoutParams fixedEnd(Context c, int sizeDp, int endDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, sizeDp), dp(c, sizeDp));
+        lp.rightMargin = dp(c, endDp);
         return lp;
     }
 }

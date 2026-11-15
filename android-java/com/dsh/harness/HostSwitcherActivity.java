@@ -193,8 +193,7 @@ public class HostSwitcherActivity extends Activity {
         LinearLayout row = DshUi.rowBox(this);
         row.addView(DshUi.avatar(this, "本", DshUi.MINT, DshUi.MINT_2), avatarLp());
         row.addView(deviceColumn("这台手机",
-                "Termux · 原版 dsh web · 独立会话",
-                "本机档不连任何电脑，会话只留在这台手机上。"));
+                "Termux · 原版 dsh web · 独立会话", null));
         if (isLocal) {
             row.addView(DshUi.tag(this, "正在使用", DshUi.soft(this, DshUi.SOFT_MINT, 0xFF12403A),
                     DshUi.MINT, DshUi.MINT));
@@ -251,16 +250,21 @@ public class HostSwitcherActivity extends Activity {
         listBox.removeAllViews();
         if (!r.ok()) {
             HostsError.Finding f = r.finding();
-            hostsSection.setText("已绑定");
+            // 空列表时**不画**「已绑定」小标题：一个没有任何卡的标题读起来像渲染失败，
+            // 改成用一张空态卡说话，标题只在真有内容时出现。
+            hostsSection.setVisibility(View.GONE);
             showStatus(f.title + "：" + f.action, true);
+            listBox.addView(emptyCard("还没有可切换的电脑", "点下面的「添加电脑」，用配对码或 SSH 连一台。"));
             return;
         }
         List<DshHostsClient.Host> rows = r.rows;
         if (rows == null || rows.isEmpty()) {
-            hostsSection.setText("已绑定");
+            hostsSection.setVisibility(View.GONE);
             showStatus("这台手机还看不到任何电脑。确认电脑端在运行并已连上同一个 Relay。", true);
+            listBox.addView(emptyCard("还没有可切换的电脑", "点下面的「添加电脑」，用配对码或 SSH 连一台。"));
             return;
         }
+        hostsSection.setVisibility(View.VISIBLE);
         hostsSection.setText("已绑定 · " + rows.size());
         showStatus("", false);
         for (int i = 0; i < rows.size(); i++) {
@@ -268,6 +272,23 @@ public class HostSwitcherActivity extends Activity {
             listBox.addView(hostRow(h), DshUi.matchWrapTop(this, i == 0 ? 2 : 0));
             if (i < rows.size() - 1) listBox.addView(DshUi.divider(this));
         }
+    }
+
+    /** 空态卡：与远端电脑卡同构（卡片 + 两行文字），避免空标题悬在页面上。 */
+    private View emptyCard(String title, String hint) {
+        LinearLayout card = DshUi.cardBox(this);
+        LinearLayout row = DshUi.rowBox(this);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(DshUi.label(this, title, 12.5f, DshUi.ink(this), true));
+        col.addView(DshUi.label(this, hint, 10.5f, DshUi.ink2(this), false),
+                DshUi.matchWrapTop(this, 3));
+        row.addView(col, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(row);
+        LinearLayout.LayoutParams lp = DshUi.matchWrapTop(this, 2);
+        card.setLayoutParams(lp);
+        return card;
     }
 
     /** 远端电脑一行：渐变头像 + 名字/摘要 + 状态标签；整行可点。 */
