@@ -61,94 +61,201 @@ public class SshConfigActivity extends Activity {
     // ---- UI ----
 
     private void buildUi() {
-        int bg = DshPalette.bg(this);
-        int fg = DshPalette.text(this);
-        int muted = DshPalette.muted(this);
-
+        // v2 设计稿 09「添加电脑 SSH」：应用栏 + 三段 Tab + 分组卡片 +
+        // 端口映射示意 + 令牌掩码/显示 + 渐变主按钮。
+        // 业务逻辑（字段、校验、testConnection / saveAndConnect / probe）一律不动。
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(bg);
+        scroll.setBackgroundColor(DshUi.pageBg(this));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        root.setPadding(pad, dp(28), pad, dp(28));
+        int pad = dp(18);
+        root.setPadding(pad, dp(14), pad, dp(20));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = new TextView(this);
-        title.setText("连接 SSH 主机");
-        title.setTextColor(fg);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        root.addView(title, matchWrap());
+        // ---- 应用栏：返回 + 标题 ----
+        LinearLayout appBar = new LinearLayout(this);
+        appBar.setOrientation(LinearLayout.HORIZONTAL);
+        appBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView back = DshUi.label(this, "‹", 26, DshUi.ink(this), false);
+        back.setPadding(0, 0, dp(12), 0);
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { finish(); }
+        });
+        appBar.addView(back);
+        appBar.addView(DshUi.label(this, "添加电脑", 18, DshUi.ink(this), true));
+        root.addView(appBar, matchWrap());
 
-        TextView hint = new TextView(this);
-        hint.setText("SSH 档不启动手机上的本机引擎：WebView 里的页面由那台电脑的 dsh web"
-                + " 经隧道提供。\n"
-                + "不用配对码：认证靠一把本机密钥。首次连接要把下面的公钥登记到那台机器 ——"
-                + " 本项目自带的 pc-sshd 读用户目录下的 .dsh/ssh/authorized_keys，"
-                + " 标准 sshd 读 ~/.ssh/authorized_keys。\n"
-                + "「电脑上 dsh 的端口」填那台机器上 dsh web 实际监听的端口；它不是手机端"
-                + " 引擎的 3080，也与这里的「本机端口」无关。它的 web 对回环请求也要令牌，"
-                + " 所以令牌一起填。");
-        hint.setTextColor(muted);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        hint.setLineSpacing(dp(2), 1f);
-        root.addView(hint, marginTop(matchWrap(), 8));
+        // ---- 三段 Tab：都是真跳转，不做假切换 ----
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setBackground(DshUi.pillDrawable(this, DshUi.inputBg(this)));
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        root.addView(tabs, marginTop(matchWrap(), 16));
+        final String[] tabNames = { "配对码", "SSH", "本机引擎" };
+        for (int i = 0; i < tabNames.length; i++) {
+            final int idx = i;
+            TextView tab = DshUi.label(this, tabNames[i], 13,
+                    i == 1 ? DshUi.BRAND : DshUi.ink2(this), i == 1);
+            tab.setGravity(android.view.Gravity.CENTER);
+            tab.setPadding(dp(8), dp(9), dp(8), dp(9));
+            if (i == 1) {
+                tab.setBackground(DshUi.pillDrawable(this, DshUi.card(this)));
+                tab.setElevation(dp(2));
+            }
+            tab.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (idx == 0) {
+                        startActivity(new Intent(SshConfigActivity.this, PairActivity.class));
+                    } else if (idx == 2) {
+                        HostProfile hp = HostProfile.get(SshConfigActivity.this);
+                        if (hp.setCurrent(HostProfile.KIND_LOCAL)) {
+                            ProfileSession.resetRuntime();
+                            ProfileSession.restartInto(SshConfigActivity.this,
+                                    new Intent(SshConfigActivity.this, MainActivity.class));
+                        }
+                    }
+                }
+            });
+            tabs.addView(tab, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        }
 
-        hostInput = field(root, "主机地址，如 192.168.0.5 或 nas.local",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, muted, fg);
-        portInput = field(root, "SSH 端口（默认 22）", InputType.TYPE_CLASS_NUMBER, muted, fg);
-        userInput = field(root, "用户名，如 benson", InputType.TYPE_CLASS_TEXT, muted, fg);
-        localPortInput = field(root, "本机端口（默认 3081，改它只在端口被占用时）",
-                InputType.TYPE_CLASS_NUMBER, muted, fg);
-        targetPortInput = field(root, "电脑上 dsh 的端口（默认 3080；lsof/netstat 里看它监听哪个）",
-                InputType.TYPE_CLASS_NUMBER, muted, fg);
-        tokenInput = field(root, "电脑上 dsh 的访问令牌（多数情况需要；粘贴即可）",
-                InputType.TYPE_CLASS_TEXT, muted, fg);
+        root.addView(DshUi.label(this,
+                "页面由那台电脑的 dsh web 经隧道提供，不启动手机本机引擎。",
+                11.5f, DshUi.ink2(this), false), marginTop(matchWrap(), 14));
 
+        // ---- 卡片 1：主机地址 / SSH 端口 / 用户名 ----
+        LinearLayout card1 = groupCard(root);
+        hostInput = field(card1, "主机地址，如 100.99.226.70",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
+                DshUi.ink3(this), DshUi.ink(this));
+        LinearLayout row1 = twoColumnRow(card1);
+        portInput = field(row1, "SSH 端口", InputType.TYPE_CLASS_NUMBER,
+                DshUi.ink3(this), DshUi.ink(this));
+        portInput.setLayoutParams(DshUi.half(this, true));
+        userInput = field(row1, "用户名", InputType.TYPE_CLASS_TEXT,
+                DshUi.ink3(this), DshUi.ink(this));
+        userInput.setLayoutParams(DshUi.half(this, false));
+
+        // ---- 端口映射示意（数值以下面的输入框为准）----
+        root.addView(DshUi.label(this, "端口映射", 11, DshUi.ink3(this), true),
+                marginTop(matchWrap(), 16));
+        LinearLayout map = new LinearLayout(this);
+        map.setOrientation(LinearLayout.HORIZONTAL);
+        map.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        map.addView(pill("手机 3081"));
+        map.addView(DshUi.label(this, "  一 隧道 →  ", 11, DshUi.BRAND, true));
+        map.addView(pill("电脑 3080"));
+        root.addView(map, marginTop(matchWrap(), 6));
+
+        LinearLayout card2 = groupCard(root);
+        LinearLayout row2 = twoColumnRow(card2);
+        localPortInput = field(row2, "手机端口", InputType.TYPE_CLASS_NUMBER,
+                DshUi.ink3(this), DshUi.ink(this));
+        localPortInput.setLayoutParams(DshUi.half(this, true));
+        targetPortInput = field(row2, "电脑端口", InputType.TYPE_CLASS_NUMBER,
+                DshUi.ink3(this), DshUi.ink(this));
+        targetPortInput.setLayoutParams(DshUi.half(this, false));
+        card2.addView(DshUi.label(this,
+                "填电脑上 dsh web 实际监听的端口，与手机本机引擎的 3080 无关。",
+                10.5f, DshUi.ink3(this), false), marginTop(matchWrap(), 10));
+
+        // ---- dsh web 令牌：掩码 + 显示开关 ----
+        root.addView(DshUi.label(this, "dsh web 令牌", 11, DshUi.ink3(this), true),
+                marginTop(matchWrap(), 16));
+        LinearLayout card3 = groupCard(root);
+        LinearLayout tokenRow = new LinearLayout(this);
+        tokenRow.setOrientation(LinearLayout.HORIZONTAL);
+        tokenRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tokenInput = field(tokenRow, "从电脑端启动日志复制",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                DshUi.ink3(this), DshUi.ink(this));
+        tokenInput.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        final boolean[] visible = { false };
+        final TextView showToken = DshUi.label(this, "显示", 12, DshUi.BRAND, true);
+        showToken.setPadding(dp(10), dp(8), 0, dp(8));
+        showToken.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                visible[0] = !visible[0];
+                int sel = tokenInput.getSelectionEnd();
+                tokenInput.setInputType(InputType.TYPE_CLASS_TEXT
+                        | (visible[0] ? InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                                     : InputType.TYPE_TEXT_VARIATION_PASSWORD));
+                tokenInput.setSelection(sel);
+                showToken.setText(visible[0] ? "隐藏" : "显示");
+            }
+        });
+        tokenRow.addView(showToken);
+        card3.addView(tokenRow, matchWrap());
+        card3.addView(DshUi.label(this,
+                "回环请求同样需要令牌；本机只保存你填的值。",
+                10.5f, DshUi.ink3(this), false), marginTop(matchWrap(), 8));
+
+        // ---- 高级：公钥登记与 TOFU（可展开，不是死链接）----
+        final boolean[] open = { false };
+        final TextView advancedBody = DshUi.label(this,
+                "首次连接要把本机公钥登记到那台机器：本项目自带的 pc-sshd 读用户目录下的 "
+                + ".dsh/ssh/authorized_keys，标准 sshd 读 ~/.ssh/authorized_keys。\n"
+                + "主机公钥按 TOFU 钉住：首次见到会记录，之后不一致直接阻断。",
+                10.5f, DshUi.ink2(this), false);
+        advancedBody.setVisibility(View.GONE);
+        final TextView advanced = DshUi.label(this,
+                "▸ 高级：公钥登记与 TOFU 指纹说明", 11, DshUi.BRAND, true);
+        advanced.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                open[0] = !open[0];
+                advancedBody.setVisibility(open[0] ? View.VISIBLE : View.GONE);
+                advanced.setText((open[0] ? "▾" : "▸") + " 高级：公钥登记与 TOFU 指纹说明");
+            }
+        });
+        root.addView(advanced, marginTop(matchWrap(), 14));
+        root.addView(advancedBody, marginTop(matchWrap(), 6));
+
+        // ---- 底部双按钮 ----
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
         testButton = new Button(this);
         testButton.setText("测试连接");
         testButton.setAllCaps(false);
+        testButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        testButton.setTextColor(DshUi.ink(this));
+        testButton.setBackground(DshUi.ghostDrawable(this));
         testButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                testConnection();
-            }
+            @Override public void onClick(View v) { testConnection(); }
         });
-        root.addView(testButton, marginTop(matchWrap(), 18));
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        bl.setMargins(0, 0, dp(5), 0);
+        actions.addView(testButton, bl);
 
         saveButton = new Button(this);
         saveButton.setText("保存并连接");
         saveButton.setAllCaps(false);
+        saveButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        saveButton.setTextColor(0xFFFFFFFF);
+        saveButton.setBackground(DshUi.primaryDrawable(this));
         saveButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                saveAndConnect();
-            }
+            @Override public void onClick(View v) { saveAndConnect(); }
         });
-        root.addView(saveButton, marginTop(matchWrap(), 8));
+        LinearLayout.LayoutParams br = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        br.setMargins(dp(5), 0, 0, 0);
+        actions.addView(saveButton, br);
+        root.addView(actions, marginTop(matchWrap(), 18));
 
-        Button backButton = new Button(this);
-        backButton.setText("返回");
-        backButton.setAllCaps(false);
-        backButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                finish();
-            }
-        });
-        root.addView(backButton, marginTop(matchWrap(), 8));
-
+        // ---- 状态 / 指纹 / 公钥（业务方法仍引用，语义不变）----
         statusView = new TextView(this);
-        statusView.setTextColor(fg);
+        statusView.setTextColor(DshUi.ink(this));
         statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusView.setLineSpacing(dp(2), 1f);
         statusView.setVisibility(View.GONE);
         root.addView(statusView, marginTop(matchWrap(), 16));
 
         fingerprintView = new TextView(this);
-        fingerprintView.setTextColor(muted);
+        fingerprintView.setTextColor(DshUi.ink2(this));
         fingerprintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         fingerprintView.setTypeface(android.graphics.Typeface.MONOSPACE);
         fingerprintView.setLineSpacing(dp(2), 1f);
@@ -156,7 +263,7 @@ public class SshConfigActivity extends Activity {
         root.addView(fingerprintView, marginTop(matchWrap(), 12));
 
         pubkeyView = new TextView(this);
-        pubkeyView.setTextColor(muted);
+        pubkeyView.setTextColor(DshUi.ink2(this));
         pubkeyView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         pubkeyView.setTypeface(android.graphics.Typeface.MONOSPACE);
         pubkeyView.setLineSpacing(dp(2), 1f);
@@ -173,7 +280,33 @@ public class SshConfigActivity extends Activity {
         }
     }
 
-    /** 一行输入框（含提示文案与统一背景）。 */
+    /** 分组卡片（v2 稿：白底 + 18dp 圆角 + 1px 边框）。 */
+    private LinearLayout groupCard(LinearLayout parent) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(DshUi.cardDrawable(this));
+        c.setPadding(dp(14), dp(12), dp(14), dp(14));
+        parent.addView(c, marginTop(matchWrap(), 6));
+        return c;
+    }
+
+    /** 一行两列容器。 */
+    private LinearLayout twoColumnRow(LinearLayout parent) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        parent.addView(r, marginTop(matchWrap(), 8));
+        return r;
+    }
+
+    /** 端口映射示意里的小胶囊。 */
+    private TextView pill(String text) {
+        TextView t = DshUi.label(this, text, 11, DshUi.ink(this), true);
+        t.setBackground(DshUi.pillDrawable(this, DshUi.card(this)));
+        t.setPadding(dp(10), dp(7), dp(10), dp(7));
+        return t;
+    }
+
+    /** 一行输入框（含提示文案与 v2 稿统一背景）。 */
     private EditText field(LinearLayout root, String hint, int inputType, int muted, int fg) {
         EditText e = new EditText(this);
         e.setHint(hint);
@@ -181,7 +314,7 @@ public class SshConfigActivity extends Activity {
         e.setTextColor(fg);
         e.setSingleLine(true);
         e.setInputType(inputType);
-        e.setBackground(roundRect(DshPalette.surface(this), dp(10)));
+        e.setBackground(DshUi.inputDrawable(this));
         e.setPadding(dp(12), dp(10), dp(12), dp(10));
         root.addView(e, marginTop(matchWrap(), 10));
         return e;
