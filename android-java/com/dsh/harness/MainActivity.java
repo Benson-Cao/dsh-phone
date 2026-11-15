@@ -704,42 +704,82 @@ public class MainActivity extends Activity {
     private boolean remoteErrorShown = false;
 
     /**
-     * r121：远端档案（relay / ssh）加载失败时的原生错误页。
+     * 远端不可达页（v2 设计稿 11「连接失败」的原生落地）。
      *
      * <p>为什么不能复用 {@link #showDiagnostics}：那套文案是给**本机引擎**的
      * （「dsh 后台可能仍在启动，或已退出」）。远端档失败的真实原因是「连不上那台电脑」，
      * 而 relay 档按设计**不跑**本机引擎 —— 说成引擎问题会把用户引到错误的排查方向，
-     * 也解释不了为什么「重试」永远不成功。
+     * 也解释不了为什么「重试」永远不成功（r121）。
      *
-     * <p>三个出口对应三种真实意图：再试一次 / 不连了用本机 / 退出。
+     * <p>与 {@link OfflineActivity} 的区别：离线页是「启动时用户选择要不要连」，
+     * 这里是「已经决定要连、但连不上」。所以本页只给三件事：结论、按档案分的
+     * 真实原因清单、三条出口（重试 / 换一台 / 回本机）。
+     *
+     * <p><b>为什么不用一句固定的「20 秒无心跳」</b>：本页在 ssh 档也会出现，
+     * 而 ssh 档根本没有 Relay 心跳，写死了会把人引向保活与 Relay 排查。
+     * 结论行按档案给：ssh 说隧道/公钥，relay 说 Relay/网络。
      */
     void showRemoteUnreachable(final HostProfile.Profile prof) {
         if (remoteErrorShown) return;
         remoteErrorShown = true;
 
-        int bg = DshPalette.bg(this);
-        int fg = DshPalette.text(this);
-        int muted = DshPalette.muted(this);
+        boolean ssh = prof != null && HostProfile.KIND_SSH.equals(prof.kind);
 
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(22), dp(26), dp(22), dp(26));
-        box.setBackgroundColor(bg);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(DshUi.pageBg(this));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = DshUi.dp(this, 18);
+        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 24));
+        scroll.addView(root, new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView head = new TextView(this);
-        head.setText("连不上这台电脑");
-        head.setTextColor(fg);
-        head.setTextSize(20);
-        head.setTypeface(head.getTypeface(), android.graphics.Typeface.BOLD);
-        box.addView(head);
+        root.addView(DshUi.label(this, "连接电脑", 15, DshUi.ink(this), true),
+            DshUi.matchWrap());
+        root.addView(DshUi.label(this, "暂时连不上", 23, DshUi.ink(this), true),
+            DshUi.matchWrapTop(this, 10));
+        root.addView(DshUi.label(this,
+                "会话和文件都还在那台电脑上，恢复后接着用。",
+                12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
 
-        TextView target = new TextView(this);
+        // ---- 结论卡 ----
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int cpad = DshUi.dp(this, 13);
+        card.setPadding(cpad, cpad, cpad, cpad);
+        android.graphics.drawable.GradientDrawable warn =
+            new android.graphics.drawable.GradientDrawable();
+        warn.setColor(DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER);
+        warn.setCornerRadius(DshUi.dp(this, 16));
+        warn.setStroke(Math.max(1, DshUi.dp(this, 1)),
+            DshUi.dark(this) ? 0xFF5C4A24 : 0xFFF2DFB9);
+        card.setBackground(warn);
+        root.addView(card, DshUi.matchWrapTop(this, 14));
+
+        LinearLayout headRow = new LinearLayout(this);
+        headRow.setOrientation(LinearLayout.HORIZONTAL);
+        headRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.view.View dot = new android.view.View(this);
+        android.graphics.drawable.GradientDrawable dotBg =
+            new android.graphics.drawable.GradientDrawable();
+        dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        dotBg.setColor(DshUi.DANGER);
+        dot.setBackground(dotBg);
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
+            DshUi.dp(this, 7), DshUi.dp(this, 7));
+        dotLp.rightMargin = DshUi.dp(this, 8);
+        headRow.addView(dot, dotLp);
+        int warnInk = DshUi.dark(this) ? 0xFFE8C07A : 0xFF9A660B;
+        headRow.addView(DshUi.label(this,
+                ssh ? "隧道没有建起来" : "目标电脑没有响应", 13.5f, warnInk, true));
+        card.addView(headRow, DshUi.matchWrap());
+
         // 远端地址按档案类型呈现：ssh 档的 origin 是空串，早年这里统一显示 origin，
         // 于是 SSH 失败时页面上写着「（未记录地址）」—— 明明填过地址，却等于什么都没说。
         String where;
         if (prof == null) {
             where = "（未记录地址）";
-        } else if (HostProfile.KIND_SSH.equals(prof.kind)) {
+        } else if (ssh) {
             where = prof.sshUser + "@" + prof.sshHost + ":" + prof.sshPort
                     + "  →  127.0.0.1:" + prof.localPort
                     + "（电脑侧端口 " + prof.sshTargetPort + "）";
@@ -748,34 +788,51 @@ public class MainActivity extends Activity {
         } else {
             where = prof.origin;
         }
-        target.setText(where);
-        target.setTextColor(muted);
-        target.setTextSize(13);
+        TextView target = DshUi.label(this, where, 11, warnInk, false);
         target.setTypeface(android.graphics.Typeface.MONOSPACE);
-        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tLp.topMargin = dp(6);
-        box.addView(target, tLp);
+        card.addView(target, DshUi.matchWrapTop(this, 6));
 
-        TextView why = new TextView(this);
-        boolean ssh = prof != null && HostProfile.KIND_SSH.equals(prof.kind);
-        why.setText("这台手机现在连的是电脑，不是本机引擎，所以这里没有 dsh 后台可等。\n\n"
-                + (ssh
-                   ? "常见原因：电脑上的 sshd 没在运行；本机公钥还没加到对端的 "
-                     + "authorized_keys；SSH 端口或「电脑侧端口」填错；手机与电脑不在同一网络。"
-                   : "常见原因：电脑休眠或关机；电脑上的 Relay 没在运行；手机与电脑不在同一网络；"
-                     + "或这台手机已被管理台收回。"));
-        why.setTextColor(muted);
-        why.setTextSize(13);
-        why.setLineSpacing(dp(2), 1f);
-        LinearLayout.LayoutParams wLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        wLp.topMargin = dp(14);
-        box.addView(why, wLp);
+        // ---- 按档案分的真实原因（逐条编号）----
+        String[] causes = ssh
+            ? new String[] {
+                "电脑上的 sshd 没在运行（或被防火墙挡住 22 端口）",
+                "本机公钥还没加到对端的 authorized_keys",
+                "SSH 端口或「电脑侧端口」填错",
+                "手机与电脑不在同一网络（Tailscale / 同一 Wi-Fi）"
+              }
+            : new String[] {
+                "电脑休眠或关机",
+                "电脑上的 Relay 没在运行",
+                "手机与电脑不在同一网络",
+                "这台手机已被管理台收回"
+              };
+        LinearLayout steps = new LinearLayout(this);
+        steps.setOrientation(LinearLayout.VERTICAL);
+        steps.setBackground(DshUi.pillDrawable(this,
+                DshUi.dark(this) ? 0xFF232C38 : 0xFFFFFFFF));
+        steps.setPadding(DshUi.dp(this, 11), DshUi.dp(this, 3),
+                DshUi.dp(this, 11), DshUi.dp(this, 3));
+        card.addView(steps, DshUi.matchWrapTop(this, 10));
+        for (int i = 0; i < causes.length; i++) {
+            if (i > 0) steps.addView(DshUi.divider(this));
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, DshUi.dp(this, 8), 0, DshUi.dp(this, 8));
+            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                DshUi.dp(this, 14), LinearLayout.LayoutParams.WRAP_CONTENT);
+            nlp.rightMargin = DshUi.dp(this, 9);
+            row.addView(DshUi.label(this, String.valueOf(i + 1), 11.5f, DshUi.BRAND, true), nlp);
+            row.addView(DshUi.label(this, causes[i], 11.5f, DshUi.ink(this), false),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            steps.addView(row);
+        }
 
-        Button retry = new Button(this);
-        retry.setText("重试");
-        retry.setAllCaps(false);
+        // ---- 还能做什么：按档案给真实链路信息 ----
+        root.addView(DshUi.section(this, "还能做什么"), DshUi.matchWrapTop(this, 16));
+        root.addView(DshUi.diagBar(this, remoteDiagText(prof)), DshUi.matchWrapTop(this, 2));
+
+        // ---- 三条出口 ----
+        TextView retry = DshUi.button(this, "重试", DshUi.BTN_PRIMARY);
         retry.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 remoteErrorShown = false;
@@ -783,14 +840,21 @@ public class MainActivity extends Activity {
                 startActivity(getIntent());
             }
         });
-        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rLp.topMargin = dp(20);
-        box.addView(retry, rLp);
+        root.addView(retry, DshUi.matchWrapTop(this, 14));
 
-        Button local = new Button(this);
-        local.setText("改用本机引擎");
-        local.setAllCaps(false);
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row1, DshUi.matchWrapTop(this, 9));
+        TextView sw = DshUi.button(this, "换一台电脑", DshUi.BTN_SECONDARY);
+        sw.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                startActivity(new android.content.Intent(
+                    MainActivity.this, HostSwitcherActivity.class));
+            }
+        });
+        row1.addView(sw, DshUi.half(this, true));
+
+        TextView local = DshUi.button(this, "改用本机引擎", DshUi.BTN_SECONDARY);
         local.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 HostProfile hp = HostProfile.get(MainActivity.this);
@@ -801,26 +865,32 @@ public class MainActivity extends Activity {
                 startActivity(new android.content.Intent(MainActivity.this, MainActivity.class));
             }
         });
-        LinearLayout.LayoutParams lLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lLp.topMargin = dp(8);
-        box.addView(local, lLp);
+        row1.addView(local, DshUi.half(this, false));
 
-        Button quit = new Button(this);
-        quit.setText("退出");
-        quit.setAllCaps(false);
+        TextView quit = DshUi.button(this, "退出", DshUi.BTN_GHOST);
         quit.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) { finish(); }
         });
-        LinearLayout.LayoutParams qLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        qLp.topMargin = dp(8);
-        box.addView(quit, qLp);
+        root.addView(quit, DshUi.matchWrapTop(this, 2));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(bg);
-        scroll.addView(box);
         setContentView(scroll);
+    }
+
+    /** 失败页的诊断条：只写本档案真实有的值，缺的写「缺失/未记录」。 */
+    private String remoteDiagText(HostProfile.Profile prof) {
+        if (prof == null) return "activePath 未知 · 档案未建立";
+        if (HostProfile.KIND_SSH.equals(prof.kind)) {
+            return "activePath ssh · " + prof.sshHost + ":" + prof.sshPort
+                + "\n隧道 127.0.0.1:" + prof.localPort + " → 电脑 " + prof.sshTargetPort
+                + " · dsh 令牌" + (prof.sshToken.isEmpty() ? "缺失" : "已填");
+        }
+        if (HostProfile.KIND_RELAY.equals(prof.kind)) {
+            return "activePath relay · 心跳超时 20s\n"
+                + (prof.origin == null ? "地址未记录" : prof.origin)
+                + " · 令牌" + (prof.deviceToken.isEmpty() ? "缺失" : "可用");
+        }
+        return "activePath local · 127.0.0.1:" + DshProcessManager.DSH_PORT
+            + "\n本机引擎未就绪时重试会重新拉起";
     }
 
     private void showDiagnostics(String report) {

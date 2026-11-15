@@ -2,13 +2,13 @@ package com.dsh.harness;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.format.DateFormat;
-import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -31,6 +31,18 @@ import android.widget.TextView;
  *
  * <p>探活走免鉴权的 `/health`：本页正是在「令牌可能无效」时使用，
  * 依赖鉴权端点会让本页在真正需要它的时候失灵。
+ *
+ * <h3>v2 设计稿（11 连接失败）的三条对齐原则</h3>
+ * <ol>
+ *   <li><b>标题行就是诊断结论</b>：设计稿写「目标电脑没有响应 · 20 秒无心跳」，
+ *       而我们的探针只知道「连不上 / 状态码不对 / 在线 0 台」。所以标题用
+ *       探针的真实结论，不套一句固定的「20 秒无心跳」—— 那会在真因是地址写错时
+ *       把人引向心跳与保活。</li>
+ *   <li><b>步骤区允许为空</b>：能给出处置步骤的状态才列编号，列不出来就不画，
+ *       而不是硬凑三条。</li>
+ *   <li><b>「上次配对」显示的是绑定记录</b>，不是「上次成功连接」—— 我们没有
+ *       连接成功的时间戳，只有配对时间。名字写错会让人以为链路刚刚还在。</li>
+ * </ol>
  */
 public class OfflineActivity extends Activity {
 
@@ -44,9 +56,14 @@ public class OfflineActivity extends Activity {
     public static final String EXTRA_CHOICE = "choice";
 
     private TextView stateView;
-    private TextView detailView;
-    private TextView bindingView;
-    private Button recheckButton;
+    private View stateDot;
+    private LinearLayout stepsBox;
+    private TextView noStepsView;
+    private TextView bindingTitle;
+    private TextView bindingSub;
+    private TextView bindingKind;
+    private TextView recheckButton;
+    private TextView enterButton;
     private boolean choiceMode;
 
     @Override
@@ -63,133 +80,150 @@ public class OfflineActivity extends Activity {
         check();
     }
 
-    private void buildUi() {
-        int bg = DshPalette.bg(this);
-        int fg = DshPalette.text(this);
-        int muted = DshPalette.muted(this);
+    // ---- UI ----
 
+    private void buildUi() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(bg);
+        scroll.setBackgroundColor(DshUi.pageBg(this));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        root.setPadding(pad, dp(28), pad, dp(28));
+        int pad = DshUi.dp(this, 18);
+        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 20));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = new TextView(this);
-        title.setText(choiceMode ? "连接到电脑" : "电脑未连接");
-        title.setTextColor(fg);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        root.addView(title, matchWrap());
+        // 应用栏：返回 + 标题 + 重新检查（刷新探针，与主按钮在两个模式下各司其职）
+        recheckButton = DshUi.roundButton(this, "↻", new View.OnClickListener() {
+            @Override public void onClick(View v) { check(); }
+        });
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView backTop = DshUi.roundButton(this, "‹", new View.OnClickListener() {
+            @Override public void onClick(View v) { finish(); }
+        });
+        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(
+                DshUi.dp(this, 34), DshUi.dp(this, 34));
+        backLp.rightMargin = DshUi.dp(this, 10);
+        bar.addView(backTop, backLp);
+        bar.addView(DshUi.label(this, "连接电脑", 15, DshUi.ink(this), true));
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar.addView(recheckButton);
+        root.addView(bar, DshUi.matchWrap());
 
-        if (choiceMode) {
-            TextView lead = new TextView(this);
-            lead.setText("这台手机上也有 dsh 引擎，可以直接在本机用；"
-                    + "要用电脑上的会话与文件，再连过去。连接不会把会话带走。");
-            lead.setTextColor(muted);
-            lead.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            lead.setLineSpacing(dp(2), 1f);
-            root.addView(lead, marginTop(matchWrap(), 8));
-        }
+        root.addView(DshUi.label(this, choiceMode ? "连接到电脑" : "暂时连不上",
+                23, DshUi.ink(this), true), DshUi.matchWrapTop(this, 10));
+        root.addView(DshUi.label(this, choiceMode
+                        ? "这台手机上也有 dsh 引擎，可以直接在本机用；要用电脑上的会话与文件再连过去。"
+                        : "会话和文件都还在那台电脑上，恢复后接着用。",
+                12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
 
-        stateView = new TextView(this);
-        stateView.setText("正在检查…");
-        stateView.setTextColor(fg);
-        stateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        root.addView(stateView, marginTop(matchWrap(), 14));
+        // ---- 结论卡：标题（探针结论）+ 处置步骤 ----
+        LinearLayout errCard = new LinearLayout(this);
+        errCard.setOrientation(LinearLayout.VERTICAL);
+        errCard.setBackground(warnCard());
+        int cpad = DshUi.dp(this, 13);
+        errCard.setPadding(cpad, cpad, cpad, cpad);
+        root.addView(errCard, DshUi.matchWrapTop(this, 14));
 
-        detailView = new TextView(this);
-        detailView.setTextColor(muted);
-        detailView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        detailView.setLineSpacing(dp(2), 1f);
-        root.addView(detailView, marginTop(matchWrap(), 6));
+        LinearLayout headRow = new LinearLayout(this);
+        headRow.setOrientation(LinearLayout.HORIZONTAL);
+        headRow.setGravity(Gravity.CENTER_VERTICAL);
+        stateDot = dot(DshUi.AMBER);
+        headRow.addView(stateDot, dotLp());
+        stateView = DshUi.label(this, "正在检查…", 13.5f, warnInk(), true);
+        headRow.addView(stateView);
+        errCard.addView(headRow, DshUi.matchWrap());
 
-        bindingView = new TextView(this);
-        bindingView.setTextColor(muted);
-        bindingView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        bindingView.setLineSpacing(dp(3), 1f);
-        bindingView.setPadding(dp(12), dp(12), dp(12), dp(12));
-        bindingView.setBackground(roundRect(DshPalette.surface(this), dp(10)));
-        root.addView(bindingView, marginTop(matchWrap(), 20));
+        stepsBox = new LinearLayout(this);
+        stepsBox.setOrientation(LinearLayout.VERTICAL);
+        stepsBox.setBackground(DshUi.pillDrawable(this,
+                DshUi.dark(this) ? 0xFF232C38 : 0xFFFFFFFF));
+        stepsBox.setPadding(DshUi.dp(this, 11), DshUi.dp(this, 3),
+                DshUi.dp(this, 11), DshUi.dp(this, 3));
+        errCard.addView(stepsBox, DshUi.matchWrapTop(this, 10));
 
-        // ---- 按需连接的三条出口（r113）----
-        Button enterButton = new Button(this);
-        enterButton.setText("进入这台电脑");
-        enterButton.setAllCaps(false);
+        noStepsView = DshUi.label(this, "", 11.5f, warnInk(), false);
+        noStepsView.setVisibility(View.GONE);
+        errCard.addView(noStepsView, DshUi.matchWrapTop(this, 8));
+
+        // ---- 上次配对（不是「上次成功连接」——时间戳来自配对，不来自链路）----
+        root.addView(DshUi.section(this, "上次配对"), DshUi.matchWrapTop(this, 16));
+        LinearLayout binding = DshUi.cardBox(this);
+        LinearLayout bindRow = DshUi.rowBox(this);
+        bindRow.addView(dot(DshUi.INK_3), dotLp());
+        LinearLayout bindCol = new LinearLayout(this);
+        bindCol.setOrientation(LinearLayout.VERTICAL);
+        bindingTitle = DshUi.label(this, "未绑定任何电脑", 12.5f, DshUi.ink(this), true);
+        bindCol.addView(bindingTitle);
+        bindingSub = DshUi.label(this, "", 10.5f, DshUi.ink2(this), false);
+        bindCol.addView(bindingSub, DshUi.matchWrapTop(this, 3));
+        bindRow.addView(bindCol, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bindingKind = DshUi.label(this, "", 10.5f, DshUi.ink3(this), false);
+        bindingKind.setTypeface(Typeface.MONOSPACE);
+        bindRow.addView(bindingKind);
+        binding.addView(bindRow);
+        root.addView(binding, DshUi.matchWrapTop(this, 2));
+
+        // ---- 还能做什么：按当前档案给真实出口 ----
+        root.addView(DshUi.section(this, "还能做什么"), DshUi.matchWrapTop(this, 16));
+        root.addView(DshUi.diagBar(this, capabilityText()), DshUi.matchWrapTop(this, 2));
+
+        // ---- 动作 ----
+        enterButton = DshUi.button(this,
+                choiceMode ? "进入这台电脑" : "重新检查", DshUi.BTN_PRIMARY);
         enterButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                enterRemote();
+            @Override public void onClick(View v) {
+                if (choiceMode) enterRemote(); else check();
             }
         });
-        root.addView(enterButton, marginTop(matchWrap(), 18));
+        root.addView(enterButton, DshUi.matchWrapTop(this, 14));
 
-        Button switcherButton = new Button(this);
-        switcherButton.setText("切换到其它电脑");
-        switcherButton.setAllCaps(false);
-        switcherButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row1, DshUi.matchWrapTop(this, 9));
+        TextView sw = DshUi.button(this, "换一台电脑", DshUi.BTN_SECONDARY);
+        sw.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 startActivity(new Intent(OfflineActivity.this, HostSwitcherActivity.class));
             }
         });
-        root.addView(switcherButton, marginTop(matchWrap(), 8));
-
-        Button localButton = new Button(this);
-        localButton.setText("改用本机引擎");
-        localButton.setAllCaps(false);
-        localButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                useLocal();
-            }
+        row1.addView(sw, DshUi.half(this, true));
+        TextView local = DshUi.button(this, "改用本机引擎", DshUi.BTN_SECONDARY);
+        local.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { useLocal(); }
         });
-        root.addView(localButton, marginTop(matchWrap(), 8));
+        row1.addView(local, DshUi.half(this, false));
 
-        recheckButton = new Button(this);
-        recheckButton.setText("重新检查");
-        recheckButton.setAllCaps(false);
-        recheckButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                check();
-            }
-        });
-        root.addView(recheckButton, marginTop(matchWrap(), 8));
-
-        Button pairButton = new Button(this);
-        pairButton.setText("重新配对");
-        pairButton.setAllCaps(false);
-        pairButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row2, DshUi.matchWrapTop(this, 9));
+        TextView pair = DshUi.button(this, "重新配对", DshUi.BTN_SECONDARY);
+        pair.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 startActivity(new Intent(OfflineActivity.this, PairActivity.class));
             }
         });
-        root.addView(pairButton, marginTop(matchWrap(), 8));
-
+        row2.addView(pair, DshUi.half(this, true));
         // 第三台「电脑」不一定走 Relay：能 ssh 的机器用 SSH 档，不需要配对码。
-        // 这台电脑连不上的时候，用户最可能就在这一页找别的路。
-        Button sshButton = new Button(this);
-        sshButton.setText("连 SSH 主机");
-        sshButton.setAllCaps(false);
-        sshButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        // 这台电脑连不上时，用户最可能就在这一页找别的路。
+        TextView ssh = DshUi.button(this, "连 SSH 主机", DshUi.BTN_SECONDARY);
+        ssh.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 startActivity(SshConfigActivity.intent(OfflineActivity.this));
             }
         });
-        root.addView(sshButton, marginTop(matchWrap(), 8));
+        row2.addView(ssh, DshUi.half(this, false));
 
-        Button powerButton = new Button(this);
-        powerButton.setText("后台保活设置");
-        powerButton.setAllCaps(false);
-        powerButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row3, DshUi.matchWrapTop(this, 2));
+        TextView power = DshUi.button(this, "后台保活设置", DshUi.BTN_GHOST);
+        power.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 try {
                     startActivity(DshPowerGuard.requestIntent(OfflineActivity.this));
                 } catch (Exception ignored) {
@@ -197,18 +231,12 @@ public class OfflineActivity extends Activity {
                 }
             }
         });
-        root.addView(powerButton, marginTop(matchWrap(), 8));
-
-        Button backButton = new Button(this);
-        backButton.setText("返回应用");
-        backButton.setAllCaps(false);
-        backButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                finish();
-            }
+        row3.addView(power, DshUi.half(this, true));
+        TextView back = DshUi.button(this, "返回应用", DshUi.BTN_GHOST);
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { finish(); }
         });
-        root.addView(backButton, marginTop(matchWrap(), 8));
+        row3.addView(back, DshUi.half(this, false));
 
         setContentView(scroll);
         try {
@@ -219,23 +247,27 @@ public class OfflineActivity extends Activity {
         }
     }
 
+    // ---- 探活 ----
+
     /** 后台探活 + 刷新文案。 */
     private void check() {
         final String relay = DshDeviceIdentity.lastRelayUrl(this);
         final String host = DshDeviceIdentity.lastHostDeviceId(this);
         final long at = DshDeviceIdentity.lastPairedAt(this);
 
-        bindingView.setText(bindingText(relay, host, at));
+        renderBinding(relay, host, at);
 
         if (relay == null) {
-            stateView.setText("还没有配对过");
-            detailView.setText("先在电脑上生成配对码，再点下面的「重新配对」输入。");
-            recheckButton.setEnabled(false);
+            setHead("还没有配对过", DshUi.AMBER);
+            setSteps("先在电脑上生成配对码，再点下面的「重新配对」输入。");
+            setEnabled(recheckButton, false);
+            setEnabled(enterButton, false);
             return;
         }
-        recheckButton.setEnabled(false);
-        stateView.setText("正在检查…");
-        detailView.setText("");
+        setEnabled(enterButton, true);
+        setEnabled(recheckButton, false);
+        setHead("正在检查…", DshUi.INK_3);
+        setSteps("");
 
         new Thread(new Runnable() {
             @Override
@@ -252,44 +284,162 @@ public class OfflineActivity extends Activity {
     }
 
     private void render(DshPairClient.Health h, String relay) {
-        recheckButton.setEnabled(true);
+        setEnabled(recheckButton, true);
         if (!h.reachable) {
-            stateView.setText("连不上 " + relay);
-            detailView.setText("地址不通。依次确认：\n"
-                    + "1) 手机与电脑在同一网络（同一 Wi-Fi，或电脑开了热点）；\n"
-                    + "2) 电脑上的 Relay 正在运行；\n"
-                    + "3) 地址与端口没写错（可在电脑端配对码页面看到）。");
+            setHead("连不上 " + relay, DshUi.DANGER);
+            setSteps("手机与电脑在同一网络（同一 Wi-Fi，或电脑开了热点）\n"
+                    + "电脑上的 Relay 正在运行\n"
+                    + "地址与端口没写错（可在电脑端配对码页面看到）");
             return;
         }
         if (h.status != 200) {
-            stateView.setText("Relay 返回 " + h.status);
-            detailView.setText("地址是通的，但服务没有正常响应。看电脑端 Relay 日志。");
+            setHead("Relay 返回 " + h.status, DshUi.AMBER);
+            setSteps("地址是通的，但服务没有正常响应。看电脑端 Relay 日志。");
             return;
         }
         if (h.online == 0) {
-            stateView.setText("地址通，但没有电脑在线");
-            detailView.setText("Relay 正在运行，是电脑本体没连上来。\n"
-                    + "确认电脑上的 dsh 客户端在运行（托盘图标），再刷新。");
+            setHead("地址通，但没有电脑在线", DshUi.AMBER);
+            setSteps("Relay 正在运行，是电脑本体没连上来\n"
+                    + "确认电脑上的 dsh 客户端在运行（托盘图标），再刷新");
             return;
         }
-        stateView.setText("电脑在线（" + h.online + " 台）");
-        detailView.setText("连接已恢复：返回应用即可继续。若仍显示离线，"
+        setHead("电脑在线（" + h.online + " 台）", DshUi.MINT);
+        setSteps("连接已恢复：返回应用即可继续。若仍显示离线，"
                 + "说明是这台手机与电脑的绑定关系需要重新配对。");
     }
 
-    private String bindingText(String relay, String host, long at) {
-        if (relay == null && host == null) {
-            return "未绑定任何电脑";
-        }
+    /** 「还能做什么」：按当前档案给真实能力，不写死一句。 */
+    private String capabilityText() {
+        HostProfile.Profile p = HostProfile.get(this).current();
         StringBuilder sb = new StringBuilder();
-        sb.append("上次配对\n");
-        sb.append("电脑　").append(host == null ? "—" : host).append('\n');
-        sb.append("地址　").append(relay == null ? "—" : relay);
-        if (at > 0) {
-            sb.append('\n').append("时间　").append(DateFormat.format("yyyy-MM-dd HH:mm", at));
+        sb.append("activePath ").append(p.kind);
+        if (HostProfile.KIND_SSH.equals(p.kind)) {
+            sb.append(" · ").append(p.sshUser).append('@').append(p.sshHost)
+                    .append(':').append(p.sshPort)
+                    .append("\n隧道 127.0.0.1:").append(p.localPort)
+                    .append(" → 电脑 ").append(p.sshTargetPort)
+                    .append(" · 令牌").append(p.sshToken.isEmpty() ? "缺失" : "已填");
+        } else if (HostProfile.KIND_RELAY.equals(p.kind)) {
+            sb.append(" · 心跳超时 20s\n")
+                    .append(p.origin == null ? "地址未记录" : p.origin)
+                    .append(" · 令牌").append(p.deviceToken.isEmpty() ? "缺失" : "可用");
+        } else {
+            sb.append(" · 本机引擎\n127.0.0.1:").append(DshProcessManager.DSH_PORT)
+                    .append(" · 会话只在这台手机上");
         }
-        sb.append('\n').append("省电　").append(DshPowerGuard.isExempt(this) ? "已放行" : "未放行");
         return sb.toString();
+    }
+
+    // ---- 渲染小工具 ----
+
+    /** 结论卡的标题行 + 圆点颜色（区分硬失败与可处置的告警）。 */
+    private void setHead(String text, int dotColor) {
+        stateView.setText(text);
+        try {
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.OVAL);
+            d.setColor(dotColor);
+            stateDot.setBackground(d);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 处置步骤：逐行编号。
+     *
+     * <p>编号是「按顺序做」的暗示，所以只在真有多步时出现；一句话的说明不加编号，
+     * 否则读起来像一份没写完的清单。
+     */
+    private void setSteps(String detail) {
+        stepsBox.removeAllViews();
+        noStepsView.setVisibility(View.GONE);
+        if (detail == null || detail.trim().isEmpty()) {
+            stepsBox.setVisibility(View.GONE);
+            return;
+        }
+        String[] lines = detail.split("\n");
+        if (lines.length == 1) {
+            stepsBox.setVisibility(View.GONE);
+            noStepsView.setVisibility(View.VISIBLE);
+            noStepsView.setText(lines[0]);
+            return;
+        }
+        stepsBox.setVisibility(View.VISIBLE);
+        int shown = 0;
+        for (int i = 0; i < lines.length; i++) {
+            String line = stripNumber(lines[i]);
+            if (line.isEmpty()) continue;
+            if (shown > 0) stepsBox.addView(DshUi.divider(this));
+            shown++;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, DshUi.dp(this, 8), 0, DshUi.dp(this, 8));
+            TextView n = DshUi.label(this, String.valueOf(shown), 11.5f, DshUi.BRAND, true);
+            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                    DshUi.dp(this, 14), LinearLayout.LayoutParams.WRAP_CONTENT);
+            nlp.rightMargin = DshUi.dp(this, 9);
+            row.addView(n, nlp);
+            TextView t = DshUi.label(this, line, 11.5f, DshUi.ink(this), false);
+            row.addView(t, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            stepsBox.addView(row);
+        }
+    }
+
+    /** 去掉文案里已有的「1)」「1、」编号，避免出现「1 1)」这种双编号。 */
+    private static String stripNumber(String line) {
+        return line.trim().replaceFirst("^\\d+\\s*[)）.、]\\s*", "");
+    }
+
+    private void renderBinding(String relay, String host, long at) {
+        HostProfile.Profile p = HostProfile.get(this).current();
+        bindingKind.setText(p.kind);
+        if (relay == null && host == null) {
+            bindingTitle.setText("未绑定任何电脑");
+            bindingSub.setText("配对之后这里会显示电脑名与配对时间");
+            return;
+        }
+        String when = at > 0 ? DateFormat.format("yyyy-MM-dd HH:mm", at).toString() : null;
+        bindingTitle.setText((host == null ? "—" : host) + (when == null ? "" : " · " + when));
+        StringBuilder sb = new StringBuilder();
+        sb.append(relay == null ? "地址未记录" : relay);
+        sb.append(" · 省电").append(DshPowerGuard.isExempt(this) ? "已放行" : "未放行");
+        bindingSub.setText(sb.toString());
+    }
+
+    private void setEnabled(TextView v, boolean enabled) {
+        if (v == null) return;
+        v.setEnabled(enabled);
+        v.setAlpha(enabled ? 1f : 0.5f);
+    }
+
+    private GradientDrawable warnCard() {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER);
+        d.setCornerRadius(DshUi.dp(this, 16));
+        d.setStroke(Math.max(1, DshUi.dp(this, 1)),
+                DshUi.dark(this) ? 0xFF5C4A24 : 0xFFF2DFB9);
+        return d;
+    }
+
+    private int warnInk() {
+        return DshUi.dark(this) ? 0xFFE8C07A : 0xFF9A660B;
+    }
+
+    private View dot(int color) {
+        View v = new View(this);
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        v.setBackground(d);
+        return v;
+    }
+
+    private LinearLayout.LayoutParams dotLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                DshUi.dp(this, 7), DshUi.dp(this, 7));
+        lp.rightMargin = DshUi.dp(this, 8);
+        return lp;
     }
 
     // ---- 按需连接的三条出口 ----
@@ -317,14 +467,14 @@ public class OfflineActivity extends Activity {
         String host = DshDeviceIdentity.lastHostDeviceId(this);
         String token = DshTokenStore.load(this);
         if (relay == null || host == null || token == null) {
-            stateView.setText("还缺一步：这台手机没有可用的配对凭据");
-            detailView.setText("点下面的「重新配对」，把手机重新连上电脑（配对码在电脑上生成）。");
+            setHead("还缺一步：这台手机没有可用的配对凭据", DshUi.AMBER);
+            setSteps("点下面的「重新配对」，把手机重新连上电脑（配对码在电脑上生成）。");
             return;
         }
         hp.setRelay(relay, host, token);
         if (!hp.setCurrent(HostProfile.KIND_RELAY)) {
-            stateView.setText("进入失败：relay 档案没有配置完整");
-            detailView.setText("地址或主机 ID 为空。重新配对一次。");
+            setHead("进入失败：relay 档案没有配置完整", DshUi.DANGER);
+            setSteps("地址或主机 ID 为空。重新配对一次。");
             return;
         }
         ProfileSession.resetRuntime();
@@ -336,35 +486,11 @@ public class OfflineActivity extends Activity {
     private void useLocal() {
         HostProfile hp = HostProfile.get(this);
         if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
-            stateView.setText("切回本机失败");
-            detailView.setText("档案状态异常，重启应用后再试。");
+            setHead("切回本机失败", DshUi.DANGER);
+            setSteps("档案状态异常，重启应用后再试。");
             return;
         }
         ProfileSession.resetRuntime();
         ProfileSession.restartInto(this, new Intent(this, MainActivity.class));
-    }
-
-    // ---- 小工具 ----
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams marginTop(LinearLayout.LayoutParams lp, int dp) {
-        lp.topMargin = dp(dp);
-        return lp;
-    }
-
-    private GradientDrawable roundRect(int fill, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(fill);
-        d.setCornerRadius(radius);
-        d.setStroke(1, DshPalette.isDark(this) ? 0xFF2C3846 : 0xFFE2E8F0);
-        return d;
     }
 }

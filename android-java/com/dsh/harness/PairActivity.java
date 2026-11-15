@@ -2,15 +2,12 @@ package com.dsh.harness;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -36,14 +33,23 @@ import android.widget.TextView;
  * 不在这里存令牌。令牌由 WebView 侧 {@code client-core} 使用；本页只把
  * 配对结果写入 {@link DshDeviceIdentity} 的绑定记录，令牌的落盘归属
  * client-core 的存储层（避免两处各存一份、吊销后一边还在用）。
+ *
+ * <h3>v2 设计稿（07 添加电脑 · 配对）的三处对齐</h3>
+ * <ol>
+ *   <li>三段 Tab 是真跳转：配对码（本页）/ SSH（{@link SshConfigActivity}）/
+ *       本机引擎（切档并重启）。不做「点了没反应」的装饰性分段控件。</li>
+ *   <li>地址输入框下的说明按实测口径写死：填<b>电脑端配对页显示的地址</b>。
+ *       历史上最常踩的坑是把手机的 127.0.0.1 填进来。</li>
+ *   <li>保活一行显示 {@link DshPowerGuard#summary} 的真实结果，点一下就去系统设置；
+ *       不在未放行时也画一个绿勾。</li>
+ * </ol>
  */
 public class PairActivity extends Activity {
 
     private EditText baseInput;
     private EditText codeInput;
-    private Button pairButton;
-    private Button rotateButton;
-    private Button powerButton;
+    private TextView pairButton;
+    private TextView rotateButton;
     private TextView statusView;
     private TextView powerView;
     private TextView fingerprintView;
@@ -68,86 +74,78 @@ public class PairActivity extends Activity {
     // ---- UI ----
 
     private void buildUi() {
-        int bg = DshPalette.bg(this);
-        int fg = DshPalette.text(this);
-        int muted = DshPalette.muted(this);
-
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(bg);
+        scroll.setBackgroundColor(DshUi.pageBg(this));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        root.setPadding(pad, dp(28), pad, dp(28));
+        int pad = DshUi.dp(this, 18);
+        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 20));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = new TextView(this);
-        title.setText("连接电脑");
-        title.setTextColor(fg);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        root.addView(title, matchWrap());
+        // ---- 应用栏 ----
+        root.addView(DshUi.appBar(this, "添加电脑", "‹", new View.OnClickListener() {
+            @Override public void onClick(View v) { finish(); }
+        }, null, null), DshUi.matchWrap());
 
-        TextView hint = new TextView(this);
-        hint.setText("在电脑端「生成配对码」，然后在这里填入电脑地址与 6 位数字。\n"
-                + "配对码一次性使用，10 分钟内有效。");
-        hint.setTextColor(muted);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        hint.setLineSpacing(dp(2), 1f);
-        root.addView(hint, marginTop(matchWrap(), 8));
+        // ---- 三段 Tab ----
+        root.addView(tabBar(), DshUi.matchWrapTop(this, 14));
 
-        baseInput = new EditText(this);
-        baseInput.setHint("电脑地址，如 192.168.0.5:8787");
-        baseInput.setHintTextColor(muted);
-        baseInput.setTextColor(fg);
-        baseInput.setSingleLine(true);
-        baseInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        baseInput.setBackground(roundRect(DshPalette.surface(this), dp(10)));
-        baseInput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.addView(baseInput, marginTop(matchWrap(), 18));
+        // ---- 标题与导语 ----
+        root.addView(DshUi.label(this, "用配对码连接", 22, DshUi.ink(this), true),
+                DshUi.matchWrapTop(this, 4));
+        root.addView(DshUi.label(this,
+                "在电脑端生成配对码，把显示的地址和 6 位数字填到这里。",
+                12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
 
-        codeInput = new EditText(this);
-        codeInput.setHint("6 位配对码");
-        codeInput.setHintTextColor(muted);
-        codeInput.setTextColor(fg);
-        codeInput.setSingleLine(true);
-        codeInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        codeInput.setBackground(roundRect(DshPalette.surface(this), dp(10)));
-        codeInput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.addView(codeInput, marginTop(matchWrap(), 10));
+        // ---- 卡片：地址 + 配对码 ----
+        LinearLayout card = DshUi.cardBox(this);
+        root.addView(card, DshUi.matchWrapTop(this, 12));
 
-        pairButton = new Button(this);
-        pairButton.setText("配对");
-        pairButton.setAllCaps(false);
+        card.addView(fieldLabel("电脑地址", "?"));
+        baseInput = inputBox("192.168.0.5:8787",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        card.addView(baseInput);
+        card.addView(helpText("填电脑端配对页显示的局域网地址，", "不是手机的 127.0.0.1。"));
+        card.addView(DshUi.divider(this));
+
+        card.addView(fieldLabel("6 位配对码", "?"));
+        codeInput = inputBox("• • •   • • •", InputType.TYPE_CLASS_NUMBER);
+        card.addView(codeInput);
+        card.addView(helpText("一次性使用 · ", "10 分钟", " 内有效 · 设备/IP 限速"));
+
+        // ---- 首次连接会做什么 ----
+        root.addView(DshUi.section(this, "首次连接会做什么"), DshUi.matchWrapTop(this, 16));
+        root.addView(infoCard("盾", DshUi.BRAND,
+                "核对电脑指纹并长期钉住；之后指纹变化会直接阻断。", null, null),
+                DshUi.matchWrapTop(this, 2));
+
+        // 保活这一行是真实状态：未放行时点进去就跳系统设置，不在页面上假装已放行。
+        powerView = DshUi.label(this, DshPowerGuard.summary(this), 11.5f, DshUi.ink2(this), false);
+        LinearLayout powerCard = infoCard("电", DshUi.MINT,
+                "后台保活", powerView, new View.OnClickListener() {
+                    @Override public void onClick(View v) { requestPowerExempt(); }
+                });
+        root.addView(powerCard, DshUi.matchWrapTop(this, 8));
+
+        // ---- 状态 ----
+        statusView = DshUi.label(this, "", 12.5f, DshUi.ink2(this), false);
+        statusView.setVisibility(View.GONE);
+        root.addView(statusView, DshUi.matchWrapTop(this, 12));
+
+        // ---- 动作 ----
+        pairButton = DshUi.button(this, "配对并连接", DshUi.BTN_PRIMARY);
         pairButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startPairing();
-            }
+            @Override public void onClick(View v) { startPairing(); }
         });
-        root.addView(pairButton, marginTop(matchWrap(), 16));
+        root.addView(pairButton, DshUi.matchWrapTop(this, 14));
 
-        // 配对是「连 Relay 上的电脑」这一条路；SSH 走另一条（公钥认证、不需要配对码）。
-        // 未配对的人本来就停在本页，所以另一条路必须从这里也能进去。
-        Button sshButton = new Button(this);
-        sshButton.setText("改用 SSH 连一台机器");
-        sshButton.setAllCaps(false);
-        sshButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startActivity(SshConfigActivity.intent(PairActivity.this));
-            }
-        });
-        root.addView(sshButton, marginTop(matchWrap(), 8));
-
-        rotateButton = new Button(this);
-        rotateButton.setText("重新开始（作为新设备配对）");
-        rotateButton.setAllCaps(false);
+        // 设备身份冲突时才会出现：换一套身份是唯一能自愈的动作
+        rotateButton = DshUi.button(this, "重新开始（作为新设备配对）", DshUi.BTN_DANGER);
         rotateButton.setVisibility(View.GONE);
         rotateButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+            @Override public void onClick(View v) {
                 String fresh = DshDeviceIdentity.rotate(PairActivity.this);
                 rotateOffered = false;
                 rotateButton.setVisibility(View.GONE);
@@ -155,54 +153,160 @@ public class PairActivity extends Activity {
                 refreshFingerprint();
             }
         });
-        root.addView(rotateButton, marginTop(matchWrap(), 8));
+        root.addView(rotateButton, DshUi.matchWrapTop(this, 9));
 
-        statusView = new TextView(this);
-        statusView.setTextColor(fg);
-        statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        statusView.setLineSpacing(dp(2), 1f);
-        statusView.setVisibility(View.GONE);
-        root.addView(statusView, marginTop(matchWrap(), 14));
-
-        // ---- 省电放行 ----
-        TextView powerTitle = new TextView(this);
-        powerTitle.setText("后台保活");
-        powerTitle.setTextColor(fg);
-        powerTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        powerTitle.setTypeface(powerTitle.getTypeface(), android.graphics.Typeface.BOLD);
-        root.addView(powerTitle, marginTop(matchWrap(), 32));
-
-        powerView = new TextView(this);
-        powerView.setText(DshPowerGuard.summary(this));
-        powerView.setTextColor(muted);
-        powerView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        powerView.setLineSpacing(dp(2), 1f);
-        root.addView(powerView, marginTop(matchWrap(), 6));
-
-        powerButton = new Button(this);
-        powerButton.setText("去放行");
-        powerButton.setAllCaps(false);
-        powerButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    startActivity(DshPowerGuard.requestIntent(PairActivity.this));
-                } catch (Exception e) {
-                    // 部分 ROM 三个 action 全摘掉 —— 如实说，不假装成功
-                    setStatus("这台手机的系统没有可用的省电设置入口，请到「设置 → 电池 → 应用耗电管理」手动允许后台运行。", true);
-                }
+        // 配对是「连 Relay 上的电脑」这一条路；SSH 走另一条（公钥认证、不需要配对码）。
+        TextView ssh = DshUi.button(this, "改用 SSH 连一台机器 ›", DshUi.BTN_GHOST);
+        ssh.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(SshConfigActivity.intent(PairActivity.this));
             }
         });
-        root.addView(powerButton, marginTop(matchWrap(), 10));
+        root.addView(ssh, DshUi.matchWrapTop(this, 6));
 
-        fingerprintView = new TextView(this);
-        fingerprintView.setTextColor(muted);
-        fingerprintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        fingerprintView.setLineSpacing(dp(2), 1f);
-        root.addView(fingerprintView, marginTop(matchWrap(), 28));
+        // ---- 设备身份（等宽诊断条）----
+        fingerprintView = DshUi.diagBar(this, "正在读取设备身份…");
+        root.addView(fingerprintView, DshUi.matchWrapTop(this, 14));
 
         setContentView(scroll);
         applySystemBar();
+    }
+
+    /** 分段控件（设计稿 .seg）：选中项白底 + 品牌色，未选中项透明。 */
+    private LinearLayout tabBar() {
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        seg.setBackground(DshUi.pillDrawable(this, DshUi.dark(this) ? 0xFF232C38 : 0xFFE8ECF5));
+        seg.setPadding(DshUi.dp(this, 3), DshUi.dp(this, 3),
+                DshUi.dp(this, 3), DshUi.dp(this, 3));
+
+        String[] names = { "配对码", "SSH", "本机引擎" };
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            boolean on = i == 0;
+            TextView tab = DshUi.label(this, names[i], 12,
+                    on ? DshUi.BRAND : DshUi.ink2(this), on);
+            tab.setGravity(Gravity.CENTER);
+            tab.setPadding(0, DshUi.dp(this, 8), 0, DshUi.dp(this, 8));
+            if (on) {
+                tab.setBackground(DshUi.pillDrawable(this, DshUi.card(this)));
+                tab.setElevation(DshUi.dp(this, 2));
+            }
+            tab.setClickable(true);
+            tab.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (idx == 1) {
+                        startActivity(SshConfigActivity.intent(PairActivity.this));
+                    } else if (idx == 2) {
+                        useLocalEngine();
+                    }
+                }
+            });
+            seg.addView(tab, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        return seg;
+    }
+
+    /** 表单分组里的字段标题（设计稿 .lab）：11.5sp、加粗、muted，右侧可带 ? 气泡。 */
+    private LinearLayout fieldLabel(String text, String badge) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        int h = DshUi.dp(this, 13);
+        box.setPadding(h, DshUi.dp(this, 11), h, 0);
+        box.addView(DshUi.label(this, text, 11.5f, DshUi.ink2(this), true));
+        if (badge != null) {
+            TextView q = DshUi.label(this, badge, 9.5f, DshUi.ink3(this), true);
+            q.setGravity(Gravity.CENTER);
+            q.setBackground(DshUi.pillDrawable(this,
+                    DshUi.dark(this) ? 0xFF2C3542 : 0xFFEEF1F7));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    DshUi.dp(this, 14), DshUi.dp(this, 14));
+            lp.leftMargin = DshUi.dp(this, 6);
+            box.addView(q, lp);
+        }
+        return box;
+    }
+
+    /** 输入框：39dp 高、11dp 圆角、浅灰底（设计稿 .inp）。 */
+    private EditText inputBox(String hint, int inputType) {
+        EditText in = new EditText(this);
+        in.setHint(hint);
+        in.setHintTextColor(DshUi.ink3(this));
+        in.setTextColor(DshUi.ink(this));
+        in.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        in.setSingleLine(true);
+        in.setInputType(inputType);
+        in.setBackground(DshUi.inputDrawable(this));
+        int h = DshUi.dp(this, 12);
+        in.setPadding(h, DshUi.dp(this, 9), h, DshUi.dp(this, 9));
+        // 输入框左右各留 13dp，与设计稿 .field 的内边距一致
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, DshUi.dp(this, 39));
+        lp.leftMargin = DshUi.dp(this, 13);
+        lp.rightMargin = DshUi.dp(this, 13);
+        in.setLayoutParams(lp);
+        return in;
+    }
+
+    /** 字段下方的说明：muted 10.5sp，品牌色用于强调关键数字。 */
+    private TextView helpText(String... parts) {
+        TextView t = DshUi.label(this, "", 10.5f, DshUi.ink3(this), false);
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) sb.append(p);
+        t.setText(sb.toString());
+        int h = DshUi.dp(this, 13);
+        t.setPadding(h, DshUi.dp(this, 6), h, DshUi.dp(this, 11));
+        return t;
+    }
+
+    /**
+     * 说明小卡（设计稿 .info）：图标块 + 一句说明 + 右侧可选值。
+     *
+     * @param glyph 图标块里的字（无图标资源，用字形代替，不引入外链图片）
+     */
+    private LinearLayout infoCard(String glyph, int tint, String title,
+                                  TextView valueOverride, View.OnClickListener onClick) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setBackground(DshUi.cardDrawable(this));
+        int h = DshUi.dp(this, 13);
+        box.setPadding(h, DshUi.dp(this, 11), h, DshUi.dp(this, 11));
+
+        TextView ic = DshUi.label(this, glyph, 12, tint, true);
+        ic.setGravity(Gravity.CENTER);
+        ic.setBackground(DshUi.pillDrawable(this,
+                DshUi.dark(this) ? 0xFF232C38 : 0xFFF2F4FC));
+        LinearLayout.LayoutParams icLp = new LinearLayout.LayoutParams(
+                DshUi.dp(this, 26), DshUi.dp(this, 26));
+        icLp.rightMargin = DshUi.dp(this, 10);
+        box.addView(ic, icLp);
+
+        if (valueOverride == null) {
+            TextView body = DshUi.label(this, title, 11.5f, DshUi.ink2(this), false);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            box.addView(body, lp);
+        } else {
+            TextView head = DshUi.label(this, title, 11.5f, DshUi.ink(this), true);
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.addView(head);
+            col.addView(valueOverride, DshUi.matchWrapTop(this, 3));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            box.addView(col, lp);
+        }
+
+        if (onClick != null) {
+            box.setOnClickListener(onClick);
+            DshUi.pressable(box);
+            TextView chev = DshUi.label(this, "›", 18, DshUi.ink3(this), false);
+            box.addView(chev);
+        }
+        return box;
     }
 
     private void applySystemBar() {
@@ -221,16 +325,18 @@ public class PairActivity extends Activity {
         refreshFingerprint();
     }
 
-    /** 显示本机指纹前 16 位（够核对，不足以被拿去冒用）。 */
+    /** 设备身份一行（等宽）。只给前 16 位：够核对，不足以被拿去冒用。 */
     private void refreshFingerprint() {
         final TextView tv = fingerprintView;
+        final String phoneId = DshDeviceIdentity.phoneId(this);
         new Thread(new Runnable() {
             @Override
             public void run() {
                 String fp = DshDeviceKey.fingerprintOrNull();
                 final String text = fp == null
-                        ? "本机设备密钥不可用：本次配对不会提交设备指纹（电脑端不会钉住这台设备）"
-                        : "本机设备指纹 " + fp.substring(0, 16) + "…（首次配对时钉到这台电脑上）";
+                        ? "device " + phoneId + "\n指纹不可用：本次配对不提交指纹（电脑端不会钉住这台设备）"
+                        : "device " + phoneId + " · 指纹 " + fp.substring(0, 16) + "…"
+                          + "\n首次配对时把这串钉到那台电脑上";
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -239,6 +345,29 @@ public class PairActivity extends Activity {
                 });
             }
         }, "dsh-device-key").start();
+    }
+
+    // ---- 动作 ----
+
+    private void requestPowerExempt() {
+        try {
+            startActivity(DshPowerGuard.requestIntent(PairActivity.this));
+        } catch (Exception e) {
+            // 部分 ROM 三个 action 全摘掉 —— 如实说，不假装成功
+            setStatus("这台手机的系统没有可用的省电设置入口，"
+                    + "请到「设置 → 电池 → 应用耗电管理」手动允许后台运行。", true);
+        }
+    }
+
+    /** 切到本机档并重启（与切换器、SSH 配置页同一条归零路径）。 */
+    private void useLocalEngine() {
+        HostProfile hp = HostProfile.get(this);
+        if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
+            setStatus("切换到本机引擎失败：档案状态异常，重启应用后再试。", true);
+            return;
+        }
+        ProfileSession.resetRuntime();
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class));
     }
 
     // ---- 配对 ----
@@ -256,6 +385,7 @@ public class PairActivity extends Activity {
         }
 
         pairButton.setEnabled(false);
+        pairButton.setAlpha(0.6f);
         rotateButton.setVisibility(View.GONE);
         setStatus("正在配对…", false);
 
@@ -279,6 +409,7 @@ public class PairActivity extends Activity {
 
     private void onPairResult(DshPairClient.Verified r) {
         pairButton.setEnabled(true);
+        pairButton.setAlpha(1f);
         if (r.ok()) {
             DshDeviceIdentity.rememberBinding(this, r.hostDeviceId, r.relayUrl);
             // 令牌只落壳（Keystore 包裹），不进页面、不进日志。存失败要说出来：
@@ -288,7 +419,7 @@ public class PairActivity extends Activity {
                     + (stored
                         ? "令牌已加密保存在本机。"
                         : "但令牌没能保存（设备密钥不可用），下次仍需重新配对。")
-                    + "\n下一步：在桌面端「主机切换器」里选中这台电脑。", !stored);
+                    + "\n下一步：在「切换电脑」里选中这台电脑。", !stored);
             codeInput.setText("");
             return;
         }
@@ -301,32 +432,24 @@ public class PairActivity extends Activity {
 
     // ---- 小工具 ----
 
+    /**
+     * 状态区：成功用中性色、失败用琥珀底。
+     *
+     * <p>不用纯红字：配对失败大多是「码过期 / 已被使用 / 身份冲突」这类可处置的事，
+     * 纯红读起来像崩了。
+     */
     private void setStatus(String text, boolean error) {
         statusView.setVisibility(View.VISIBLE);
         statusView.setText(text);
-        statusView.setTextColor(error ? 0xFFD14343 : DshPalette.text(this));
-    }
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams marginTop(LinearLayout.LayoutParams lp, int dp) {
-        lp.topMargin = dp(dp);
-        return lp;
-    }
-
-    private GradientDrawable roundRect(int fill, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(fill);
-        d.setCornerRadius(radius);
-        d.setStroke(1, DshPalette.isDark(this) ? 0xFF2C3846 : 0xFFE2E8F0);
-        return d;
+        statusView.setTextColor(error
+                ? (DshUi.dark(this) ? 0xFFE8C07A : DshUi.ON_AMBER)
+                : DshUi.ink2(this));
+        statusView.setBackground(error
+                ? DshUi.pillDrawable(this, DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER)
+                : null);
+        int h = DshUi.dp(this, error ? 11 : 2);
+        int v = DshUi.dp(this, error ? 9 : 2);
+        statusView.setPadding(h, v, h, v);
     }
 
     /** 供其它页面/桥接启动本页。 */
