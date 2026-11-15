@@ -125,7 +125,17 @@ node dsh-web-daemon.mjs
 
 2026-11-15 本机实测：WorkBuddy 会话里 `--detach` 起的进程会被进程管理回收
 （node 与上游一起消失、端口无监听），改用会话后台任务跑前台模式后正常。
-要真正跨登录常驻，把 `npm run start:web` 挂进 `HKCU\...\Run` 即可（同 pc-sshd）。
+
+**跨登录常驻（已配置）**：`install-web-autostart.cmd` 把 `start-web-silent.cmd`
+写进 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `dsh-web-daemon`，
+撤销用 `uninstall-web-autostart.cmd`。启动器用 `start "" /min` 分离，并优先取
+PATH 里的 `node.exe`、回退 `C:\Program Files\nodejs\node.exe`（登录时的 PATH 与
+会话内可能不同，已实测系统级 node 能正常解析配置）。两个自启项并存：
+`dsh-pc-sshd` → 22 端口，`dsh-web-daemon` → 3080 / 3082。
+
+登录自启实例与会话内实例可能同时存在：守护进程遇到 `EADDRINUSE` 会明确退出
+并写日志，不抢端口、不留僵尸进程（实测 `exit=1` + 两行日志）。
+日志在 `%USERPROFILE%\.dsh\pc-sshd\dsh-web-daemon.log`。
 
 ## 手机侧怎么填
 

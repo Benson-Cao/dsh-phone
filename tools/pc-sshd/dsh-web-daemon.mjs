@@ -182,7 +182,16 @@ proxy.on('upgrade', (req, socket, head) => {
   socket.on('error', () => up.destroy())
 })
 
-proxy.on('error', (e) => log(`代理错误 ${e.message}`))
+proxy.on('error', (e) => {
+  log(`代理错误 ${e.message}`)
+  // 登录自启与会话内实例可能同时存在。端口被占时不要留一个半死不活的进程，
+  // 也不要去抢端口 —— 明确退出，日志里写清原因。
+  if (e.code === 'EADDRINUSE') {
+    log(`端口 ${LISTEN} 已被占用：另一个守护实例在跑，本实例退出`)
+  }
+  try { if (child) child.kill() } catch { }
+  process.exit(1)
+})
 proxy.listen(LISTEN, '127.0.0.1', () => {
   log(`=== dsh-web-daemon 启动 === 代理 127.0.0.1:${LISTEN} → 上游 127.0.0.1:${UPSTREAM}`)
   startUpstream()
