@@ -63,10 +63,12 @@ public class MainActivity extends Activity {
     /** 待写入「另存为」目标的源文件（onActivityResult 要用它）。 */
     private File pendingSaveSrc = null;
 
-    // ===== 设计稿《移动端 UI 设计系统》token =====
-    // 唯一依据：资料库页面《移动端 UI 设计系统》的 :root 变量表。
-    // 之前 App 用的是深色 #0F1116，与设计稿的浅色体系冲突（也导致状态栏配色别扭）。
-    private static final int BRAND_500 = 0xFF4D6BFE;  // 设计稿 brand #4D6BFE（选中/链接/品牌渐变）
+    // ===== 单色设计 token =====
+    // 2026-11-15：整套换成「原装黑白单色」（mono/v3）。上一版是社区官网风的蓝紫
+    // （brand #4D6BFE），判断失误 —— 官方 `dsh web` 本身近黑近白，壳层上彩色会在
+    // 用户切主题时打架。现在零彩度，色值全部与 {@link DshUi} / {@link DshPalette} 同源。
+    /** 品牌色 = 近黑。启动页那条渐变线因此变成「黑→透明」，与设计稿一致。 */
+    private static final int BRAND_500 = 0xFF18181B;
 
     // 动效规范（设计稿 07）：4 档时长 + 2 条缓动，原生动画统一走这里。
     private static final long DUR_PRESS  = 120;   // 按压反馈
@@ -78,12 +80,10 @@ public class MainActivity extends Activity {
             new android.view.animation.PathInterpolator(0.2f, 0.8f, 0.2f, 1f);
     private static final android.view.animation.Interpolator EASE_THEME =
             new android.view.animation.PathInterpolator(0.45f, 0.05f, 0.2f, 1f);
-    // ⚠️ INK_900 / INK_400 / INK_50 只在**渐变线等品牌元素**上直接用；
-    //    所有「会随深浅色切换」的用色一律走 {@link DshPalette}。
-    //    r79：启动页加深色模式，原先这里硬编码导致深色系统下白底黑字（刺眼）。
-    private static final int INK_900   = 0xFF0D1B2E;  // 描边深藏青，正文
-    private static final int INK_400   = 0xFF8296AB;  // 弱化文字
-    private static final int INK_50    = 0xFFF7F9FC;  // 页面底色（仅浅色模式，见 DshPalette.bg）
+    // ⚠️ 原来这里还有 INK_900(#0D1B2E) / INK_400(#8296AB) / INK_50(#F7F9FC) 三个常量，
+    //    是蓝调设计稿的遗留。实际上一处都没被引用（会随主题变色的用色本来就全走
+    //    DshPalette），留着只会让后来人以为还有第二条取色路径 —— 已删除。
+    //    需要新颜色时：会随主题切换的 → DshPalette；不随主题的 → DshUi 的 token。
 
     /** 启动页各处视图引用：主题切换时要能就地改色，故持有点击得到。 */
     private View splashRoot;
@@ -742,36 +742,31 @@ public class MainActivity extends Activity {
                 "会话和文件都还在那台电脑上，恢复后接着用。",
                 12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
 
-        // ---- 结论卡 ----
+        // ---- 结论卡（黑白单色：1.5px 近黑虚线 = 异常；不再用暖黄底 + 红点）----
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         int cpad = DshUi.dp(this, 13);
         card.setPadding(cpad, cpad, cpad, cpad);
-        android.graphics.drawable.GradientDrawable warn =
-            new android.graphics.drawable.GradientDrawable();
-        warn.setColor(DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER);
-        warn.setCornerRadius(DshUi.dp(this, 16));
-        warn.setStroke(Math.max(1, DshUi.dp(this, 1)),
-            DshUi.dark(this) ? 0xFF5C4A24 : 0xFFF2DFB9);
-        card.setBackground(warn);
+        card.setBackground(DshUi.dashedCardDrawable(this, DshUi.ink(this)));
         root.addView(card, DshUi.matchWrapTop(this, 14));
 
         LinearLayout headRow = new LinearLayout(this);
         headRow.setOrientation(LinearLayout.HORIZONTAL);
         headRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        // **空心环** = 未达成（与「实心点 = 在线 / 完成」配对，靠形状而不是颜色区分）
         android.view.View dot = new android.view.View(this);
         android.graphics.drawable.GradientDrawable dotBg =
             new android.graphics.drawable.GradientDrawable();
         dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        dotBg.setColor(DshUi.DANGER);
+        dotBg.setColor(0x00000000);
+        dotBg.setStroke(Math.max(1, DshUi.dp(this, 1)), DshUi.ink(this));
         dot.setBackground(dotBg);
         LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
-            DshUi.dp(this, 7), DshUi.dp(this, 7));
+            DshUi.dp(this, 8), DshUi.dp(this, 8));
         dotLp.rightMargin = DshUi.dp(this, 8);
         headRow.addView(dot, dotLp);
-        int warnInk = DshUi.dark(this) ? 0xFFE8C07A : 0xFF9A660B;
         headRow.addView(DshUi.label(this,
-                ssh ? "隧道没有建起来" : "目标电脑没有响应", 13.5f, warnInk, true));
+                ssh ? "隧道没有建起来" : "目标电脑没有响应", 13.5f, DshUi.ink(this), true));
         card.addView(headRow, DshUi.matchWrap());
 
         // 远端地址按档案类型呈现：ssh 档的 origin 是空串，早年这里统一显示 origin，
@@ -788,8 +783,8 @@ public class MainActivity extends Activity {
         } else {
             where = prof.origin;
         }
-        TextView target = DshUi.label(this, where, 11, warnInk, false);
-        target.setTypeface(android.graphics.Typeface.MONOSPACE);
+        // 地址一律等宽：中英文混排的可变字宽会让冒号/端口看上去在抖动
+        TextView target = DshUi.mono(this, where, 11f, DshUi.label(this), false);
         card.addView(target, DshUi.matchWrapTop(this, 6));
 
         // ---- 按档案分的真实原因（逐条编号）----
@@ -808,8 +803,7 @@ public class MainActivity extends Activity {
               };
         LinearLayout steps = new LinearLayout(this);
         steps.setOrientation(LinearLayout.VERTICAL);
-        steps.setBackground(DshUi.pillDrawable(this,
-                DshUi.dark(this) ? 0xFF232C38 : 0xFFFFFFFF));
+        steps.setBackground(DshUi.inputDrawable(this));
         steps.setPadding(DshUi.dp(this, 11), DshUi.dp(this, 3),
                 DshUi.dp(this, 11), DshUi.dp(this, 3));
         card.addView(steps, DshUi.matchWrapTop(this, 10));
@@ -827,9 +821,9 @@ public class MainActivity extends Activity {
             steps.addView(row);
         }
 
-        // ---- 还能做什么：按档案给真实链路信息 ----
-        root.addView(DshUi.section(this, "还能做什么"), DshUi.matchWrapTop(this, 16));
-        root.addView(DshUi.diagBar(this, remoteDiagText(prof)), DshUi.matchWrapTop(this, 2));
+        // 「还能做什么」分节与其 activePath 诊断条按设计稿修订版 §4.8（图62）删除：
+        // 上面「诊断快照」已经给出失败阶段 / 走的哪条路 / 可用降级，这里等于复述第二遍。
+        // 删除后留白由下面的按钮组吸收，不补替补卡。
 
         // ---- 三条出口 ----
         TextView retry = DshUi.button(this, "重试", DshUi.BTN_PRIMARY);
@@ -876,31 +870,22 @@ public class MainActivity extends Activity {
         setContentView(scroll);
     }
 
-    /** 失败页的诊断条：只写本档案真实有的值，缺的写「缺失/未记录」。 */
-    private String remoteDiagText(HostProfile.Profile prof) {
-        if (prof == null) return "activePath 未知 · 档案未建立";
-        if (HostProfile.KIND_SSH.equals(prof.kind)) {
-            return "activePath ssh · " + prof.sshHost + ":" + prof.sshPort
-                + "\n隧道 127.0.0.1:" + prof.localPort + " → 电脑 " + prof.sshTargetPort
-                + " · dsh 令牌" + (prof.sshToken.isEmpty() ? "缺失" : "已填");
-        }
-        if (HostProfile.KIND_RELAY.equals(prof.kind)) {
-            return "activePath relay · 心跳超时 20s\n"
-                + (prof.origin == null ? "地址未记录" : prof.origin)
-                + " · 令牌" + (prof.deviceToken.isEmpty() ? "缺失" : "可用");
-        }
-        return "activePath local · 127.0.0.1:" + DshProcessManager.DSH_PORT
-            + "\n本机引擎未就绪时重试会重新拉起";
-    }
+    // remoteDiagText()（失败页那条 activePath 诊断条）随「还能做什么」分节一并删除
+    // （设计稿修订版 §4.8 图62）。同样的信息在页面上的「诊断快照」三行里有。
 
     private void showDiagnostics(String report) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(24, 24, 24, 24);
+        // 显式给底色：原来依赖弹窗默认底，深色模式下正文/标题与底色不成对，
+        // 会出现「近白字压在近白底上」。现在与页面同源。
+        box.setBackgroundColor(DshUi.pageBg(this));
 
         TextView head = new TextView(this);
         head.setText("dsh 服务自检未通过");
-        head.setTextColor(Color.parseColor("#FF6B6B"));
+        // 原来这里是红字 #FF6B6B。单色稿没有红色 —— 异常由「近黑标题 + 等宽正文 +
+        // 下划线重试」共同表达，标题本身就走 ink。
+        head.setTextColor(DshUi.ink(this));
         head.setTextSize(18);
         LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -909,7 +894,9 @@ public class MainActivity extends Activity {
 
         TextView tv = new TextView(this);
         tv.setText(report);
-        tv.setTextColor(Color.parseColor("#C9CDD2"));
+        // 原来是 #C9CDD2（浅灰）—— 但弹窗底是系统浅色，这行几乎看不见。
+        // 改用 DshUi.label：浅色下 #52525B、深色下 #A1A1AA，两端都过 AA。
+        tv.setTextColor(DshUi.label(this));
         tv.setTextSize(11);
         tv.setTypeface(android.graphics.Typeface.MONOSPACE);
         tv.setTextIsSelectable(true);

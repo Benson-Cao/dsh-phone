@@ -4,10 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Typeface;
 import android.os.Bundle;
-import android.text.InputType;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -39,20 +36,13 @@ import java.util.List;
  * 目标电脑离线不是拒绝理由（协议就是这么定的）：切过去看到的是离线页，
  * 用户至少知道「那台机器没开」。只有「不存在 / 已收回」才拒绝。
  *
- * <h3>v2 设计稿（06 主机切换器）与本页的四处偏离</h3>
+ * <h3>单色稿（06）相对彩色版的差异</h3>
  * <ol>
- *   <li><b>「正在使用」不用 {@code bound} 冒充</b>：{@code bound} 是 Relay 侧的
- *       <i>归属</i>（这台手机指向哪台电脑），档案停在本机时它照样为真（r124 修过文案）。
- *       这里只在「档案确实是 relay 且 hostId 相同」时打「正在使用」，
- *       其余 bound 条目打「绑定目标」。</li>
- *   <li><b>心跳时间点不显示</b>：接口只给 online 布尔值，没有「3 秒前」这种时间戳。
- *       编一个出来比不显示更糟 —— 那会让人以为链路比实际更健康。</li>
- *   <li><b>「连接诊断」不是第三方页面</b>：设计稿 05 屏还没有原生实现，
- *       所以诊断内容以对话框形式给出**本机真实值**（执行位置 / 入口 / 令牌有无 /
- *       保活放行 / 设备指纹），不伪造心跳与丢包数。</li>
- *   <li><b>保留「连 SSH 主机」</b>：设计稿把 SSH 收进「添加电脑」的三段 Tab，
- *       而三段 Tab 的落地页是 {@link PairActivity}。若把 SSH 入口藏到配对流程里，
- *       只想连一台能 ssh 的机器的人得先假装配一次对 —— r123 正是为修这个才加的入口。</li>
+ *   <li><b>状态不再用颜色</b>：在线 = 实心近黑点，离线 = 浅灰空心圈 + 灰虚线标签，
+ *       当前设备/关键标识 = 反白块（{@link DshUi#tagInvert}）。</li>
+ *   <li><b>「绑定目标 / 在线判定 / 切换语义」抽成实体卡片</b>：上一版是一段三行散文，
+ *       读起来像免责声明；这三条恰恰是最容易被读错的三个词，做成表格更好查。</li>
+ *   <li><b>心跳时间点仍然不显示</b>：接口只给 online 布尔值，编一个「3 秒前」比不显示更糟。</li>
  * </ol>
  */
 public class HostSwitcherActivity extends Activity {
@@ -61,7 +51,6 @@ public class HostSwitcherActivity extends Activity {
     private TextView hostsSection;
     private LinearLayout listBox;
     private TextView refreshButton;
-    private LinearLayout localCard;
     private TextView diagBar;
 
     private String relayOrigin;
@@ -84,56 +73,53 @@ public class HostSwitcherActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = DshUi.dp(this, 18);
-        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 20));
+        int pad = DshUi.dp(this, 16);
+        root.setPadding(pad, DshUi.dp(this, 10), pad, DshUi.dp(this, 18));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ---- 应用栏：返回 + 标题 + 刷新 ----
-        refreshButton = DshUi.roundButton(this, "↻", new View.OnClickListener() {
-            @Override public void onClick(View v) { reload(); }
-        });
+        // ---- 应用栏：返回 + 标题 + 刷新（含底部发丝线）----
+        // 手写这一行而不是用 DshUi.appBar：刷新按钮要能被 setEnabled 压暗，
+        // 必须自己握着引用（appBar 里建的那个拿不到）。
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
+        int vpad = DshUi.dp(this, 4);
+        bar.setPadding(0, vpad, 0, vpad);
         TextView back = DshUi.roundButton(this, "‹", new View.OnClickListener() {
             @Override public void onClick(View v) { finish(); }
         });
-        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(
-                DshUi.dp(this, 34), DshUi.dp(this, 34));
-        backLp.rightMargin = DshUi.dp(this, 10);
-        bar.addView(back, backLp);
-        bar.addView(DshUi.label(this, "切换电脑", 15, DshUi.ink(this), true));
-        View barSpacer = new View(this);
-        bar.addView(barSpacer, new LinearLayout.LayoutParams(0,
+        bar.addView(back, DshUi.fixedEnd(this, 30, 9));
+        bar.addView(DshUi.label(this, "连接电脑", 14, DshUi.ink(this), true));
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        refreshButton = DshUi.roundButton(this, "↻", new View.OnClickListener() {
+            @Override public void onClick(View v) { reload(); }
+        });
         bar.addView(refreshButton);
         root.addView(bar, DshUi.matchWrap());
+        root.addView(DshUi.divider(this));
 
-        // ---- 标题与导语 ----
-        TextView h1 = DshUi.label(this, "在哪台设备上继续？", 23, DshUi.ink(this), true);
-        root.addView(h1, DshUi.matchWrapTop(this, 10));
-        root.addView(DshUi.label(this,
-                "会话、文件与设置留在各自设备，切换不会带走。",
-                12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
+        // 标题与导语（原「在哪台设备上继续？」+「会话、文件与设置留在各自设备…」）已按
+        // 设计稿修订版 §4.8（图59）删除：应用栏已经写明「连接电脑」，再写一遍大标题
+        // 属于解释性重复。删除后中部留白由下面的内容与底部按钮吸收，不补替补卡。
 
         // ---- 状态行：只在有话说时占位（加载中 / 出错 / 提示）----
-        statusView = DshUi.label(this, "", 11.5f, DshUi.ink2(this), false);
+        statusView = DshUi.label(this, "", 11.5f, DshUi.label(this), false);
         statusView.setVisibility(View.GONE);
         root.addView(statusView, DshUi.matchWrapTop(this, 10));
 
         // ---- 已绑定：远端电脑清单 ----
         hostsSection = DshUi.section(this, "已绑定");
-        root.addView(hostsSection, DshUi.matchWrapTop(this, 14));
+        root.addView(hostsSection, DshUi.matchWrapTop(this, 12));
         listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(listBox, DshUi.matchWrapTop(this, 2));
 
-        // ---- 本机 ----
-        root.addView(DshUi.section(this, "本机"), DshUi.matchWrapTop(this, 16));
-        localCard = DshUi.cardBox(this);
-        localCard.addView(localRow());
-        root.addView(localCard, DshUi.matchWrapTop(this, 2));
+        // 「本机」设备组与「归属与在线口径」卡按设计稿修订版 §4.7/§4.8 删除：
+        // 连接电脑列表里混入本机引擎，会让「选一台电脑」和「切执行位置」两件事混淆；
+        // 口径表则是技术解释，属于「界面上堆叠产品口径」被红框点掉的那一类。
+        // 本机引擎的入口仍在 08 失败页（兜底路径），本页不再提供。
 
         // ---- 诊断条（点按展开真实诊断）----
         diagBar = DshUi.diagBar(this, diagText());
@@ -142,10 +128,10 @@ public class HostSwitcherActivity extends Activity {
             @Override public void onClick(View v) { showDiagnostics(); }
         });
         DshUi.pressable(diagBar);
-        root.addView(diagBar, DshUi.matchWrapTop(this, 18));
+        root.addView(diagBar, DshUi.matchWrapTop(this, 16));
 
-        // ---- 主按钮 + 两个次按钮 + 返回 ----
-        TextView add = DshUi.button(this, "添加电脑", DshUi.BTN_PRIMARY);
+        // ---- 主按钮 + 两个次按钮 + 两个链接 ----
+        TextView add = DshUi.button(this, "＋ 添加电脑", DshUi.BTN_PRIMARY);
         add.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(HostSwitcherActivity.this, PairActivity.class));
@@ -153,29 +139,32 @@ public class HostSwitcherActivity extends Activity {
         });
         root.addView(add, DshUi.matchWrapTop(this, 12));
 
-        LinearLayout btnRow = new LinearLayout(this);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(btnRow, DshUi.matchWrapTop(this, 9));
-
-        TextView localBtn = DshUi.button(this, "改用本机引擎", DshUi.BTN_SECONDARY);
-        localBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { useLocalEngine(); }
+        // 「改用本机引擎」按钮按 §4.7 删除：本机档案不再从「连接电脑」页进入。
+        // 「连接诊断」按 §4.3 第 2 条收敛为「刷新状态」——诊断对话框本身保留，
+        // 入口仍在上面那条诊断条上（点条即展开），按钮位让给最常用的动作。
+        TextView refreshBtn = DshUi.button(this, "刷新状态", DshUi.BTN_SECONDARY);
+        refreshBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { reload(); }
         });
-        btnRow.addView(localBtn, DshUi.half(this, true));
+        root.addView(refreshBtn, DshUi.matchWrapTop(this, 8));
 
-        TextView sshBtn = DshUi.button(this, "连 SSH 主机", DshUi.BTN_SECONDARY);
+        // 「连 SSH 主机」是 r123 特意加的第三条路：SSH 不走 Relay 也就不需要配对码，
+        // 入口不能只挂在配对流程里。单色稿这一屏没有它，用下划线链接补，不占按钮位。
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row2, DshUi.matchWrapTop(this, 4));
+        TextView sshBtn = DshUi.button(this, "连 SSH 主机 ›", DshUi.BTN_GHOST);
         sshBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(SshConfigActivity.intent(HostSwitcherActivity.this));
             }
         });
-        btnRow.addView(sshBtn, DshUi.half(this, false));
-
+        row2.addView(sshBtn, DshUi.half(this, true));
         TextView backBtn = DshUi.button(this, "返回应用", DshUi.BTN_GHOST);
         backBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { finish(); }
         });
-        root.addView(backBtn, DshUi.matchWrapTop(this, 2));
+        row2.addView(backBtn, DshUi.half(this, false));
 
         setContentView(scroll);
         try {
@@ -186,27 +175,9 @@ public class HostSwitcherActivity extends Activity {
         }
     }
 
-    /** 本机那一行：薄荷渐变头像 + 说明 + 状态标签。整行可点。 */
-    private View localRow() {
-        HostProfile hp = HostProfile.get(this);
-        boolean isLocal = HostProfile.KIND_LOCAL.equals(hp.currentId());
-        LinearLayout row = DshUi.rowBox(this);
-        row.addView(DshUi.avatar(this, "本", DshUi.MINT, DshUi.MINT_2), avatarLp());
-        row.addView(deviceColumn("这台手机",
-                "Termux · 原版 dsh web · 独立会话", null));
-        if (isLocal) {
-            row.addView(DshUi.tag(this, "正在使用", DshUi.soft(this, DshUi.SOFT_MINT, 0xFF12403A),
-                    DshUi.MINT, DshUi.MINT));
-        } else {
-            row.addView(DshUi.tag(this, "可切换", DshUi.soft(this, DshUi.SOFT_BLUE, 0xFF1E2547),
-                    DshUi.BRAND, 0));
-        }
-        row.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { useLocalEngine(); }
-        });
-        DshUi.pressable(row);
-        return row;
-    }
+    // 这里原本有 factRow()（「归属与在线口径」三行）与 localRow()（「本机」设备行）。
+    // 两张卡都按设计稿修订版 §4.7/§4.8 删除，行构造函数一并移除 —— 留着不用等于给
+    // 下一个人「这里还有一块 UI」的错觉，而它在页面上根本不存在。
 
     /** 拉清单（后台线程）。令牌缺失时不去试空 Bearer。 */
     private void reload() {
@@ -267,11 +238,12 @@ public class HostSwitcherActivity extends Activity {
         hostsSection.setVisibility(View.VISIBLE);
         hostsSection.setText("已绑定 · " + rows.size());
         showStatus("", false);
+        LinearLayout card = DshUi.cardBox(this);
         for (int i = 0; i < rows.size(); i++) {
-            DshHostsClient.Host h = rows.get(i);
-            listBox.addView(hostRow(h), DshUi.matchWrapTop(this, i == 0 ? 2 : 0));
-            if (i < rows.size() - 1) listBox.addView(DshUi.divider(this));
+            if (i > 0) card.addView(DshUi.divider(this));
+            card.addView(hostRow(rows.get(i)));
         }
+        listBox.addView(card, DshUi.matchWrapTop(this, 2));
     }
 
     /** 空态卡：与远端电脑卡同构（卡片 + 两行文字），避免空标题悬在页面上。 */
@@ -281,20 +253,19 @@ public class HostSwitcherActivity extends Activity {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.addView(DshUi.label(this, title, 12.5f, DshUi.ink(this), true));
-        col.addView(DshUi.label(this, hint, 10.5f, DshUi.ink2(this), false),
+        col.addView(DshUi.label(this, hint, 10.5f, DshUi.label(this), false),
                 DshUi.matchWrapTop(this, 3));
         row.addView(col, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         card.addView(row);
-        LinearLayout.LayoutParams lp = DshUi.matchWrapTop(this, 2);
-        card.setLayoutParams(lp);
+        card.setLayoutParams(DshUi.matchWrapTop(this, 2));
         return card;
     }
 
-    /** 远端电脑一行：渐变头像 + 名字/摘要 + 状态标签；整行可点。 */
+    /** 远端电脑一行：方块头像 + 名字/摘要 + 状态标签；整行可点。 */
     private View hostRow(final DshHostsClient.Host h) {
         LinearLayout row = DshUi.rowBox(this);
-        row.addView(DshUi.avatar(this, avatarChar(h), DshUi.BRAND, DshUi.BRAND_2), avatarLp());
+        row.addView(DshUi.avatar(this, avatarChar(h), h.online ? 0 : 2), avatarLp());
         row.addView(deviceColumn(displayName(h), metaOf(h), h.hostId));
         row.addView(stateTag(h));
         row.setOnClickListener(new View.OnClickListener() {
@@ -313,48 +284,42 @@ public class HostSwitcherActivity extends Activity {
     }
 
     /**
-     * 中间两行：名字 13.5 加粗 + 摘要 10.5 muted。
+     * 中间两行：名字 12.5 加粗 + 摘要 10.5（hostId 用等宽）。
      * 名字过长时折行而不是截断 —— 两台电脑名字前缀相同的情况很常见。
      */
     private LinearLayout deviceColumn(String name, String meta, String idLine) {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        col.setLayoutParams(lp);
-        col.addView(DshUi.label(this, name, 13.5f, DshUi.ink(this), true));
-        TextView m = DshUi.label(this, meta, 10.5f, DshUi.ink2(this), false);
-        col.addView(m, DshUi.matchWrapTop(this, 3));
+        col.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        col.addView(DshUi.label(this, name, 12.5f, DshUi.ink(this), true));
+        if (meta != null && meta.length() > 0) {
+            col.addView(DshUi.label(this, meta, 10.5f, DshUi.label(this), false),
+                    DshUi.matchWrapTop(this, 3));
+        }
         if (idLine != null && idLine.length() > 0 && !idLine.equals(name)) {
-            TextView id = DshUi.label(this, idLine, 10, DshUi.ink3(this), false);
-            id.setTypeface(Typeface.MONOSPACE);
-            col.addView(id, DshUi.matchWrapTop(this, 2));
+            col.addView(DshUi.mono(this, idLine, 10, DshUi.mute(this), false),
+                    DshUi.matchWrapTop(this, 2));
         }
         return col;
     }
 
     /**
-     * 状态标签。「正在使用」只在档案确实是 relay 且 hostId 相同时成立；
-     * {@code bound} 单独给「绑定目标」——两者混用会把归属读成实时状态（r124）。
+     * 状态标签（单色稿 §3）。
+     * <ul>
+     *   <li>档案确实指向这台主机 → 实心点「正在使用」；</li>
+     *   <li>{@code bound} 但没在用 → 虚线「绑定目标」（归属≠实时状态，r124）；</li>
+     *   <li>离线 → 灰虚线 + 空心圈；在线 → 浅底实心点。</li>
+     * </ul>
      */
     private View stateTag(DshHostsClient.Host h) {
         HostProfile.Profile cur = HostProfile.get(this).current();
         boolean inUse = HostProfile.KIND_RELAY.equals(cur.kind)
                 && cur.hostId != null && cur.hostId.equals(h.hostId);
-        if (inUse) {
-            return DshUi.tag(this, "正在使用", DshUi.soft(this, DshUi.SOFT_MINT, 0xFF12403A),
-                    DshUi.MINT, DshUi.MINT);
-        }
-        if (h.bound) {
-            return DshUi.tag(this, "绑定目标", DshUi.soft(this, DshUi.SOFT_BLUE, 0xFF1E2547),
-                    DshUi.BRAND, 0);
-        }
-        if (!h.online) {
-            return DshUi.tag(this, "离线", DshUi.soft(this, DshUi.SOFT_GRAY, 0xFF2A323F),
-                    DshUi.dark(this) ? DshUi.INK_3 : DshUi.ON_GRAY, 0);
-        }
-        return DshUi.tag(this, "在线", DshUi.soft(this, DshUi.SOFT_MINT, 0xFF12403A),
-                DshUi.MINT, DshUi.MINT);
+        if (inUse) return DshUi.tagOn(this, "正在使用");
+        if (h.bound) return DshUi.tagWait(this, "绑定目标");
+        if (!h.online) return DshUi.tagOff(this, "离线");
+        return DshUi.tagOn(this, "在线");
     }
 
     /** 摘要行：在线态 + 会话数 + 引擎态（不含时间戳 —— 接口没有）。 */
@@ -379,15 +344,15 @@ public class HostSwitcherActivity extends Activity {
 
     private LinearLayout.LayoutParams avatarLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                DshUi.dp(this, 38), DshUi.dp(this, 38));
-        lp.rightMargin = DshUi.dp(this, 11);
+                DshUi.dp(this, 34), DshUi.dp(this, 34));
+        lp.rightMargin = DshUi.dp(this, 10);
         return lp;
     }
 
     // ---- 状态条 ----
 
     /**
-     * 状态行：出错用琥珀底，提示用透明底。
+     * 状态行：出错用**虚线近黑边**（单色稿没有琥珀底），提示用透明底。
      *
      * <p>之所以不并进诊断条：诊断条是「链路体检」的常驻信息，
      * 而这里说的是「刚才那次操作怎么了」，两者混在一起会互相淹没。
@@ -399,13 +364,9 @@ public class HostSwitcherActivity extends Activity {
         }
         statusView.setVisibility(View.VISIBLE);
         statusView.setText(msg);
-        statusView.setTextColor(error
-                ? (DshUi.dark(this) ? 0xFFE8C07A : DshUi.ON_AMBER)
-                : DshUi.ink2(this));
-        statusView.setBackground(error
-                ? DshUi.pillDrawable(this, DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER)
-                : null);
-        int h = DshUi.dp(this, error ? 10 : 4);
+        statusView.setTextColor(error ? DshUi.ink(this) : DshUi.label(this));
+        statusView.setBackground(error ? DshUi.dashedCardDrawable(this, DshUi.ink2(this)) : null);
+        int h = DshUi.dp(this, error ? 10 : 2);
         int v = DshUi.dp(this, error ? 9 : 2);
         statusView.setPadding(h, v, h, v);
     }
@@ -417,7 +378,7 @@ public class HostSwitcherActivity extends Activity {
         HostProfile hp = HostProfile.get(this);
         String path = hp.currentId();
         String keep = DshPowerGuard.isExempt(this) ? "保活已放行" : "保活未放行";
-        String origin = relayOrigin == null ? "Relay 未记录" : "Relay " + relayOrigin;
+        String origin = relayOrigin == null ? "Relay 未记录" : relayOrigin;
         String tok = token == null ? "令牌缺失" : "令牌可用";
         return "activePath " + path + " · " + keep + "\n"
                 + origin + " · " + tok + " · 20s 无心跳判定离线 · 点按看诊断";
@@ -475,21 +436,10 @@ public class HostSwitcherActivity extends Activity {
 
     // ---- 动作 ----
 
-    /** 切回本机引擎：闭环回家路径，不用绕回选择页。 */
-    private void useLocalEngine() {
-        HostProfile hp = HostProfile.get(this);
-        if (HostProfile.KIND_LOCAL.equals(hp.currentId())) {
-            // 已在本机档：直接回应用，不做无意义的重启（会丢当前会话滚动位置）
-            finish();
-            return;
-        }
-        if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
-            showStatus("切回本机失败：档案状态异常，重启应用后再试。", true);
-            return;
-        }
-        ProfileSession.resetRuntime();
-        ProfileSession.restartInto(this, new Intent(this, MainActivity.class));
-    }
+    // 这里原本有 useLocalEngine()（切回本机档案的闭环路径）。设计稿修订版 §4.7 把
+    // 「本机」从连接电脑页整体移除，本页不再承担「切回本机」的职责：
+    // 走本机档案的入口只剩 08 连接失败页的兜底按钮。
+    // 保留这个方法而不给它调用方，等于留一条「看起来能用其实点不到」的路 —— 所以删掉。
 
     /**
      * 确认后切换。确认框文案与服务端 `notice` 同一句：切换不会带走任何东西。

@@ -122,7 +122,10 @@ public final class DshPreloadWeb {
         // ⚠️ 故意不设 WebChromeClient / WebViewClient / JS 桥 ——
         //   它们都绑 Activity（startActivityForResult、openAppSettings 回程等），
         //   领养时由 MainActivity 重设。预热阶段页面只是"自己跑起来"。
-        w.setBackgroundColor(0xFF141B23);
+        // 这里原本写死 0xFF141B23（偏蓝的近黑）。问题不只是颜色：**它不跟主题**，
+        // 浅色用户预热时 WebView 底层是深色，页面首帧还没画就会闪一下黑。
+        // 改用 DshPalette.bg —— 深色下仍是近黑，浅色下是白，与启动页同一来源。
+        w.setBackgroundColor(DshPalette.bg(appCtx));
         // r199：预热必须加载与 Activity 相同的引擎地址。原来恒为 3080，
         // 远程引擎时 Activity 走 3082 反代，预热的首页就成了「另一个端口的页面」。
         w.loadUrl(EngineEndpoints.currentUrl(appCtx));

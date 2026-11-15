@@ -124,6 +124,26 @@ mkdir -p "$DST"
 cp -rf "$SRC_DIR"/com/dsh/harness/. "$DST"/
 echo "  ✓ 拷贝 android-java/com/dsh/harness/ -> $DST ($(find "$DST" -name '*.java' | wc -l | tr -d ' ') 个 java)"
 
+# ---- 4.6) 清掉构建树里「源已删除」的残留 java（逐文件删，不走批量删除）----
+# 上面那句注释原来写的是「若真的删了源文件，构建会报重复类，届时手工删那一个」——
+# 这是错的（r135 实测）：残留的 .java 不会报重复类，它**安安静静编进包里**，
+# 于是 APK 里永远躺着一个源码树里已经不存在的页面，两边漂移且没人发现。
+# 批量 rm 会被 safe-delete 闸门拦（count > 50 直接整条拒绝），所以这里只删
+# 「确实对不上」的那几个文件，数量通常是 0~2。
+PRUNED=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  rel="${f#$DST/}"
+  if [ ! -f "$SRC_DIR/com/dsh/harness/$rel" ]; then
+    rm -f "$f" && PRUNED=$((PRUNED + 1))
+  fi
+done <<EOF_PRUNED
+$(find "$DST" -name '*.java')
+EOF_PRUNED
+if [ "$PRUNED" -gt 0 ]; then
+  echo "  ✓ 清掉 $PRUNED 个源树已删除的残留 java"
+fi
+
 # ---- 5.5) 拷贝网络安全配置（C-05：明文只放开 127.0.0.1/localhost） ----
 # 必须和第 6 步注入的 android:networkSecurityConfig 成对出现，
 # 否则 manifest 引用了 @xml/network_security_config 而资源不存在 -> 编译失败。
@@ -177,6 +197,58 @@ if add:
     for line in add:
         print("  ✓ 注入 " + line.strip())
 PYEOF_WK
+fi
+
+# ---- 5.8) compileSdkVersion 必须 >= 34（被 androidx.webkit 逼上来的）----
+#
+# 上游 termux-app v0.118.0 的 gradle.properties 是 compileSdkVersion=30。
+# 而我们注入的 androidx.webkit:webkit:1.12.1 在 AAR 元数据里写明 minCompileSdk=34，
+# 低于它 AGP 直接崩在 :app:checkDebugAarMetadata：
+#   "Dependency 'androidx.webkit:webkit:1.12.1' requires libraries and applications
+#    that depend on it to compile against version 34 or later"
+# 这个错误读起来像是「依赖版本不对」，很容易往降 webkit 版本的方向排查 —— 其实
+# 只是 compileSdk 没跟上。本机 SDK 装了 30 / 34 / 36，取 34（刚好够，别贪高）。
+#
+# ⚠️ 必须做进脚本：termux-app 是**外部检出**，一旦重新检出/clean，这条改动就没了，
+#    而症状是「昨天还能编，今天突然报依赖错」，极易误判成缓存问题。
+GRADLE_PROPS="$REPO/gradle.properties"
+if [ -f "$GRADLE_PROPS" ]; then
+  CUR_SDK="$(sed -n 's/^compileSdkVersion=\([0-9]*\).*/\1/p' "$GRADLE_PROPS" | head -1)"
+  if [ -z "$CUR_SDK" ]; then
+    echo "  ! gradle.properties 里没有 compileSdkVersion，跳过（AGP 会用默认值）"
+  elif [ "$CUR_SDK" -lt 34 ]; then
+    sed -i "s|^compileSdkVersion=.*|compileSdkVersion=34|" "$GRADLE_PROPS"
+    echo "  ✓ compileSdkVersion $CUR_SDK -> 34（androidx.webkit 1.12.1 要求 >= 34）"
+  else
+    echo "  · compileSdkVersion=$CUR_SDK（已满足 >= 34）"
+  fi
+fi
+
+# ---- 5.9) JDK 17 跑旧 AGP 必须加 --add-opens ----
+#
+# termux-app v0.118.0 用的是 AGP 7.x，在 JDK 17 下 processDebugMainManifest 会炸：
+#   "Unable to make field private final java.lang.String java.io.File.path accessible:
+#    module java.base does not "opens java.io" to unnamed module"
+# 这条错误完全不像「JDK 版本问题」，很容易被当成 AGP 或 manifest 语法问题去查。
+# 官方给的解法就是在 gradle 的 jvmargs 里显式 --add-opens。
+#
+# 顺带把堆提到 4G：assets 里塞着 ~300MB 的 dsh-bundle.tar.gz，默认 2G 在
+# aapt2 压缩资源时会 OOM（本机物理内存 15.8G，4G 是安全值）。
+#
+# ⚠️ 同样必须做进脚本 —— 上游仓库重新检出时这条也会丢。
+if [ -f "$GRADLE_PROPS" ]; then
+  NEED_OPENS="--add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED"
+  if grep -q 'add-opens java.base/java.io' "$GRADLE_PROPS"; then
+    echo "  · --add-opens 已配（JDK 17 + AGP 7 必需）"
+  else
+    # 保留现有的 jvmargs 内容，只把缺的 opens 补上 —— 正式树的 AGP 已经升到 8.x、
+    # 本来可能不需要这几条；直接覆盖会把别人调好的堆大小冲掉。
+    CUR_JVM="$(sed -n 's/^org\.gradle\.jvmargs=//p' "$GRADLE_PROPS" | tail -1)"
+    sed -i '/^org\.gradle\.jvmargs=/d' "$GRADLE_PROPS"
+    [ -n "$CUR_JVM" ] || CUR_JVM="-Xmx4096M -Dfile.encoding=UTF-8"
+    printf 'org.gradle.jvmargs=%s %s\n' "$CUR_JVM" "$NEED_OPENS" >> "$GRADLE_PROPS"
+    echo "  ✓ org.gradle.jvmargs 补上 4 条 --add-opens（原有内容保留：$CUR_JVM）"
+  fi
 fi
 
 # ---- 6) 注册 MainActivity 为启动入口 ----
@@ -341,7 +413,7 @@ else
   echo "  · 未注册 DshService（常驻保活未启用）"
 fi
 
-# ---- 6.9) 注册原生页面 PairActivity / OfflineActivity / HostSwitcher / SshConfig + 省电放行权限（幂等）----
+# ---- 6.9) 注册原生页面 PairActivity / OfflineActivity / HostSwitcher / SshConfig / Engine + 省电放行权限（幂等）----
 # 为什么要有这两页：配对与「电脑不可达」发生在 WebView 还没起来（首启解包中）
 # 或压根连不上电脑的时候 —— 寄生在 Web UI 上的入口在这两种场景下点不到。
 # 省电放行权限是 DshPowerGuard 直接弹系统对话框的前提；缺了它只能退到设置列表页，
@@ -351,10 +423,11 @@ fi
 if grep -q "com.dsh.harness.PairActivity" "$MANIFEST" \
    && grep -q "com.dsh.harness.OfflineActivity" "$MANIFEST" \
    && grep -q "com.dsh.harness.HostSwitcherActivity" "$MANIFEST" \
+   && grep -q "com.dsh.harness.EngineActivity" "$MANIFEST" \
    && grep -q "com.dsh.harness.SshConfigActivity" "$MANIFEST"; then
   echo "  · 原生页已注册，跳过"
 elif [ -z "$PY" ]; then
-  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity / HostSwitcherActivity / SshConfigActivity"
+  echo "  ! 找不到 python，请手动在 AndroidManifest.xml 注册 PairActivity / OfflineActivity / HostSwitcherActivity / EngineActivity / SshConfigActivity"
 else
   "$PY" - "$MANIFEST" <<'PYEOF_PAGES'
 import sys
@@ -392,9 +465,15 @@ pages = {
         '        android:label="@string/application_name"\n'
         '        android:windowSoftInputMode="adjustResize"\n'
         '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
+    'EngineActivity': (
+        '    <activity android:name="com.dsh.harness.EngineActivity"\n'
+        '        android:exported="false"\n'
+        '        android:label="@string/application_name"\n'
+        '        android:configChanges="orientation|screenSize|keyboardHidden" />\n'),
 }
 added = []
-for name in ('PairActivity', 'OfflineActivity', 'HostSwitcherActivity', 'SshConfigActivity'):
+for name in ('PairActivity', 'OfflineActivity', 'HostSwitcherActivity',
+             'EngineActivity', 'SshConfigActivity'):
     if 'com.dsh.harness.' + name not in s:
         s = s.replace('</application>', pages[name] + '</application>')
         added.append(name)

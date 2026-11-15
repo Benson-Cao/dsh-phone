@@ -41,35 +41,35 @@ final class DshPalette {
 
     private DshPalette() {}
 
-    // ===== 浅色（现有设计稿值，一字未改）=====
-    /** 页面底色 —— 设计稿 --ink-50 */
-    static final int L_BG      = 0xFFF7F9FC;
-    /** 正文/标题 —— 设计稿 --ink-900 */
-    static final int L_TEXT    = 0xFF0D1B2E;
+    // ===== 浅色（黑白单色稿 mono/v3）=====
+    //
+    // 2026-11-15：上一版这里是「深蓝 + 品牌蓝」的一整套（底 #F7F9FC、正文 #0D1B2E、
+    // 弱化 #5A6D84）。用户判定那次方向错了 —— 官方 `dsh web` 本身就是近黑近白，
+    // 壳层再套一层蓝调，在用户切主题时会明显打架。现在全部收敛到零彩度灰阶，
+    // 与 {@link DshUi} 的 token 取同一组值。
+    //
+    // ⚠️ 启动页的鲸鱼是**透明底剪影 PNG**（`dsh_splash_whale` / `_night`），
+    //    深蓝从来只来自这里的 bg，所以改色值不需要重出图。
+    /** 页面底色 —— 与 dsh 首页浅色底一致（纯白）。 */
+    static final int L_BG      = 0xFFFFFFFF;
+    /** 正文/标题 —— --dsw-ink #18181B（白底 ≈17.7:1）。 */
+    static final int L_TEXT    = 0xFF18181B;
     /**
-     * 浅色下的弱化文案。
+     * 浅色下的弱化文案 —— --dsw-label #52525B（白底 ≈7.7:1，仍明显弱于正文）。
      *
-     * <p>⚠️ r105：这里的结论在 r79 时被<b>算错过一次</b>，改之前务必读完。
+     * <p>⚠️ 下面这段历史别删：这里曾经被<b>算错过一次</b>，而错的方向很反直觉。
      *
      * <p>当年用的是漏了伽马线性化的公式（见 {@link #lum}），得到一串<b>偏低的错值</b>，
-     * 并据此认为"弱化与 AA 在浅底上几乎互斥"，把色值一路压到近黑的 {@code #2C2D35}。
-     * 用正确公式重算后，结论完全变了：
-     * <pre>
-     *   #8296AB → 2.89:1   （设计稿原值，确实仍未达标）
-     *   #5A6D84 → 5.03:1   ← 达标，且明显弱于正文 16.41:1
-     *   #44566B → 7.14:1      #3A4A5E → 8.58:1
-     *   #2E3A4A → 10.94:1     #2C3849 → 11.26:1
-     *   #2C2D35 → 12.98:1  ← 旧值：与正文几乎同深，"弱化"层级其实被抹平了
-     * </pre>
+     * 并据此认为"弱化与 AA 在浅底上几乎互斥"，把色值一路压到近黑的 {@code #2C2D35}
+     * （真值 12.98:1 —— 跟正文几乎同深，"弱化"层级其实被抹平了）。
+     * 用正确公式重算后结论完全变了：设计稿原值 {@code #8296AB} 是 2.89:1（确实不达标），
+     * 但 {@code #5A6D84} 就有 5.03:1，所以根本不需要压到近黑。
      *
-     * <p><b>所以现值是 #5A6D84</b>：既过 AA（5.03:1），又保住"比正文弱一档"的层级。
-     * 字号与字重（状态行 14px 常规、标题 26px BOLD）仍承担一部分层级表达，
-     * 不再单靠把颜色压黑。
+     * <p>危害方向永远是<b>误杀</b>：数值偏低看着"保守"，实际会毁掉视觉层级。
+     *
+     * <p>{@code logContrast()} 每次启动都会打真实对比度，别信注释里的数字，信日志。
      */
-    static final int L_MUTED_AA = 0xFF5A6D84;   // WCAG 真值 5.03:1 PASS
-    /** @deprecated 设计稿原值，真值 2.89:1 不达 AA，仅供回退比对。 */
-    @Deprecated
-    static final int L_MUTED_RAW = 0xFF8296AB;
+    static final int L_MUTED_AA = 0xFF52525B;
     /** 实际使用：见 {@link #muted}。 */
     static final int L_MUTED   = L_MUTED_AA;
     // ===== 深色 =====
@@ -78,44 +78,43 @@ final class DshPalette {
      *
      * <p>⚠️ 两个色值分工不同，**别混用**：
      * <ul>
-     *   <li>{@link #D_BG} —— 启动页/诊断页等<b>我们自己的</b>界面底色。
-     *       取自 mobile.css暗色段的 {@code --ds-surface-fb:#141b23}（偏蓝调）。</li>
+     *   <li>{@link #D_BG} —— 启动页/诊断页等<b>我们自己的</b>界面底色。</li>
      *   <li>{@link #D_SYSTEM_BAR} —— <b>系统栏</b>底色（状态栏/导航栏）。
-     *       必须与 <b>dsh 首页背景完全一致</b>，否则两者相邻会出现可见色差。
-     *       真机实测首页背景 = {@code #151517}（中性灰黑，R≈G≈B）；
-     *       若用偏蓝的 #141b23，深色下能看出状态栏"发蓝"（用户 2026-10-13 反馈）。</li>
+     *       必须与 <b>dsh 首页背景完全一致</b>，否则两者相邻会出现可见色差。</li>
      * </ul>
+     *
+     * <p>单色稿里两者取同一个值 {@code #151517}（真机量得的 dsh 首页背景）。
+     * 早年 D_BG 用的是偏蓝的 {@code #141B23}，深色下能看出状态栏"发蓝"
+     * （用户 2026-10-13 反馈），现在没有存在的理由了 —— **刻意让它们相等**，
+     * 这样"启动页 → 页面"的过渡连色差都没有。
      */
-    static final int D_BG      = 0xFF141B23;
+    static final int D_BG      = 0xFF151517;
     /**
-     * 系统栏底色（深色）—— 真机量得�� dsh 首页背景值。
+     * 系统栏底色（深色）—— 真机量得的 dsh 首页背景值。
      *
      * <p>来源：adb screencap 后解码取样，首页主容器 {@code #151517}。
-     * 若dsh 将来改了首页背景，记得重新量一次，两处色差会被立刻看见。
+     * 若 dsh 将来改了首页背景，记得重新量一次，两处色差会被立刻看见。
      */
     static final int D_SYSTEM_BAR = 0xFF151517;
-    /** 深色底的正文 —— 取自 mobile.css 暗色段的--ds-ink-fb-900，真值 14.70:1 PASS
-     *  （注释里的 6.41:1 是旧公式算的错值，见 {@link #lum}） */
-    static final int D_TEXT    = 0xFFE6EDF5;
-    /** 深色底的弱化文案 —— r108 统一为 Web 层 --ds-ink-fb-500 同值 #A3B3C6：
-     *  真值 8.11:1 PASS，仍弱于正文 14.70:1（原 #9AAABB 与 Web 层不一致，已弃用） */
-    static final int D_MUTED   = 0xFFA3B3C6;
+    /** 深色底的正文 —— --dsw-ink 深色档 #F4F4F5（≈16.6:1 PASS）。 */
+    static final int D_TEXT    = 0xFFF4F4F5;
+    /** 深色底的弱化文案 —— --dsw-label-faint #A1A1AA（≈7.1:1 PASS，仍弱于正文）。 */
+    static final int D_MUTED   = 0xFFA1A1AA;
 
     /**
-     * 品牌色 --brand-500。
+     * 品牌色锚点。
      *
-     * <p>r105 更正：注释里旧的"浅底 2.53:1 / 深底 2.66:1"同样是错公式算出来的。
-     * 真值是 <b>浅底 5.50:1 / 深底 6.96:1</b> —— 作为文字色其实已过 AA，
-     * 所以当年那套"装饰性图形豁免"的论证不必再挂着。
+     * <p>单色稿里品牌色<b>就是近黑</b>（{@code #18181B}）：主按钮黑底白字、
+     * 分段选中反白块、导航选中反白 —— 没有任何一处需要色相。
      *
-     * <p>⚠️ 但真正要当心的是品牌色<b>作底色</b>的场景：
-     * 深色下 --ds-brand-500 会变亮成 {@code #5AA9F5}，此时配白字只有
-     * <b>2.49:1</b>（FAIL），必须配深字 {@code #0D1B2E}（6.95:1）。
-     * 这条规则已落到 mobile.css 的 {@code --dsh-on-brand}，别绕过它写死 #fff。
+     * <p>⚠️ 上一版这里是 {@code #4D6BFE}（蓝）。当年还写过一大段"品牌色作底色时
+     * 对比度只有 2.49:1，必须配深字"的论证 —— 那段分析本身没错，但既然不再有彩色，
+     * 这一整类问题就消失了。<b>不要再把它改回彩色</b>：官方 `dsh web` 近黑近白，
+     * 壳层上彩色会在用户切主题时打架。
      *
-     * <p>本常量仅作文档锚点，不参与取色（渐变线用的是 {@code BRAND_500}）。
+     * <p>本常量仅作文档锚点，不参与取色。
      */
-    static final int BRAND_NOTE = 0xFF4D6BFE;   // 设计稿 brand #4D6BFE（与 BRAND_500 对齐；仅文档锚点，不参与取色）
+    static final int BRAND_NOTE = 0xFF18181B;
 
     // 字段与取色方法见下方「优先级」注释块——那里的说明有真机踩坑记录，务必先读。
 
@@ -155,8 +154,8 @@ final class DshPalette {
 
     /** 页面底色。 */
     static int bg(Context c) { return isDark(c) ? D_BG : L_BG; }
-    /** 卡片/骨架块填充色：页面底色之上的一层（浅色=白，深色=比底色亮一档）。 */
-    static int surface(Context c) { return isDark(c) ? 0xFF1C2632 : 0xFFFFFFFF; }
+    /** 卡片/骨架块填充色：页面底色之上的一层（浅色=纯白，深色=比底色亮一档的 #1A1A1D）。 */
+    static int surface(Context c) { return isDark(c) ? 0xFF1A1A1D : 0xFFFFFFFF; }
     /** 主文字色。 */
     static int text(Context c) { return isDark(c) ? D_TEXT : L_TEXT; }
     /** 弱化文字色。 */
@@ -271,12 +270,12 @@ final class DshPalette {
     static void resetDshOverride() { dshDarkOverride = null; }
 
     /**
-     * 浅色下的系统栏底色 —— 与 dsh 首页浅色背景一致。
+     * 浅色下的系统栏底色 —— 与 dsh 首页浅色背景一致（纯白）。
      *
-     * <p>浅色下首页背景就是 {@code #f7f9fc}（同 {@link #L_BG}），
-     * 单独列常量是为了让「系统栏取色」有一处明确来源：首页改底色时只改这里。
+     * <p>单独列常量是为了让「系统栏取色」有一处明确来源：首页改底色时只改这里。
+     * 单色稿下它与 {@link #L_BG} 相等 —— 不需要色差，也就不该有色差。
      */
-    static final int L_SYSTEM_BAR = 0xFFF7F9FC;
+    static final int L_SYSTEM_BAR = 0xFFFFFFFF;
 
     /**
      * 系统栏底色（跟随当前主题）。

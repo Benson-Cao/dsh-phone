@@ -54,26 +54,43 @@ public class DshWebViewClient extends WebViewClient {
      * 但页面是 loadDataWithBaseURL(null,…) 的 about:blank 文档，重载的是错误
      * 文档本身，永远不会真正重试 dsh 服务。现在重试直接 location.href 回 dsh 根。
      */
-    private static String errorHtml(String baseUrl, String title, String body) {
+    /**
+     * 内嵌占位页的配色（黑白单色，与原生启动页同一套灰阶）。
+     *
+     * <p>⚠️ 这几个页面是**字符串拼出来的 HTML**，跑在 WebView 里：拿不到 CSS 变量、
+     *    也拿不到 {@link DshUi} 的 drawable，只能按深浅色各给一组字面色值。
+     *    因此必须**显式传 dark**，不能像早年那样"默认浅色"—— 深色模式下给白底，
+     *    「正在连接」会闪一下白，比原生启动页的深色底刺眼得多。
+     *
+     * <p>按钮走单色稿的「反白块」规则：底色 = 文字色，字色 = 页面底色。
+     * 浅色下是黑底白字，深色下自动变成白底黑字，不需要第二套判断。
+     */
+    private static String pageBg(boolean dark)  { return dark ? "#151517" : "#FFFFFF"; }
+    private static String pageInk(boolean dark) { return dark ? "#F4F4F5" : "#18181B"; }
+    private static String pageMute(boolean dark){ return dark ? "#A1A1AA" : "#52525B"; }
+
+    private static String errorHtml(String baseUrl, String title, String body, boolean dark) {
         String safeBase = baseUrl == null || baseUrl.isEmpty()
                 ? "http://127.0.0.1:" + DshProcessManager.DSH_PORT : baseUrl;
-        return "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;color:#333'>"
+        return "<html data-dsh-error=\"1\"><body style='font-family:sans-serif;padding:24px;"
+            + "background:" + pageBg(dark) + ";color:" + pageInk(dark) + "'>"
             + "<h2>" + title + "</h2>"
-            + "<p>" + body + "</p>"
+            + "<p style='color:" + pageMute(dark) + "'>" + body + "</p>"
             + "<button onclick='location.href=\"" + safeBase + "\"' style='margin-top:12px;padding:8px 16px;"
-            + "border:0;border-radius:8px;background:#1466b8;color:#fff;font-size:14px;cursor:pointer'>重试</button>"
+            + "border:0;border-radius:8px;background:" + pageInk(dark) + ";color:" + pageBg(dark)
+            + ";font-size:14px;cursor:pointer'>重试</button>"
             + "</body></html>";
     }
 
-    private static String serverNotReadyHtml(String baseUrl) {
+    private static String serverNotReadyHtml(String baseUrl, boolean dark) {
         return errorHtml(baseUrl, "服务还没就绪",
-            "dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。");
+            "dsh 后台可能仍在启动，或已退出。请稍候刷新，或检查运行日志。", dark);
     }
 
-    private static String authExpiredHtml(String baseUrl) {
+    private static String authExpiredHtml(String baseUrl, boolean dark) {
         // r72（P3-4）：401（鉴权过期）与“服务未就绪”分开提示，避免误导排障方向
         return errorHtml(baseUrl, "需要重新登录",
-            "dsh 的登录状态已过期（401）。请完全退出应用后重新打开，应用会重新获取登录凭证。");
+            "dsh 的登录状态已过期（401）。请完全退出应用后重新打开，应用会重新获取登录凭证。", dark);
     }
 
     /**
@@ -85,16 +102,19 @@ public class DshWebViewClient extends WebViewClient {
      * 与启动页同风格的轻量文档，重试成功后被 loadUrl 覆盖；
      * {@link #onPageFinished} 的 clearHistory 会剪掉这段 data: 历史。
      */
-    private static String connectingHtml() {
+    private static String connectingHtml(boolean dark) {
         return "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            + "<style>html,body{height:100%;margin:0;background:#f7f9fc;font-family:sans-serif;"
-            + "color:#1b2330;display:flex;align-items:center;justify-content:center;text-align:center}"
+            + "<style>html,body{height:100%;margin:0;background:" + pageBg(dark) + ";font-family:sans-serif;"
+            + "color:" + pageInk(dark) + ";display:flex;align-items:center;justify-content:center;text-align:center}"
             + ".bar{margin:18px auto 0;height:3px;width:150px;border-radius:2px;"
-            + "background:linear-gradient(90deg,#4f6ef7,#a78bfa,transparent);"
+            // 原来是蓝→紫渐变。单色稿里换成一条近黑（深色下近白）实心条，
+            // 呼吸由 opacity 承担 —— 形状不变，只是不再有颜色。
+            + "background:" + pageInk(dark) + ";"
             + "animation:p 1.2s ease-in-out infinite}@keyframes p{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}"
             + "</style></head><body><div>"
             + "<div style='font-size:17px;font-weight:600'>正在连接 dsh 服务…</div>"
-            + "<div style='font-size:13px;color:#8792a2;margin-top:8px'>首次启动需要几秒，请稍候</div>"
+            + "<div style='font-size:13px;color:" + pageMute(dark)
+            + ";margin-top:8px'>首次启动需要几秒，请稍候</div>"
             + "<div class='bar'></div></div></body></html>";
     }
 
@@ -258,7 +278,9 @@ public class DshWebViewClient extends WebViewClient {
             // 第一次失败：立刻盖住 Chromium 原生错误页（回调本身在主线程，直接同步
             // loadData 才不会和后面的 loadUrl 抢顺序）。后续重试期间沿用这个占位页。
             if (attempt == 0 && view != null) {
-                view.loadDataWithBaseURL(null, connectingHtml(), "text/html", "utf-8", null);
+                view.loadDataWithBaseURL(null,
+                        connectingHtml(DshPalette.isDark(view.getContext())),
+                        "text/html", "utf-8", null);
             }
             final long delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
             final String base = dshBaseUrl(appCtx);
@@ -306,8 +328,9 @@ public class DshWebViewClient extends WebViewClient {
                     ((MainActivity) view.getContext()).showRemoteUnreachable(prof);
                     return;
                 }
+                final boolean dk = DshPalette.isDark(view.getContext());
                 view.loadDataWithBaseURL(null,
-                        httpCode == 401 ? authExpiredHtml(base) : serverNotReadyHtml(base),
+                        httpCode == 401 ? authExpiredHtml(base, dk) : serverNotReadyHtml(base, dk),
                         "text/html", "utf-8", null);
             }
         });

@@ -27,7 +27,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-REPO="${REPO:-termux-app}"
+# 构建树默认指向 /d/work/termux-app：这是 r129/r130 一直在用的正式树，路径无空格。
+# 仓库内那份 termux-app/ 只是早期检出，commit 与正式树不同，别在里面出包（见下方空格守卫）。
+if [ -z "${REPO:-}" ]; then
+  if [ -d /d/work/termux-app/.git ]; then REPO=/d/work/termux-app; else REPO=termux-app; fi
+fi
 BUNDLE="${BUNDLE:-}"
 INSTALL="${INSTALL:-0}"
 # 归档目录（出包后按版本命名留档）。默认指向约定的产物目录；
@@ -63,10 +67,22 @@ else
   echo "  已存在 $REPO，跳过 clone"
 fi
 
-case "$REPO" in
+# ⚠️ 必须查**绝对路径**有没有空格，不能查 $REPO 这个变量值。
+#    2026-11-15 踩坑：REPO 默认是相对名 `termux-app`，永远不含空格，于是这条守卫
+#    形同虚设 —— 实际落在 `D:\Dw phone\dsh-phone\termux-app`，ndk-build 收到
+#    `APP_BUILD_SCRIPT=D:\Dw phone\...\Android.mk` 后报「points to an unknown file」，
+#    看上去像 Android.mk 缺失，其实是空格把参数切断了。
+#
+# ⚠️ 更关键的是：本项目的正式构建树一直是 **/d/work/termux-app**。
+#    dsh-phone/termux-app 是仓库内的一次性检出（gitignore 之外），两者 commit 不同、
+#    状态不同，在那个树里编出来的东西和 r129/r130 的产物没有可比性。
+#    所以默认值直接指向 /d/work/termux-app，避免再编错树。
+REPO_ABS="$(cd "$REPO" 2>/dev/null && pwd || echo "$REPO")"
+case "$REPO_ABS" in
   *" "*)
-    echo "  ✗ 路径含空格，ndk-build 一定会失败。请先执行："
-    echo "      mv \"$(cd "$REPO" && pwd)\" /d/work/termux-app"
+    echo "  ✗ 构建树路径含空格：$REPO_ABS"
+    echo "    ndk-build 会把 APP_BUILD_SCRIPT 参数切断，然后报「unknown file」。"
+    echo "    请改用无空格路径，例如：REPO=/d/work/termux-app bash $0"
     exit 1;;
 esac
 
@@ -109,21 +125,87 @@ if [ -n "${PROXY:-}" ]; then
   done
 fi
 
-# termux-am-library 来自 jitpack，缺失时从镜像补齐（GitHub release 直连常常不通）
-ensure_bootstraps() {
-  local cpp="$REPO/app/src/main/cpp"
-  local ver="2026.02.12-r1%2Bapt.android-7"
-  for arch in aarch64 arm i686 x86; do
-    if [ -f "$cpp/bootstrap-$arch.zip" ]; then
-      echo "  · bootstrap-$arch.zip 已存在"
-    else
-      echo "  ↓ 从镜像下载 bootstrap-$arch.zip"
-      curl -sL --max-time 600 \
-        "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download/bootstrap-${ver}/bootstrap-${arch}.zip" \
-        -o "$cpp/bootstrap-$arch.zip" || true
-    fi
+# ---- bootstrap 资源：**从 build.gradle 现读**钉版与哈希，绝不在这里硬编码 ----
+#
+# 这段的唯一目的，是让 gradle 的 `:app:downloadBootstraps` 什么都不做。
+# 那个任务对 src/main/cpp/bootstrap-<arch>.zip 做 SHA-256 校验，不匹配就
+# **删掉文件**，改从 github.com 直连重下。本机直连常被限到几 KB/s，构建于是
+# 表现成「卡住不动」，实际是在慢慢下载 —— 30MB 的包一等就是二三十分钟。
+#
+# ⚠️ 这里曾经硬编码过版本号，结果连踩两次：第一次写 2026.02.12-r1，而当时树里
+#    钉的是 2022.01.07-r1；改成 2022 之后，正式树又被人升回了 2026.02.12-r1。
+#    **硬编码一定会跟 build.gradle 漂移**，而漂移的症状是「构建静默卡 20 分钟」
+#    而不是报错，极难定位。所以现在改成运行时解析。
+#
+# ⚠️ 四个 arch 都要备齐（aarch64 / arm / i686 / x86_64），因为 downloadBootstraps
+#    是无条件逐个调用的，与本次编哪个 ABI 无关。少一个就会触发直连下载。
+#    资产名是 x86_64，不是 x86 —— 曾因此拿到一个 9 字节的错误页。
+pick_python() {
+  for c in python3 python py; do
+    command -v "$c" >/dev/null 2>&1 && { echo "$c"; return 0; }
   done
+  return 1
 }
+
+# 从 build.gradle 现读「钉版 + 每个 arch 的 SHA-256」，输出：arch sha version
+read_bootstrap_pins() {
+  local py gradle="$REPO/app/build.gradle"
+  [ -f "$gradle" ] || return 1
+  py="$(pick_python)" || return 1
+  "$py" - "$gradle" <<'PYEOF_PINS'
+import re, sys
+src = open(sys.argv[1], encoding='utf-8').read()
+# 只认 apt-android-7 这一支 —— 产物文件名 termux-app_apt-android-7-debug_* 就是它
+m = re.search(r'packageVariant\s*==\s*"apt-android-7"\)\s*\{(.*?)\}\s*else', src, re.S)
+if not m:
+    sys.exit(1)
+block = m.group(1)
+mv = re.search(r'def\s+version\s*=\s*(.+)', block)
+if not mv:
+    sys.exit(1)
+# version 是拼出来的："2026.02.12-r1" + "%2B" + "apt.android-7"
+ver = ''.join(re.findall(r'"([^"]*)"', mv.group(1)))
+for arch, sha in re.findall(r'downloadBootstrap\(\s*"(\w+)"\s*,\s*"([0-9a-f]{64})"', block):
+    print(arch, sha, ver)
+PYEOF_PINS
+}
+
+bootstrap_ok() {
+  local f="$1" want="$2" got
+  [ -s "$f" ] || { echo "    · 缺失或空文件：$(basename "$f")"; return 1; }
+  got="$(sha256sum "$f" | cut -d' ' -f1)"
+  [ "$want" = "$got" ] && return 0
+  echo "    · 哈希不符（$(du -h "$f" | cut -f1)）：期望 ${want:0:12}… 实际 ${got:0:12}…"
+  return 1
+}
+
+ensure_bootstraps() {
+  local cpp="$REPO/app/src/main/cpp" pins arch sha ver
+  if ! pins="$(read_bootstrap_pins)" || [ -z "$pins" ]; then
+    echo "  ! 读不出 build.gradle 里的 bootstrap 钉版，跳过预取（交给 gradle 自己处理）"
+    return 0
+  fi
+  while read -r arch sha ver; do
+    [ -n "$arch" ] || continue
+    if bootstrap_ok "$cpp/bootstrap-$arch.zip" "$sha"; then
+      echo "  · bootstrap-$arch.zip 已就绪（$(du -h "$cpp/bootstrap-$arch.zip" | cut -f1)）"
+      continue
+    fi
+    echo "  ↓ 经 gh-proxy 拉 bootstrap-$arch.zip（$ver）"
+    curl -sL --retry 3 --retry-delay 2 --max-time 2400 \
+      "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download/bootstrap-${ver}/bootstrap-${arch}.zip" \
+      -o "$cpp/bootstrap-$arch.zip" || true
+    if bootstrap_ok "$cpp/bootstrap-$arch.zip" "$sha"; then
+      echo "    ✓ $(du -h "$cpp/bootstrap-$arch.zip" | cut -f1)"
+    else
+      rm -f "$cpp/bootstrap-$arch.zip"
+      echo "    ✗ bootstrap-$arch.zip 仍不可用 —— gradle 会自行直连下载，很可能卡很久"
+    fi
+  done <<< "$pins"
+}
+# 历史残留：早先把资产名写成 x86，下回来的是错误页。留着会让 gradle 的
+# clean 之外的路径读到一个毒文件，直接清掉。
+rm -f "$REPO/app/src/main/cpp/bootstrap-x86.zip"
 ensure_bootstraps
 
 cd "$REPO"

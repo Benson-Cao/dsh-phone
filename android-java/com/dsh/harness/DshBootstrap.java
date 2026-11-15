@@ -79,6 +79,23 @@ public final class DshBootstrap {
     private static final String BUNDLE_REV = "v7-dsh-0.2.2-rc.3-ssh3";
 
     /**
+     * 内置 bundle 里 dsh 引擎的版本号（如 {@code 0.2.2-rc.3}），取不到返回 {@code null}。
+     *
+     * <p>为什么从 {@link #BUNDLE_REV} 解析而不是去读安装目录的 package.json：
+     * BUNDLE_REV 是**编译期常量**，它标的就是这一版包里的引擎；而磁盘上的目录
+     * 有可能还没解包完或被用户动过，读到的东西反而不代表这个 App 承诺的内置基线。
+     *
+     * <p>口径：环境检查页（设计稿 02）与诊断页都只说「本地基线」，
+     * 「双端 commit 一致」必须等连上电脑、拿到对端 dshCommit 才谈得上。
+     */
+    public static String engineVersion() {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("dsh-(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.]+)?)")
+                .matcher(BUNDLE_REV);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
      * 内置插件（assets/dsh-nas-sync）的内容版本戳。
      *
      * <p>为什么单独一个戳、不跟 {@link #BUNDLE_REV} 走：内置插件的 assets 落地原来只写在

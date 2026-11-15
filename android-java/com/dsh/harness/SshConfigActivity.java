@@ -87,34 +87,32 @@ public class SshConfigActivity extends Activity {
         appBar.addView(DshUi.label(this, "添加电脑", 18, DshUi.ink(this), true));
         root.addView(appBar, matchWrap());
 
-        // ---- 三段 Tab：都是真跳转，不做假切换 ----
+        // ---- 三段 Tab：都是真跳转，不做假切换；选中项**反白块**（单色稿 .seg）----
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setBackground(DshUi.pillDrawable(this, DshUi.inputBg(this)));
-        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
-        root.addView(tabs, marginTop(matchWrap(), 16));
-        final String[] tabNames = { "配对码", "SSH", "本机引擎" };
+        GradientDrawable segBg = new GradientDrawable();
+        segBg.setColor(DshUi.subtle(this));
+        segBg.setCornerRadius(dp(DshUi.R_CONTROL));
+        segBg.setStroke(1, DshUi.line(this));
+        tabs.setBackground(segBg);
+        tabs.setPadding(dp(2), dp(2), dp(2), dp(2));
+        root.addView(tabs, marginTop(matchWrap(), 12));
+        // 设计稿修订版 §4.7：分段只留「配对码 / SSH」。第三段「本机引擎」原本是
+        // 切换到本机档案并重启 —— 那是执行位置的切换，不属于「添加一台电脑」。
+        final String[] tabNames = { "配对码", "SSH" };
         for (int i = 0; i < tabNames.length; i++) {
             final int idx = i;
-            TextView tab = DshUi.label(this, tabNames[i], 13,
-                    i == 1 ? DshUi.BRAND : DshUi.ink2(this), i == 1);
+            TextView tab = DshUi.label(this, tabNames[i], 11.5f,
+                    i == 1 ? 0xFFFFFFFF : DshUi.label(this), i == 1);
             tab.setGravity(android.view.Gravity.CENTER);
-            tab.setPadding(dp(8), dp(9), dp(8), dp(9));
+            tab.setPadding(dp(8), dp(8), dp(8), dp(8));
             if (i == 1) {
-                tab.setBackground(DshUi.pillDrawable(this, DshUi.card(this)));
-                tab.setElevation(dp(2));
+                tab.setBackground(DshUi.pillDrawable(this, DshUi.ink(this)));
             }
             tab.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     if (idx == 0) {
                         startActivity(new Intent(SshConfigActivity.this, PairActivity.class));
-                    } else if (idx == 2) {
-                        HostProfile hp = HostProfile.get(SshConfigActivity.this);
-                        if (hp.setCurrent(HostProfile.KIND_LOCAL)) {
-                            ProfileSession.resetRuntime();
-                            ProfileSession.restartInto(SshConfigActivity.this,
-                                    new Intent(SshConfigActivity.this, MainActivity.class));
-                        }
                     }
                 }
             });
@@ -175,7 +173,7 @@ public class SshConfigActivity extends Activity {
         tokenInput.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         final boolean[] visible = { false };
-        final TextView showToken = DshUi.label(this, "显示", 12, DshUi.BRAND, true);
+        final TextView showToken = DshUi.link(this, "显示", 12, DshUi.ink(this), true);
         showToken.setPadding(dp(10), dp(8), 0, dp(8));
         showToken.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -202,8 +200,8 @@ public class SshConfigActivity extends Activity {
                 + "主机公钥按 TOFU 钉住：首次见到会记录，之后不一致直接阻断。",
                 10.5f, DshUi.ink2(this), false);
         advancedBody.setVisibility(View.GONE);
-        final TextView advanced = DshUi.label(this,
-                "▸ 高级：公钥登记与 TOFU 指纹说明", 11, DshUi.BRAND, true);
+        final TextView advanced = DshUi.link(this,
+                "▸ 高级：公钥登记与 TOFU 指纹说明", 11, DshUi.ink(this), true);
         advanced.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 open[0] = !open[0];
@@ -558,7 +556,16 @@ public class SshConfigActivity extends Activity {
             public void run() {
                 statusView.setVisibility(View.VISIBLE);
                 statusView.setText(text);
-                statusView.setTextColor(error ? 0xFFD14343 : DshPalette.text(SshConfigActivity.this));
+                // 单色稿没有红色错误字：失败靠**虚线边框 + 近黑字**区分（mono/README §3）
+                statusView.setTextColor(error ? DshUi.ink(SshConfigActivity.this)
+                        : DshUi.label(SshConfigActivity.this));
+                statusView.setBackground(error
+                        ? DshUi.dashedCardDrawable(SshConfigActivity.this,
+                                DshUi.ink2(SshConfigActivity.this))
+                        : null);
+                int h = error ? dp(10) : dp(2);
+                int v = error ? dp(9) : dp(2);
+                statusView.setPadding(h, v, h, v);
             }
         });
     }
@@ -601,7 +608,7 @@ public class SshConfigActivity extends Activity {
         GradientDrawable d = new GradientDrawable();
         d.setColor(fill);
         d.setCornerRadius(radius);
-        d.setStroke(1, DshPalette.isDark(this) ? 0xFF2C3846 : 0xFFE2E8F0);
+        d.setStroke(1, DshUi.line(this));
         return d;
     }
 

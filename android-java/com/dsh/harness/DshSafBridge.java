@@ -435,6 +435,9 @@ public final class DshSafBridge {
         return openNativePage("openSwitcherPage", HostSwitcherActivity.class);
     }
 
+    // openEnvironmentPage() 随「02 环境检查」整页一起删除（设计稿修订版 §4.1：
+    // 该屏按需求移除）。四项检查的数据层 EnvCheck 保留 —— 09 本机引擎页在用。
+
     private int openNativePage(String tag, Class<?> target) {
         final Activity a = act();
         if (a == null || !localOriginAllowed(tag)) return -1;

@@ -62,6 +62,8 @@ public class OfflineActivity extends Activity {
     private TextView bindingTitle;
     private TextView bindingSub;
     private TextView bindingKind;
+    private TextView snapshotStageView;
+    private TextView snapshotKindView;
     private TextView recheckButton;
     private TextView enterButton;
     private boolean choiceMode;
@@ -139,8 +141,7 @@ public class OfflineActivity extends Activity {
 
         stepsBox = new LinearLayout(this);
         stepsBox.setOrientation(LinearLayout.VERTICAL);
-        stepsBox.setBackground(DshUi.pillDrawable(this,
-                DshUi.dark(this) ? 0xFF232C38 : 0xFFFFFFFF));
+        stepsBox.setBackground(DshUi.inputDrawable(this));
         stepsBox.setPadding(DshUi.dp(this, 11), DshUi.dp(this, 3),
                 DshUi.dp(this, 11), DshUi.dp(this, 3));
         errCard.addView(stepsBox, DshUi.matchWrapTop(this, 10));
@@ -168,9 +169,19 @@ public class OfflineActivity extends Activity {
         binding.addView(bindRow);
         root.addView(binding, DshUi.matchWrapTop(this, 2));
 
-        // ---- 还能做什么：按当前档案给真实出口 ----
-        root.addView(DshUi.section(this, "还能做什么"), DshUi.matchWrapTop(this, 16));
-        root.addView(DshUi.diagBar(this, capabilityText()), DshUi.matchWrapTop(this, 2));
+        // 「还能做什么」分节 + capabilityText() 诊断条按设计稿修订版 §4.8（图62）删除：
+        // 它把「可用降级」又复述一遍，而下面「诊断快照」三行已经说了同一件事。
+        // 删除后中下部留白由底部的 spacer 吸收，不补替补卡。
+
+        // ---- 诊断快照（单色稿新增）：把「哪一步失败 / 走的那条路 / 还能降级到哪」摊平 ----
+        root.addView(DshUi.section(this, "诊断快照"), DshUi.matchWrapTop(this, 12));
+        LinearLayout snap = DshUi.cardBox(this);
+        snap.addView(snapshotRow("失败阶段", null, 0));
+        snap.addView(DshUi.divider(this));
+        snap.addView(snapshotRow("activePath", null, 1));
+        snap.addView(DshUi.divider(this));
+        snap.addView(snapshotRow("可用降级", "本机引擎", 2));
+        root.addView(snap, DshUi.matchWrapTop(this, 2));
 
         // ---- 动作 ----
         enterButton = DshUi.button(this,
@@ -218,25 +229,35 @@ public class OfflineActivity extends Activity {
         });
         row2.addView(ssh, DshUi.half(this, false));
 
+        // 「后台保活设置」按钮按设计稿修订版 §4.3 第 3 条改为**只读状态行**：
+        // 它原本指向已删除的「我的 / 设置」页，而真正要改的是系统省电白名单。
+        // 这里不再做成可点跳转 —— 一个跳系统设置的按钮放在失败页，会把
+        // 「连不上电脑」和「后台会不会被杀」两件事混在一起。
         LinearLayout row3 = new LinearLayout(this);
         row3.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row3, DshUi.matchWrapTop(this, 2));
-        TextView power = DshUi.button(this, "后台保活设置", DshUi.BTN_GHOST);
-        power.setOnClickListener(new View.OnClickListener() {
+        root.addView(row3, DshUi.matchWrapTop(this, 8));
+        boolean exempt = DshPowerGuard.isExempt(this);
+        TextView keep = DshUi.label(this,
+                exempt ? "前台服务保活中 · 已放行省电白名单" : "前台服务未放行 · 长任务可能被系统结束",
+                10.5f, exempt ? DshUi.label(this) : DshUi.ink2(this), false);
+        row3.addView(keep, DshUi.matchWrap());
+
+        // 本机引擎页（设计稿 09）：走「在这台手机上用」这条路时，引擎在不在跑、
+        // 拿什么基线、保活怎么工作，此前只出现在通知栏与日志里，屏幕上看不到。
+        // 本页是它**唯一**的入口（连接电脑页按 §4.7 已不再提供本机选项）。
+        TextView engine = DshUi.button(this, "本机引擎状态", DshUi.BTN_GHOST);
+        engine.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                try {
-                    startActivity(DshPowerGuard.requestIntent(OfflineActivity.this));
-                } catch (Exception ignored) {
-                    // 页面本身已说明「去系统设置里手动放行」，这里不重复报错
-                }
+                startActivity(new Intent(OfflineActivity.this, EngineActivity.class));
             }
         });
-        row3.addView(power, DshUi.half(this, true));
+        root.addView(engine, DshUi.matchWrapTop(this, 2));
+
         TextView back = DshUi.button(this, "返回应用", DshUi.BTN_GHOST);
         back.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { finish(); }
         });
-        row3.addView(back, DshUi.half(this, false));
+        root.addView(back, DshUi.matchWrapTop(this, 2));
 
         setContentView(scroll);
         try {
@@ -308,40 +329,71 @@ public class OfflineActivity extends Activity {
                 + "说明是这台手机与电脑的绑定关系需要重新配对。");
     }
 
-    /** 「还能做什么」：按当前档案给真实能力，不写死一句。 */
-    private String capabilityText() {
-        HostProfile.Profile p = HostProfile.get(this).current();
-        StringBuilder sb = new StringBuilder();
-        sb.append("activePath ").append(p.kind);
-        if (HostProfile.KIND_SSH.equals(p.kind)) {
-            sb.append(" · ").append(p.sshUser).append('@').append(p.sshHost)
-                    .append(':').append(p.sshPort)
-                    .append("\n隧道 127.0.0.1:").append(p.localPort)
-                    .append(" → 电脑 ").append(p.sshTargetPort)
-                    .append(" · 令牌").append(p.sshToken.isEmpty() ? "缺失" : "已填");
-        } else if (HostProfile.KIND_RELAY.equals(p.kind)) {
-            sb.append(" · 心跳超时 20s\n")
-                    .append(p.origin == null ? "地址未记录" : p.origin)
-                    .append(" · 令牌").append(p.deviceToken.isEmpty() ? "缺失" : "可用");
-        } else {
-            sb.append(" · 本机引擎\n127.0.0.1:").append(DshProcessManager.DSH_PORT)
-                    .append(" · 会话只在这台手机上");
-        }
-        return sb.toString();
-    }
+    // capabilityText()（「还能做什么」那条诊断条）随该分节一并删除（设计稿修订版 §4.8 图62）。
+    // 同样的 activePath / 令牌状态在下面「诊断快照」里已经有了，两处各写一遍只会漂移。
 
     // ---- 渲染小工具 ----
 
-    /** 结论卡的标题行 + 圆点颜色（区分硬失败与可处置的告警）。 */
+    /**
+     * 结论卡的标题行 + 状态环。
+     *
+     * <p>单色稿把「状态」编码进**形状**而不是颜色，所以这里只有两档：
+     * 实心 = 目标已达成（电脑在线），空心 = 其余全部（未配对 / 检查中 / 各类失败）。
+     * 失败与否靠标题文案 + 下方虚线卡区分，不再靠红黄绿。
+     *
+     * <p>判定沿用本文件既有的「看标题前缀」写法（与 {@link #stageOf} 同源），
+     * 避免为一个布尔值再加一个参数、把 8 个调用点全改一遍。
+     */
     private void setHead(String text, int dotColor) {
         stateView.setText(text);
+        if (snapshotStageView != null) snapshotStageView.setText(stageOf(text));
+        if (snapshotKindView != null) snapshotKindView.setText(HostProfile.get(this).currentId());
+        boolean solid = text != null && text.startsWith("电脑在线");
         try {
             GradientDrawable d = new GradientDrawable();
             d.setShape(GradientDrawable.OVAL);
-            d.setColor(dotColor);
+            if (solid) {
+                d.setColor(dotColor);
+            } else {
+                d.setColor(0x00000000);
+                d.setStroke(Math.max(2, DshUi.dp(this, 2)), dotColor);
+            }
             stateDot.setBackground(d);
         } catch (Throwable ignored) {
         }
+    }
+
+    /** 把结论行压成两个字的「失败阶段」，给诊断快照用（长句塞不进标签）。 */
+    private String stageOf(String head) {
+        if (head == null) return "未知";
+        if (head.startsWith("连不上")) return "地址不通";
+        if (head.startsWith("Relay 返回")) return "Relay 异常";
+        if (head.startsWith("地址通")) return "无心跳";
+        if (head.startsWith("电脑在线")) return "已恢复";
+        if (head.startsWith("还没有配对过")) return "未配对";
+        if (head.startsWith("正在检查")) return "检查中";
+        return "档案异常";
+    }
+
+    /** 诊断快照的一行：左词 + 右标签（虚线=失败阶段，反白=执行位置，实心=可降级项）。 */
+    private View snapshotRow(String name, String value, int style) {
+        LinearLayout row = DshUi.rowBox(this);
+        row.addView(DshUi.label(this, name, 12, DshUi.ink(this), true),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout tag;
+        if (style == 0) {
+            tag = DshUi.tagWait(this, value == null ? "检查中" : value);
+        } else if (style == 1) {
+            tag = DshUi.tagInvert(this, value == null
+                    ? HostProfile.get(this).currentId() : value);
+        } else {
+            tag = DshUi.tagOn(this, value);
+        }
+        TextView txt = (TextView) tag.getChildAt(tag.getChildCount() - 1);
+        if (style == 0) snapshotStageView = txt;
+        if (style == 1) snapshotKindView = txt;
+        row.addView(tag);
+        return row;
     }
 
     /**
@@ -413,24 +465,22 @@ public class OfflineActivity extends Activity {
         v.setAlpha(enabled ? 1f : 0.5f);
     }
 
+    /** 结论卡：单色稿是**1.5px 虚线近黑边**，不填告警底色（mono/README §3「线型通道」）。 */
     private GradientDrawable warnCard() {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(DshUi.dark(this) ? 0xFF3A3020 : DshUi.SOFT_AMBER);
-        d.setCornerRadius(DshUi.dp(this, 16));
-        d.setStroke(Math.max(1, DshUi.dp(this, 1)),
-                DshUi.dark(this) ? 0xFF5C4A24 : 0xFFF2DFB9);
-        return d;
+        return DshUi.dashedCardDrawable(this, DshUi.ink2(this));
     }
 
     private int warnInk() {
-        return DshUi.dark(this) ? 0xFFE8C07A : 0xFF9A660B;
+        return DshUi.ink(this);
     }
 
+    /** 空心环：单色稿里「待处理/离线」都用空心圈，只有「在线/完成」才是实心点。 */
     private View dot(int color) {
         View v = new View(this);
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
-        d.setColor(color);
+        d.setColor(0x00000000);
+        d.setStroke(Math.max(2, DshUi.dp(this, 2)), color);
         v.setBackground(d);
         return v;
     }
@@ -448,8 +498,11 @@ public class OfflineActivity extends Activity {
      * 「进入这台电脑」：只跳过按需连接守卫，**不改变档案类型**。
      *
      * <p>r128：SSH 档必须原样保留（主机、隧道端口、令牌都是用户填的）。早年版在这里
-     * 无条件 `setRelay(...) + setCurrent(relay)`，把 SSH 档悄悄换成一个没在运行的
-     * Relay，用户看到的是「连不上这台电脑 / 127.0.0.1:8899」和一串 Relay 原因。
+     * 无条件 `setRelay(...) + setCurrent(relay)`，把 SSH 档悄悄换成一个没配置的
+     * Relay（`relayUrl` 形如 `http://<电脑局域网IP>:8899`），用户看到的是
+     * 「连不上这台电脑」加一串 Relay 原因 —— 而他填的明明是 SSH。
+     * （注意 8899 是**电脑端**监听地址，不是手机本地端口；这里早年写成
+     * `127.0.0.1:8899` 是错的，会让人去手机上排查一个不存在的端口。）
      * Relay 档仍走三要素补齐：地址、主机 ID、令牌缺一不可，缺令牌不能降级成
      * 「无令牌也进」—— 反代页会因为拿不到会话票而白屏。
      *

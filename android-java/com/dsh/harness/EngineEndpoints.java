@@ -44,6 +44,23 @@ public final class EngineEndpoints {
     public static final String LOCAL_URL = "http://127.0.0.1:" + DshBootstrap.DSH_PORT + "/";
     public static final String PROXY_URL = "http://127.0.0.1:" + PROXY_PORT + "/";
 
+    /**
+     * 设计稿 02「执行位置 · 三个档案」里那三个端口号。
+     *
+     * <p><b>口径是「本机听哪个口」，不是对端地址</b> —— 这一点最容易搞错：
+     * 8899 是**电脑端** Relay 的监听地址，手机上写 127.0.0.1:8899 指的是手机自己，
+     * 永远连不上（真机上踩过，见 {@link RemoteEntryRules} 头注释）。
+     *
+     * <p>注意这里是**展示用**的常量，运行期的真实默认值另有其处：
+     * on-device 走 {@link DshBootstrap#DSH_PORT}；ssh 的本地端口由
+     * {@link HostProfile} 的 localPort 决定（缺省 3081，用户可改）；
+     * relay 的 8899 由电脑端插件监听，手机侧不可配。
+     * 之所以不在这里反向收口，是因为改动 HostProfile 的既有默认值风险大于收益。
+     */
+    public static final int PORT_ON_DEVICE_VIEW = DshBootstrap.DSH_PORT;
+    public static final int PORT_SSH_VIEW = 3081;
+    public static final int PORT_RELAY_VIEW = 8899;
+
     private static volatile String sCurrentUrl = LOCAL_URL;
     private static volatile Process sProxy;
     /** 当前反代进程绑定的上游，用于切换时判断是否需要重建进程。 */

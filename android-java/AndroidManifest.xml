@@ -265,6 +265,11 @@
         android:exported="false"
         android:label="@string/application_name"
         android:configChanges="orientation|screenSize|keyboardHidden" />
+    <!-- r134 加本机引擎页：引擎在不在跑、什么基线、保活怎么工作，此前只写进通知栏与日志。 -->
+    <activity android:name="com.dsh.harness.EngineActivity"
+        android:exported="false"
+        android:label="@string/application_name"
+        android:configChanges="orientation|screenSize|keyboardHidden" />
     <activity android:name="com.dsh.harness.SshConfigActivity"
         android:exported="false"
         android:label="@string/application_name"

@@ -139,6 +139,19 @@ if [ $LOGIC_ONLY -eq 0 ]; then
   fi
 fi
 
+# ---- 3. 原生页三处声明一致性（源码 / 参照清单 / 注入字典）----
+# 一个页面要在三处同时存在才算真的可用，而漏任何一处都**不会在编译期报错**：
+#  · 源码有、清单/字典漏 → 装了也起不来（点入口 ActivityNotFound）；
+#  · 页面删了、构建树留 .java → 不报重复类，安安静静编进 APK。
+# 两种都只能靠事后 grep 发现，所以固化成这一步。
+printf '\n'
+echo "3. 原生页三处声明（源码 · 参照清单 · 注入字典）"
+if bash "$ROOT/scripts/check-native-pages.sh"; then
+  :   # 脚本自己已经打过 ✓ 行，这里不再重复一句
+else
+  bad "三处声明不一致（编译期不报错，真机点入口才会炸）"
+fi
+
 # ---- 汇总 ----
 printf '\n'
 if [ $ERR -eq 0 ]; then
