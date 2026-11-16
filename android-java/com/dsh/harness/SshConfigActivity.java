@@ -6,12 +6,11 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -45,136 +44,143 @@ public class SshConfigActivity extends Activity {
     private EditText localPortInput;
     private EditText targetPortInput;
     private EditText tokenInput;
-    private Button testButton;
-    private Button saveButton;
+    /** 底部双按钮走 {@link DshUi#button}（TextView），不再用系统 Button —— 见 buildUi 注释。 */
+    private TextView testButton;
+    private TextView saveButton;
     private TextView statusView;
     private TextView fingerprintView;
     private TextView pubkeyView;
+    /** 端口映射示意图的容器：端口值改动时整块重画（两端文案都由输入决定）。 */
+    private LinearLayout mapBox;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
         prefill();
+        refreshMap();   // 回填完端口再画映射示意，否则图上永远是默认 3081/3080
     }
+
+    /** 返回上一级也禁用转场动画：两条切换路径顶部都不动。 */
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(0, 0);
+    }
+
+    /**
+     * r147：「‹」与系统返回键都回固定的上一级（03 连接电脑页），不走历史栈；
+     * 理由与配对页 {@code goUp()} 相同（见 PairActivity）。
+     */
+    private void goUp() {
+        startActivity(new Intent(this, HostSwitcherActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        overridePendingTransition(0, 0);
+        finish();
+    }
+
+    /** 分段是同级替换：栈里始终只留一个「添加电脑」页。 */
+    private void replaceWith(Intent target) {
+        startActivity(target);
+        overridePendingTransition(0, 0);
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() { goUp(); }
 
     // ---- UI ----
 
     private void buildUi() {
-        // v2 设计稿 09「添加电脑 SSH」：应用栏 + 三段 Tab + 分组卡片 +
-        // 端口映射示意 + 令牌掩码/显示 + 渐变主按钮。
-        // 业务逻辑（字段、校验、testConnection / saveAndConnect / probe）一律不动。
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(DshUi.pageBg(this));
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(18);
-        root.setPadding(pad, dp(14), pad, dp(20));
-        scroll.addView(root, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // ---- 应用栏：返回 + 标题 ----
-        LinearLayout appBar = new LinearLayout(this);
-        appBar.setOrientation(LinearLayout.HORIZONTAL);
-        appBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView back = DshUi.label(this, "‹", 26, DshUi.ink(this), false);
-        back.setPadding(0, 0, dp(12), 0);
-        back.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { finish(); }
-        });
-        appBar.addView(back);
-        appBar.addView(DshUi.label(this, "添加电脑", 18, DshUi.ink(this), true));
-        root.addView(appBar, matchWrap());
-
-        // ---- 三段 Tab：都是真跳转，不做假切换；选中项**反白块**（单色稿 .seg）----
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        GradientDrawable segBg = new GradientDrawable();
-        segBg.setColor(DshUi.subtle(this));
-        segBg.setCornerRadius(dp(DshUi.R_CONTROL));
-        segBg.setStroke(1, DshUi.line(this));
-        tabs.setBackground(segBg);
-        tabs.setPadding(dp(2), dp(2), dp(2), dp(2));
-        root.addView(tabs, marginTop(matchWrap(), 12));
-        // 设计稿修订版 §4.7：分段只留「配对码 / SSH」。第三段「本机引擎」原本是
-        // 切换到本机档案并重启 —— 那是执行位置的切换，不属于「添加一台电脑」。
-        final String[] tabNames = { "配对码", "SSH" };
-        for (int i = 0; i < tabNames.length; i++) {
-            final int idx = i;
-            TextView tab = DshUi.label(this, tabNames[i], 11.5f,
-                    i == 1 ? 0xFFFFFFFF : DshUi.label(this), i == 1);
-            tab.setGravity(android.view.Gravity.CENTER);
-            tab.setPadding(dp(8), dp(8), dp(8), dp(8));
-            if (i == 1) {
-                tab.setBackground(DshUi.pillDrawable(this, DshUi.ink(this)));
-            }
-            tab.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    if (idx == 0) {
-                        startActivity(new Intent(SshConfigActivity.this, PairActivity.class));
+        // 设计稿 05「添加电脑 · SSH」（mono / v4 第 5 屏）：
+        // 应用栏 + 分段控件 + 导语 + 主机卡（字段带标题）+ 端口映射（示意 + 两列字段）
+        // + 令牌卡 + 可展开的高级说明 + 「首次连接」两条 info + 底部双按钮。
+        //
+        // ⚠️ 本页此前是 v2 彩色稿的写法：自绘应用栏（‹ 26sp + 标题 18sp，没有圆钮与发丝线）、
+        //    把 hint 当字段标签、用一个 pill 拼「一 隧道 →」、底部是系统 Button（13sp、
+        //    自带最小宽度与内边距）。单色稿落地后它是唯一还留着旧视觉的页面 ——
+        //    同一份「字段 + 说明」在 04 配对页是一套字号，在这里是另一套。
+        //    所以整页按设计稿重建；业务方法（prefill / testConnection / runTest /
+        //    saveAndConnect / setStatus / showFingerprint / showPubkey）一行不改。
+        // r145：应用栏 + 分段控件固定在 ScrollView 之外，与 04 配对页共用同一骨架。
+        // 切换分段只换内容，顶部「‹ 添加电脑」这一行不再随转场动画或表单滚动而动。
+        LinearLayout page = new LinearLayout(this);
+        LinearLayout root = DshUi.fixedSegmentedPage(this, page, "添加电脑",
+                new View.OnClickListener() {
+                    @Override public void onClick(View v) { goUp(); }
+                }, 1, new DshUi.OnIndexClick() {
+                    @Override public void onIndex(int index) {
+                        if (index == 0) replaceWith(new Intent(SshConfigActivity.this, PairActivity.class));
                     }
-                }
-            });
-            tabs.addView(tab, new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        }
+                });
 
-        root.addView(DshUi.label(this,
+        // ---- 导语 ----
+        TextView lead = DshUi.label(this,
                 "页面由那台电脑的 dsh web 经隧道提供，不启动手机本机引擎。",
-                11.5f, DshUi.ink2(this), false), marginTop(matchWrap(), 14));
+                12.5f, DshUi.label(this), false);
+        lead.setLineSpacing(DshUi.dp(this, 2), 1f);
+        root.addView(lead, DshUi.matchWrapTop(this, 9));
 
-        // ---- 卡片 1：主机地址 / SSH 端口 / 用户名 ----
-        LinearLayout card1 = groupCard(root);
-        hostInput = field(card1, "主机地址，如 100.99.226.70",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
-                DshUi.ink3(this), DshUi.ink(this));
-        LinearLayout row1 = twoColumnRow(card1);
-        portInput = field(row1, "SSH 端口", InputType.TYPE_CLASS_NUMBER,
-                DshUi.ink3(this), DshUi.ink(this));
-        portInput.setLayoutParams(DshUi.half(this, true));
-        userInput = field(row1, "用户名", InputType.TYPE_CLASS_TEXT,
-                DshUi.ink3(this), DshUi.ink(this));
-        userInput.setLayoutParams(DshUi.half(this, false));
+        // ---- 卡片 1：主机地址 / SSH 端口 / 用户名（设计稿 .field）----
+        LinearLayout card1 = DshUi.cardBox(this);
+        root.addView(card1, DshUi.matchWrapTop(this, 12));
 
-        // ---- 端口映射示意（数值以下面的输入框为准）----
-        root.addView(DshUi.label(this, "端口映射", 11, DshUi.ink3(this), true),
-                marginTop(matchWrap(), 16));
-        LinearLayout map = new LinearLayout(this);
-        map.setOrientation(LinearLayout.HORIZONTAL);
-        map.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        map.addView(pill("手机 3081"));
-        map.addView(DshUi.label(this, "  一 隧道 →  ", 11, DshUi.BRAND, true));
-        map.addView(pill("电脑 3080"));
-        root.addView(map, marginTop(matchWrap(), 6));
+        hostInput = fieldBlock(card1, "主机地址", "100.99.226.70",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, null);
 
-        LinearLayout card2 = groupCard(root);
-        LinearLayout row2 = twoColumnRow(card2);
-        localPortInput = field(row2, "手机端口", InputType.TYPE_CLASS_NUMBER,
-                DshUi.ink3(this), DshUi.ink(this));
-        localPortInput.setLayoutParams(DshUi.half(this, true));
-        targetPortInput = field(row2, "电脑端口", InputType.TYPE_CLASS_NUMBER,
-                DshUi.ink3(this), DshUi.ink(this));
-        targetPortInput.setLayoutParams(DshUi.half(this, false));
-        card2.addView(DshUi.label(this,
-                "填电脑上 dsh web 实际监听的端口，与手机本机引擎的 3080 无关。",
-                10.5f, DshUi.ink3(this), false), marginTop(matchWrap(), 10));
+        LinearLayout row1 = fieldRow(card1);
+        portInput = fieldCell(row1, "SSH 端口", "22", InputType.TYPE_CLASS_NUMBER, true);
+        userInput = fieldCell(row1, "用户名", "dsh", InputType.TYPE_CLASS_TEXT, false);
+
+        // ---- 端口映射：示意 + 两个真实端口 ----
+        // 设计稿这一屏把「手机端口 ↔ 电脑端口」画成一张示意图，因为它最容易填反：
+        // 手机端口是本机隧道入口，电脑端口是对端 dsh web 的监听口，两者没有默认对应关系。
+        root.addView(DshUi.section(this, "端口映射"), DshUi.matchWrapTop(this, 14));
+
+        LinearLayout card2 = DshUi.cardBox(this);
+        root.addView(card2, DshUi.matchWrapTop(this, 6));
+
+        mapBox = new LinearLayout(this);
+        mapBox.setOrientation(LinearLayout.VERTICAL);
+        card2.addView(mapBox, DshUi.matchWrap());
+        refreshMap();
+
+        LinearLayout row2 = fieldRow(card2);
+        localPortInput = fieldCell(row2, "手机端口", "3081", InputType.TYPE_CLASS_NUMBER, true);
+        targetPortInput = fieldCell(row2, "电脑端口", "3080", InputType.TYPE_CLASS_NUMBER, false);
+
+        TextView mapHelp = DshUi.help(this, DshUi.emphasis(this,
+                new String[] { "填电脑上 ", "dsh web 实际监听的端口", "，与手机本机引擎的 3080 无关。" },
+                new boolean[] { false, true, false }));
+        mapHelp.setPadding(DshUi.dp(this, 12), 0, DshUi.dp(this, 12), DshUi.dp(this, 9));
+        card2.addView(mapHelp, DshUi.matchWrap());
 
         // ---- dsh web 令牌：掩码 + 显示开关 ----
-        root.addView(DshUi.label(this, "dsh web 令牌", 11, DshUi.ink3(this), true),
-                marginTop(matchWrap(), 16));
-        LinearLayout card3 = groupCard(root);
+        root.addView(DshUi.section(this, "dsh web 令牌"), DshUi.matchWrapTop(this, 14));
+
+        LinearLayout card3 = DshUi.cardBox(this);
+        root.addView(card3, DshUi.matchWrapTop(this, 6));
+
+        LinearLayout tokenField = new LinearLayout(this);
+        tokenField.setOrientation(LinearLayout.VERTICAL);
+        tokenField.setPadding(DshUi.dp(this, 12), DshUi.dp(this, 9),
+                DshUi.dp(this, 12), DshUi.dp(this, 9));
+        tokenField.addView(DshUi.fieldLabel(this, "令牌", null), DshUi.matchWrap());
+
         LinearLayout tokenRow = new LinearLayout(this);
         tokenRow.setOrientation(LinearLayout.HORIZONTAL);
-        tokenRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        tokenInput = field(tokenRow, "从电脑端启动日志复制",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD,
-                DshUi.ink3(this), DshUi.ink(this));
+        tokenRow.setGravity(Gravity.CENTER_VERTICAL);
+        tokenField.addView(tokenRow, DshUi.matchWrapTop(this, 5));
+
+        tokenInput = DshUi.input(this, "从电脑端启动日志复制",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         tokenInput.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                0, DshUi.dp(this, 37), 1f));
+        tokenRow.addView(tokenInput);
+
         final boolean[] visible = { false };
-        final TextView showToken = DshUi.link(this, "显示", 12, DshUi.ink(this), true);
-        showToken.setPadding(dp(10), dp(8), 0, dp(8));
+        final TextView showToken = DshUi.link(this, "显示", 11, DshUi.ink(this), true);
+        showToken.setPadding(DshUi.dp(this, 10), 0, 0, 0);
         showToken.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 visible[0] = !visible[0];
@@ -187,19 +193,48 @@ public class SshConfigActivity extends Activity {
             }
         });
         tokenRow.addView(showToken);
-        card3.addView(tokenRow, matchWrap());
-        card3.addView(DshUi.label(this,
-                "回环请求同样需要令牌；本机只保存你填的值。",
-                10.5f, DshUi.ink3(this), false), marginTop(matchWrap(), 8));
 
-        // ---- 高级：公钥登记与 TOFU（可展开，不是死链接）----
-        final boolean[] open = { false };
-        final TextView advancedBody = DshUi.label(this,
+        TextView tokenHelp = DshUi.help(this,
+                "从电脑端启动日志复制；回环请求同样需要令牌。");
+        tokenHelp.setPadding(0, DshUi.dp(this, 5), 0, 0);
+        tokenField.addView(tokenHelp, DshUi.matchWrap());
+        card3.addView(tokenField, DshUi.matchWrap());
+
+        // ---- 「首次连接」两条口径（设计稿 .info ×2）----
+        root.addView(DshUi.section(this, "首次连接"), DshUi.matchWrapTop(this, 14));
+        root.addView(DshUi.infoCard(this, 1, DshUi.emphasis(this,
+                new String[] { "核对", "主机指纹", "（TOFU）；之后指纹变化直接阻断。" },
+                new boolean[] { false, true, false })), DshUi.matchWrapTop(this, 6));
+        root.addView(DshUi.infoCard(this, 2, DshUi.emphasis(this,
+                new String[] { "私钥只存这台手机；删除档案只清本地设置，", "不影响远端会话", "。" },
+                new boolean[] { false, true, false })), DshUi.matchWrapTop(this, 7));
+
+        // ---- 高级说明（可展开，不是死链接）----
+        // 「测试连接」拿到的主机指纹、生成的本机公钥都放进这块折叠体里：
+        // 它们是排查材料，常态下不该占页面正文（设计稿把这条收进了 fold）。
+        final LinearLayout advancedBody = new LinearLayout(this);
+        advancedBody.setOrientation(LinearLayout.VERTICAL);
+        advancedBody.setVisibility(View.GONE);
+
+        TextView advText = DshUi.help(this,
                 "首次连接要把本机公钥登记到那台机器：本项目自带的 pc-sshd 读用户目录下的 "
                 + ".dsh/ssh/authorized_keys，标准 sshd 读 ~/.ssh/authorized_keys。\n"
-                + "主机公钥按 TOFU 钉住：首次见到会记录，之后不一致直接阻断。",
-                10.5f, DshUi.ink2(this), false);
-        advancedBody.setVisibility(View.GONE);
+                + "主机公钥按 TOFU 钉住：首次见到会记录，之后不一致直接阻断。");
+        advText.setPadding(0, 0, 0, 0);
+        advancedBody.addView(advText, DshUi.matchWrap());
+
+        fingerprintView = DshUi.mono(this, "", 11, DshUi.ink2(this), false);
+        fingerprintView.setLineSpacing(DshUi.dp(this, 2), 1f);
+        fingerprintView.setVisibility(View.GONE);
+        advancedBody.addView(fingerprintView, DshUi.matchWrapTop(this, 8));
+
+        pubkeyView = DshUi.mono(this, "", 11, DshUi.ink2(this), false);
+        pubkeyView.setLineSpacing(DshUi.dp(this, 2), 1f);
+        pubkeyView.setTextIsSelectable(true);   // 用户要把它复制到电脑上，必须能选中
+        pubkeyView.setVisibility(View.GONE);
+        advancedBody.addView(pubkeyView, DshUi.matchWrapTop(this, 8));
+
+        final boolean[] open = { false };
         final TextView advanced = DshUi.link(this,
                 "▸ 高级：公钥登记与 TOFU 指纹说明", 11, DshUi.ink(this), true);
         advanced.setOnClickListener(new View.OnClickListener() {
@@ -209,67 +244,35 @@ public class SshConfigActivity extends Activity {
                 advanced.setText((open[0] ? "▾" : "▸") + " 高级：公钥登记与 TOFU 指纹说明");
             }
         });
-        root.addView(advanced, marginTop(matchWrap(), 14));
-        root.addView(advancedBody, marginTop(matchWrap(), 6));
+        root.addView(advanced, DshUi.matchWrapTop(this, 12));
+        root.addView(advancedBody, DshUi.matchWrapTop(this, 8));
 
-        // ---- 底部双按钮 ----
+        // ---- 状态行（测试连接的结果就地显示在按钮上方）----
+        statusView = DshUi.label(this, "", 12.5f, DshUi.ink(this), false);
+        statusView.setLineSpacing(DshUi.dp(this, 2), 1f);
+        statusView.setVisibility(View.GONE);
+        root.addView(statusView, DshUi.matchWrapTop(this, 12));
+
+        root.addView(DshUi.spacer(this));
+
+        // ---- 底部双按钮（设计稿 .btnrow：等分，次按钮在左）----
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        testButton = new Button(this);
-        testButton.setText("测试连接");
-        testButton.setAllCaps(false);
-        testButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        testButton.setTextColor(DshUi.ink(this));
-        testButton.setBackground(DshUi.ghostDrawable(this));
+        root.addView(actions, DshUi.matchWrapTop(this, 6));
+
+        testButton = DshUi.button(this, "测试连接", DshUi.BTN_SECONDARY);
         testButton.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { testConnection(); }
         });
-        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        bl.setMargins(0, 0, dp(5), 0);
-        actions.addView(testButton, bl);
+        actions.addView(testButton, DshUi.half(this, true));
 
-        saveButton = new Button(this);
-        saveButton.setText("保存并连接");
-        saveButton.setAllCaps(false);
-        saveButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        saveButton.setTextColor(0xFFFFFFFF);
-        saveButton.setBackground(DshUi.primaryDrawable(this));
+        saveButton = DshUi.button(this, "保存并连接", DshUi.BTN_PRIMARY);
         saveButton.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { saveAndConnect(); }
         });
-        LinearLayout.LayoutParams br = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        br.setMargins(dp(5), 0, 0, 0);
-        actions.addView(saveButton, br);
-        root.addView(actions, marginTop(matchWrap(), 18));
+        actions.addView(saveButton, DshUi.half(this, false));
 
-        // ---- 状态 / 指纹 / 公钥（业务方法仍引用，语义不变）----
-        statusView = new TextView(this);
-        statusView.setTextColor(DshUi.ink(this));
-        statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        statusView.setLineSpacing(dp(2), 1f);
-        statusView.setVisibility(View.GONE);
-        root.addView(statusView, marginTop(matchWrap(), 16));
-
-        fingerprintView = new TextView(this);
-        fingerprintView.setTextColor(DshUi.ink2(this));
-        fingerprintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        fingerprintView.setTypeface(android.graphics.Typeface.MONOSPACE);
-        fingerprintView.setLineSpacing(dp(2), 1f);
-        fingerprintView.setVisibility(View.GONE);
-        root.addView(fingerprintView, marginTop(matchWrap(), 12));
-
-        pubkeyView = new TextView(this);
-        pubkeyView.setTextColor(DshUi.ink2(this));
-        pubkeyView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        pubkeyView.setTypeface(android.graphics.Typeface.MONOSPACE);
-        pubkeyView.setLineSpacing(dp(2), 1f);
-        pubkeyView.setTextIsSelectable(true);   // 用户要把它复制到电脑上，必须能选中
-        pubkeyView.setVisibility(View.GONE);
-        root.addView(pubkeyView, marginTop(matchWrap(), 12));
-
-        setContentView(scroll);
+        setContentView(page);
         try {
             getWindow().setStatusBarColor(DshPalette.systemBar(this));
             getWindow().getDecorView().setSystemUiVisibility(
@@ -278,44 +281,72 @@ public class SshConfigActivity extends Activity {
         }
     }
 
-    /** 分组卡片（v2 稿：白底 + 18dp 圆角 + 1px 边框）。 */
-    private LinearLayout groupCard(LinearLayout parent) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(DshUi.cardDrawable(this));
-        c.setPadding(dp(14), dp(12), dp(14), dp(14));
-        parent.addView(c, marginTop(matchWrap(), 6));
-        return c;
+    /** 竖排字段块：标题 + 输入框 + 可选说明（设计稿 .field，整块带 12/9 内边距）。 */
+    private EditText fieldBlock(LinearLayout parent, String labelText, String hint,
+                                int inputType, CharSequence help) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(DshUi.dp(this, 12), DshUi.dp(this, 9),
+                DshUi.dp(this, 12), DshUi.dp(this, 9));
+        col.addView(DshUi.fieldLabel(this, labelText, null), DshUi.matchWrap());
+        EditText in = DshUi.input(this, hint, inputType);
+        col.addView(in, DshUi.matchWrapTop(this, 5));
+        if (help != null) {
+            TextView h = DshUi.help(this, help);
+            h.setPadding(0, DshUi.dp(this, 5), 0, 0);
+            col.addView(h, DshUi.matchWrap());
+        }
+        parent.addView(col, DshUi.matchWrap());
+        return in;
     }
 
-    /** 一行两列容器。 */
-    private LinearLayout twoColumnRow(LinearLayout parent) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        parent.addView(r, marginTop(matchWrap(), 8));
-        return r;
+    /** 两列字段的横向容器；两格之间的竖发丝线由 {@link #fieldCell} 添加。 */
+    private LinearLayout fieldRow(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        parent.addView(row, DshUi.matchWrap());
+        return row;
     }
 
-    /** 端口映射示意里的小胶囊。 */
-    private TextView pill(String text) {
-        TextView t = DshUi.label(this, text, 11, DshUi.ink(this), true);
-        t.setBackground(DshUi.pillDrawable(this, DshUi.card(this)));
-        t.setPadding(dp(10), dp(7), dp(10), dp(7));
-        return t;
+    /**
+     * 两列字段中的一格（各占一半宽）。
+     *
+     * <p>中间的 1dp 竖线用一条独立 View 画，而不是给格子加右边框 ——
+     * Android 的 View 没有 border，用「相邻两格内边距 + 一条线」才能两边都对齐。
+     */
+    private EditText fieldCell(LinearLayout row, String labelText, String hint,
+                               int inputType, boolean left) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setPadding(DshUi.dp(this, 12), DshUi.dp(this, 9),
+                DshUi.dp(this, 12), DshUi.dp(this, 9));
+        cell.addView(DshUi.fieldLabel(this, labelText, null), DshUi.matchWrap());
+        EditText in = DshUi.input(this, hint, inputType);
+        cell.addView(in, DshUi.matchWrapTop(this, 5));
+        row.addView(cell, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        if (left) {
+            View line = new View(this);
+            line.setBackgroundColor(DshUi.line(this));
+            row.addView(line, new LinearLayout.LayoutParams(
+                    Math.max(1, DshUi.dp(this, 1)),
+                    LinearLayout.LayoutParams.MATCH_PARENT));
+        }
+        return in;
     }
 
-    /** 一行输入框（含提示文案与 v2 稿统一背景）。 */
-    private EditText field(LinearLayout root, String hint, int inputType, int muted, int fg) {
-        EditText e = new EditText(this);
-        e.setHint(hint);
-        e.setHintTextColor(muted);
-        e.setTextColor(fg);
-        e.setSingleLine(true);
-        e.setInputType(inputType);
-        e.setBackground(DshUi.inputDrawable(this));
-        e.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.addView(e, marginTop(matchWrap(), 10));
-        return e;
+    /**
+     * 重画端口映射示意：两端文案都取输入框当前值（空则显示默认），
+     * 让「我填的到底是哪一头」在图上直接对得上。
+     */
+    private void refreshMap() {
+        if (mapBox == null) return;
+        String local = localPortInput == null ? "" : localPortInput.getText().toString().trim();
+        String target = targetPortInput == null ? "" : targetPortInput.getText().toString().trim();
+        if (local.length() == 0) local = "3081";
+        if (target.length() == 0) target = "3080";
+        mapBox.removeAllViews();
+        mapBox.addView(DshUi.mapRow(this, "手机 " + local, "电脑 " + target), DshUi.matchWrap());
     }
 
     /** 已存过配置就回填，省得每次重填。 */

@@ -1,9 +1,7 @@
 package com.dsh.harness;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -111,7 +109,7 @@ public class EngineActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        engineButton = DshUi.button(this, "启动引擎", DshUi.BTN_PRIMARY);
+        engineButton = DshUi.button(this, "启动引擎", DshUi.BTN_SECONDARY);
         engineButton.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { onEngineClick(); }
         });
@@ -327,22 +325,23 @@ public class EngineActivity extends Activity {
     private void syncButton() {
         if (engineButton == null) return;
         engineButton.setText(running ? "停止引擎" : "启动引擎");
-        // 已运行时主按钮降级为次级样式：这页的主线是「看状态」，不是「停掉它」
-        engineButton.setBackground(running ? DshUi.ghostDrawable(this)
-                                           : DshUi.primaryDrawable(this));
-        // 主按钮字色与 DshUi.button(BTN_PRIMARY) 保持一致（那里是写死的白）
-        engineButton.setTextColor(running ? DshUi.ink(this) : 0xFFFFFFFF);
+        // 设计稿 09 把「启动/停止引擎」与「后台保活」并成一行**两个次要按钮**：
+        // 这一页没有主操作 —— 真正的主操作在上一屏（进入电脑 / 改用本机），
+        // 这里再放一个近黑实底按钮会把「看一眼状态」读成「该做点什么」。
+        engineButton.setBackground(DshUi.ghostDrawable(this));
+        engineButton.setTextColor(DshUi.ink(this));
     }
 
     private void onEngineClick() {
         if (running) {
-            new AlertDialog.Builder(this)
-                    .setTitle("停止本机引擎？")
-                    .setMessage("引擎停掉后，走本机档案的会话就读不到了；电脑端档案不受影响。"
+            // r148：与切换器/JS 弹窗共用同一套圆角卡片。
+            DshDialog.with(this)
+                    .title("停止本机引擎？")
+                    .message("引擎停掉后，走本机档案的会话就读不到了；电脑端档案不受影响。"
                             + "下次进入应用会自动重新拉起。")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("停止", new DialogInterface.OnClickListener() {
-                        @Override public void onClick(DialogInterface d, int w) { stopEngine(); }
+                    .negative("取消", null)
+                    .positive("停止", new DshDialog.Action() {
+                        @Override public void run() { stopEngine(); }
                     })
                     .show();
             return;
@@ -396,10 +395,10 @@ public class EngineActivity extends Activity {
                 + "· 没流量就不续，锁自然释放 —— 省电与长任务之间的折中\n"
                 + "\n被系统杀掉的第一处置不是这里的开关，而是系统省电白名单；"
                 + "厂商策略仍可能无视它，所以长任务建议切电脑端档案。";
-        new AlertDialog.Builder(this)
-                .setTitle("本机引擎在做什么")
-                .setMessage(msg)
-                .setPositiveButton("知道了", null)
+        DshDialog.with(this)
+                .title("本机引擎在做什么")
+                .message(msg)
+                .positive("知道了", null)
                 .show();
     }
 }

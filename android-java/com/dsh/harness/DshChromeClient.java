@@ -1,7 +1,6 @@
 package com.dsh.harness;
 
 import android.app.Activity;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
@@ -72,13 +71,15 @@ public class DshChromeClient extends WebChromeClient {
     private boolean jsDialog(WebView view, String title, String message,
                              final JsResult result, final EditText input, boolean withCancel) {
         try {
-            android.app.AlertDialog.Builder b =
-                new android.app.AlertDialog.Builder(view.getContext());
-            b.setTitle(title).setMessage(message);
-            if (input != null) b.setView(input);
-            b.setCancelable(true);
-            b.setPositiveButton("确定", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface d, int which) {
+            // r148：系统方角灰卡换成项目自己的圆角卡片（标题/正文/按钮/输入框同源）。
+            // 回执纪律不变：确定 confirm、取消 cancel、点外部或返回键也 cancel，
+            // 任何一条路径都不能让 JS 挂在等回执上。
+            DshDialog.Builder b = DshDialog.with(view.getContext());
+            b.title(title).message(message);
+            if (input != null) b.view(input);
+            b.cancelable(true);
+            b.positive("确定", new DshDialog.Action() {
+                @Override public void run() {
                     try {
                         if (input != null && result instanceof JsPromptResult) {
                             ((JsPromptResult) result).confirm(input.getText().toString());
@@ -89,14 +90,14 @@ public class DshChromeClient extends WebChromeClient {
                 }
             });
             if (withCancel) {
-                b.setNegativeButton("取消", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int which) {
+                b.negative("取消", new DshDialog.Action() {
+                    @Override public void run() {
                         try { result.cancel(); } catch (Throwable ignored) { }
                     }
                 });
             }
-            b.setOnCancelListener(new DialogInterface.OnCancelListener() {
-                @Override public void onCancel(DialogInterface d) {
+            b.onCancel(new DshDialog.Action() {
+                @Override public void run() {
                     try { result.cancel(); } catch (Throwable ignored) { }
                 }
             });

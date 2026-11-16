@@ -613,6 +613,9 @@ public class MainActivity extends Activity {
                 }
                 main.post(new Runnable() {
                     @Override public void run() {
+                        // 隧道真的通了才清失败标记：之前任何一步失败都留着，
+                        // 切换器据此回落到本机（r145）。
+                        LinkState.clearSshFailed(MainActivity.this);
                         // 带上令牌：电脑侧 dsh 对回环请求也鉴权（GET / 直接 401）。
                         // 拼 URL 的逻辑在 SshForm.sshUrl（纯函数，桌面有断言）。
                         showWebView(SshForm.sshUrl(prof.localPort, prof.sshToken));
@@ -724,50 +727,27 @@ public class MainActivity extends Activity {
         remoteErrorShown = true;
 
         boolean ssh = prof != null && HostProfile.KIND_SSH.equals(prof.kind);
+        // r145：WebView 侧也确认连不上（隧道起了但页面加载失败），同样记一次失败。
+        if (ssh) LinkState.markSshFailed(this);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(DshUi.pageBg(this));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = DshUi.dp(this, 18);
-        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 24));
+        // 内边距与标题字号对齐设计稿 p8，也与 OfflineActivity 对齐 —— 同一屏（08 连接失败）
+        // 有原生页与 WebView 失败页两份实现，两处排版不一致时用户会以为是两个不同页面。
+        int pad = DshUi.dp(this, 16);
+        root.setPadding(pad, DshUi.dp(this, 10), pad, DshUi.dp(this, 18));
         scroll.addView(root, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        root.addView(DshUi.label(this, "连接电脑", 15, DshUi.ink(this), true),
+        root.addView(DshUi.label(this, "连接电脑", 14, DshUi.ink(this), true),
             DshUi.matchWrap());
         root.addView(DshUi.label(this, "暂时连不上", 23, DshUi.ink(this), true),
             DshUi.matchWrapTop(this, 10));
         root.addView(DshUi.label(this,
                 "会话和文件都还在那台电脑上，恢复后接着用。",
                 12.5f, DshUi.ink2(this), false), DshUi.matchWrapTop(this, 7));
-
-        // ---- 结论卡（黑白单色：1.5px 近黑虚线 = 异常；不再用暖黄底 + 红点）----
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        int cpad = DshUi.dp(this, 13);
-        card.setPadding(cpad, cpad, cpad, cpad);
-        card.setBackground(DshUi.dashedCardDrawable(this, DshUi.ink(this)));
-        root.addView(card, DshUi.matchWrapTop(this, 14));
-
-        LinearLayout headRow = new LinearLayout(this);
-        headRow.setOrientation(LinearLayout.HORIZONTAL);
-        headRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        // **空心环** = 未达成（与「实心点 = 在线 / 完成」配对，靠形状而不是颜色区分）
-        android.view.View dot = new android.view.View(this);
-        android.graphics.drawable.GradientDrawable dotBg =
-            new android.graphics.drawable.GradientDrawable();
-        dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        dotBg.setColor(0x00000000);
-        dotBg.setStroke(Math.max(1, DshUi.dp(this, 1)), DshUi.ink(this));
-        dot.setBackground(dotBg);
-        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(
-            DshUi.dp(this, 8), DshUi.dp(this, 8));
-        dotLp.rightMargin = DshUi.dp(this, 8);
-        headRow.addView(dot, dotLp);
-        headRow.addView(DshUi.label(this,
-                ssh ? "隧道没有建起来" : "目标电脑没有响应", 13.5f, DshUi.ink(this), true));
-        card.addView(headRow, DshUi.matchWrap());
 
         // 远端地址按档案类型呈现：ssh 档的 origin 是空串，早年这里统一显示 origin，
         // 于是 SSH 失败时页面上写着「（未记录地址）」—— 明明填过地址，却等于什么都没说。
@@ -783,50 +763,62 @@ public class MainActivity extends Activity {
         } else {
             where = prof.origin;
         }
-        // 地址一律等宽：中英文混排的可变字宽会让冒号/端口看上去在抖动
-        TextView target = DshUi.mono(this, where, 11f, DshUi.label(this), false);
-        card.addView(target, DshUi.matchWrapTop(this, 6));
-
-        // ---- 按档案分的真实原因（逐条编号）----
+        // ---- 按档案分的排查清单（逐条编号）----
+        // 文案走设计稿 p8 的口径：写成「应该是什么样」而不是「哪里错了」——
+        // 这几条是让用户逐项核对的自检项，不是我们已经确认过的故障。
         String[] causes = ssh
             ? new String[] {
-                "电脑上的 sshd 没在运行（或被防火墙挡住 22 端口）",
-                "本机公钥还没加到对端的 authorized_keys",
-                "SSH 端口或「电脑侧端口」填错",
-                "手机与电脑不在同一网络（Tailscale / 同一 Wi-Fi）"
+                "手机与电脑在同一网络（Tailscale 或同一 Wi-Fi）",
+                "电脑上的 sshd 正在运行（22 端口没被防火墙挡住）",
+                "本机公钥已加到对端的 authorized_keys",
+                "SSH 端口与「电脑侧端口」和电脑端一致"
               }
             : new String[] {
-                "电脑休眠或关机",
-                "电脑上的 Relay 没在运行",
-                "手机与电脑不在同一网络",
-                "这台手机已被管理台收回"
+                "手机与电脑在同一网络（同一 Wi-Fi，或电脑开了热点）",
+                "电脑上的 Relay 正在运行",
+                "地址与端口和电脑端配对页一致",
+                "这台手机的配对没有被管理台收回"
               };
-        LinearLayout steps = new LinearLayout(this);
-        steps.setOrientation(LinearLayout.VERTICAL);
-        steps.setBackground(DshUi.inputDrawable(this));
-        steps.setPadding(DshUi.dp(this, 11), DshUi.dp(this, 3),
-                DshUi.dp(this, 11), DshUi.dp(this, 3));
-        card.addView(steps, DshUi.matchWrapTop(this, 10));
-        for (int i = 0; i < causes.length; i++) {
-            if (i > 0) steps.addView(DshUi.divider(this));
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, DshUi.dp(this, 8), 0, DshUi.dp(this, 8));
-            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
-                DshUi.dp(this, 14), LinearLayout.LayoutParams.WRAP_CONTENT);
-            nlp.rightMargin = DshUi.dp(this, 9);
-            row.addView(DshUi.label(this, String.valueOf(i + 1), 11.5f, DshUi.BRAND, true), nlp);
-            row.addView(DshUi.label(this, causes[i], 11.5f, DshUi.ink(this), false),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            steps.addView(row);
-        }
+        // 结论卡统一走 DshUi.errCard（设计稿 .err）：虚线框 + 空心环 + 等宽地址 + 编号步骤。
+        // 原来这段是手搓的，字号（13.5f 卡头、8dp 空心环）和编号行间距都与
+        // OfflineActivity 分叉 —— 同一屏两份实现，改一处就漏一处。
+        root.addView(DshUi.errCard(this,
+                ssh ? "隧道没有建起来" : "目标电脑没有响应 · 20 秒无心跳", where, causes),
+            DshUi.matchWrapTop(this, 14));
 
         // 「还能做什么」分节与其 activePath 诊断条按设计稿修订版 §4.8（图62）删除：
         // 上面「诊断快照」已经给出失败阶段 / 走的哪条路 / 可用降级，这里等于复述第二遍。
         // 删除后留白由下面的按钮组吸收，不补替补卡。
 
+        // ---- 上次配对（设计稿 p8「上次成功连接」的位置）----
+        // 标签写「上次配对」而不是「上次成功连接」：这个时间戳来自配对握手，不来自链路，
+        // 写成「成功连接」会在从没连通过的情况下给人一个假证据（同 OfflineActivity）。
+        long pairedAt = DshDeviceIdentity.lastPairedAt(this);
+        String hostId = DshDeviceIdentity.lastHostDeviceId(this);
+        String relayNow = DshDeviceIdentity.lastRelayUrl(this);
+        if (pairedAt > 0 || (hostId != null && hostId.length() > 0)) {
+            root.addView(DshUi.section(this, "上次配对"), DshUi.matchWrapTop(this, 16));
+
+            String when = pairedAt > 0
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                        .format(new java.util.Date(pairedAt))
+                    : "时间未记录";
+            String who = hostId == null || hostId.length() == 0
+                    ? "（未记录电脑）"
+                    : (hostId.length() > 10 ? hostId.substring(0, 10) + "…" : hostId);
+            String line2 = (relayNow == null || relayNow.isEmpty())
+                    ? "地址未记录" : relayNow;
+
+            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+            sb.append(who);
+            sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    0, sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.append(" · ").append(when).append("\n").append(line2);
+            root.addView(DshUi.infoCard(this, 2, sb), DshUi.matchWrapTop(this, 8));
+        }
+
         // ---- 三条出口 ----
-        TextView retry = DshUi.button(this, "重试", DshUi.BTN_PRIMARY);
+        TextView retry = DshUi.button(this, "重新检查", DshUi.BTN_PRIMARY);
         retry.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 remoteErrorShown = false;
@@ -851,6 +843,7 @@ public class MainActivity extends Activity {
         TextView local = DshUi.button(this, "改用本机引擎", DshUi.BTN_SECONDARY);
         local.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                // r147：不清失败标记，切换器据此把那台 SSH 主机标成「离线」。
                 HostProfile hp = HostProfile.get(MainActivity.this);
                 if (!hp.setCurrent(HostProfile.KIND_LOCAL)) return;
                 // 切档必须归零 cookie 与预热实例（R-22：防跨主机串会话）
@@ -861,11 +854,30 @@ public class MainActivity extends Activity {
         });
         row1.addView(local, DshUi.half(this, false));
 
-        TextView quit = DshUi.button(this, "退出", DshUi.BTN_GHOST);
+        // 底部出口行（设计稿 p8 的 .btn.gho 行）：次要出口收成一行链接，
+        // 不再各占一枚整宽按钮 —— 失败页不该让「退路」比「重试」更抢眼。
+        // 写法与 OfflineActivity 的 ghostRow 一致（同字号、同分隔符、同下划线）。
+        LinearLayout ghostRow = new LinearLayout(this);
+        ghostRow.setOrientation(LinearLayout.HORIZONTAL);
+        ghostRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        root.addView(ghostRow, DshUi.matchWrapTop(this, 12));
+
+        TextView sshOut = DshUi.link(this, "连 SSH 主机 ›", 11, DshUi.ink(this), true);
+        sshOut.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                startActivity(new android.content.Intent(
+                    MainActivity.this, SshConfigActivity.class));
+            }
+        });
+        ghostRow.addView(sshOut);
+
+        ghostRow.addView(DshUi.label(this, " · ", 11, DshUi.mute(this), false));
+
+        TextView quit = DshUi.link(this, "退出", 11, DshUi.ink(this), true);
         quit.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) { finish(); }
         });
-        root.addView(quit, DshUi.matchWrapTop(this, 2));
+        ghostRow.addView(quit);
 
         setContentView(scroll);
     }
@@ -874,6 +886,11 @@ public class MainActivity extends Activity {
     // （设计稿修订版 §4.8 图62）。同样的信息在页面上的「诊断快照」三行里有。
 
     private void showDiagnostics(String report) {
+        // r145：ssh 档走到自检失败页 = 本次连接已确认失败。切换器读到这个标记会
+        // 自动回落到本机引擎，不再把一台连不上的机器显示成「正在使用」。
+        if (HostProfile.KIND_SSH.equals(HostProfile.get(this).current().kind)) {
+            LinkState.markSshFailed(this);
+        }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(24, 24, 24, 24);

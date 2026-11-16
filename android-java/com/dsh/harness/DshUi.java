@@ -4,11 +4,18 @@ import android.content.Context;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
+import android.text.style.UnderlineSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -304,8 +311,12 @@ final class DshUi {
             bar.addView(roundButton(c, backGlyph, back), fixedEnd(c, 30, 9));
         }
         bar.addView(label(c, title, 14, ink(c), true));
-        bar.addView(new View(c), new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        // 高度必须写死 0，不能用 WRAP_CONTENT：普通 View 在 AT_MOST 测量下
+        // getDefaultSize() 会返回父容器给的**上限**（整屏高），于是这枚纯占位 View
+        // 把 bar 撑成全屏、文字被垂直居中、后面的分段控件与内容全被挤出屏幕。
+        // 应用栏移出 ScrollView（r145 固定头部）后父高度从 UNSPECIFIED 变成 AT_MOST，
+        // 这个原本「无害」的 WRAP_CONTENT 就成了致命值（r146 实测回归修复）。
+        bar.addView(new View(c), new LinearLayout.LayoutParams(0, 0, 1f));
         if (rightGlyph != null) {
             bar.addView(roundButton(c, rightGlyph, right));
         }
@@ -511,6 +522,10 @@ final class DshUi {
         }
         t.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(c, h)));
+        // ⚠️ 必须同时给 minHeight：调用方普遍用 addView(btn, matchWrapTop(...)) 添加，
+        // 那套 LayoutParams 是 MATCH_PARENT × **WRAP_CONTENT**，会把上面这个固定高度盖掉。
+        // 只设 LayoutParams 的写法在真机上是「按钮只有文字那么高」（r141 三处截图都栽在这）。
+        t.setMinHeight(dp(c, h));
         pressable(t);
         return t;
     }
@@ -534,5 +549,335 @@ final class DshUi {
                 return false;
             }
         });
+    }
+
+    // ===== 表单 / 说明 / 分段控件（设计稿 .field .inp .help .info .err .step .map .seg）=====
+    //
+    // 这一组存在的理由和上面的 appBar/rowBox 一样：05（SSH）与 04（配对）都要画
+    // 「字段标题 + 输入框 + 说明」，07/08 都要画「说明小卡 / 虚线错误卡」。
+    // 上一版这些是各页私有的小工具，于是同一份视觉在 SSH 页长成了另一套字号
+    // （标题 18sp、hint 当标签、系统 Button 13sp）—— 单色稿落地后它成了唯一
+    // 还留着旧视觉的页面。抽到这里之后，改一处就是改全站。
+
+    /** 分段控件的点击回调（按下标，不按文字 —— 文案会变，下标不会）。 */
+    interface OnIndexClick {
+        void onIndex(int index);
+    }
+
+    /** 字段标题行（设计稿 .lab）：11sp 加粗 label 色，右侧可带 ? 气泡。 */
+    static LinearLayout fieldLabel(Context c, String text, String badge) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.addView(label(c, text, 11, label(c), true));
+        if (badge != null && badge.length() > 0) {
+            TextView q = label(c, badge, 9, mute(c), true);
+            q.setGravity(Gravity.CENTER);
+            q.setBackground(pillDrawable(c, subtle(c)));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 13), dp(c, 13));
+            lp.leftMargin = dp(c, 6);
+            box.addView(q, lp);
+        }
+        return box;
+    }
+
+    /**
+     * 输入框（设计稿 .inp）：37dp 高、8dp 圆角、极浅底、等宽 12.5sp。
+     *
+     * <p>用 EditText 而不是 TextView：所有调用点都需要真实输入。等宽是设计稿的
+     * 明确口径（地址/端口/令牌都是机器字），也是「一眼看出填错位」的辅助。
+     */
+    static EditText input(Context c, String hint, int inputType) {
+        EditText e = new EditText(c);
+        e.setHint(hint);
+        e.setHintTextColor(mute(c));
+        e.setTextColor(ink(c));
+        e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        e.setTypeface(Typeface.MONOSPACE);
+        e.setSingleLine(true);
+        e.setInputType(inputType);
+        e.setBackground(inputDrawable(c));
+        int h = dp(c, 11);
+        e.setPadding(h, dp(c, 8), h, dp(c, 8));
+        e.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(c, 37)));
+        return e;
+    }
+
+    /** 字段说明（设计稿 .help）：10sp mute、行距 1.6。 */
+    static TextView help(Context c, CharSequence text) {
+        TextView t = label(c, "", 10, mute(c), false);
+        t.setText(text);
+        t.setLineSpacing(dp(c, 2), 1f);
+        t.setPadding(dp(c, 12), dp(c, 5), dp(c, 12), dp(c, 10));
+        return t;
+    }
+
+    /**
+     * 「部分加粗」的说明文字：设计稿里 {@code .help b} 是**加粗 + 下划线**。
+     *
+     * @param parts 逐段文字
+     * @param bold  与 parts 等长；true 的段落加粗并加下划线
+     */
+    static CharSequence emphasis(Context c, String[] parts, boolean[] bold) {
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            int start = sb.length();
+            sb.append(parts[i]);
+            if (bold != null && i < bold.length && bold[i]) {
+                sb.setSpan(new StyleSpan(Typeface.BOLD), start, sb.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                sb.setSpan(new UnderlineSpan(), start, sb.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return sb;
+    }
+
+    /**
+     * 说明小卡（设计稿 .info）：左侧状态点 + 11sp 文字。
+     *
+     * @param dot 0 = 无点，1 = 实心点，2 = 空心环（设计稿用空心环表示"未确认/历史"）
+     */
+    static LinearLayout infoCard(Context c, int dot, CharSequence text) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(card(c));
+        bg.setCornerRadius(dp(c, R_CONTROL));
+        bg.setStroke(Math.max(1, dp(c, 1)), line(c));
+        box.setBackground(bg);
+        box.setPadding(dp(c, 12), dp(c, 10), dp(c, 12), dp(c, 10));
+        if (dot != 0) {
+            box.addView(dotView(c, dot), dotLp(c));
+        }
+        TextView t = label(c, "", 11, label(c), false);
+        t.setText(text);
+        t.setLineSpacing(dp(c, 2), 1f);
+        box.addView(t, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        return box;
+    }
+
+    /** 状态点视图（设计稿 .dot）：7dp；实心 / 空心环。 */
+    static View dotView(Context c, int style) {
+        View v = new View(c);
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        if (style == 1) {
+            d.setColor(ink(c));
+        } else if (style == 3) {
+            d.setColor(0x00000000);
+            d.setStroke(Math.max(2, dp(c, 2)), ink(c));
+        } else {
+            d.setColor(0x00000000);
+            d.setStroke(Math.max(2, dp(c, 2)), dark(c) ? D_MUTE : STATE_OFF);
+        }
+        v.setBackground(d);
+        return v;
+    }
+
+    static LinearLayout.LayoutParams dotLp(Context c) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 7), dp(c, 7));
+        lp.rightMargin = dp(c, 9);
+        return lp;
+    }
+
+    /**
+     * 虚线错误卡（设计稿 .err）：空心环 + 结论标题 + 等宽地址 + 编号步骤。
+     *
+     * <p>单色体系里「错误」靠 **1.5px 近黑虚线** 表达，不用红底红字 —— 这一屏
+     * 出现的多数是「电脑没开 / Relay 没跑」这类可处置状态，红色读起来像崩溃。
+     *
+     * @param addr  可为 null（不画地址行）
+     * @param steps 可为 null（不画步骤块）
+     */
+    static LinearLayout errCard(Context c, String title, String addr, String[] steps) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(dashedCardDrawable(c, ink2(c)));
+        box.setPadding(dp(c, 12), dp(c, 12), dp(c, 12), dp(c, 12));
+
+        LinearLayout head = new LinearLayout(c);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(dotView(c, 2), dotLp(c));
+        TextView t = label(c, title, 12.5f, ink(c), true);
+        head.addView(t, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        box.addView(head, matchWrap());
+
+        if (addr != null && addr.length() > 0) {
+            box.addView(mono(c, addr, 10.5f, label(c), false), matchWrapTop(c, 6));
+        }
+        if (steps != null && steps.length > 0) {
+            LinearLayout list = new LinearLayout(c);
+            list.setOrientation(LinearLayout.VERTICAL);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(card(c));
+            bg.setCornerRadius(dp(c, R_CONTROL));
+            bg.setStroke(Math.max(1, dp(c, 1)), line(c));
+            list.setBackground(bg);
+            list.setPadding(dp(c, 10), dp(c, 2), dp(c, 10), dp(c, 2));
+            for (int i = 0; i < steps.length; i++) {
+                if (i > 0) list.addView(divider(c));
+                LinearLayout row = new LinearLayout(c);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setPadding(0, dp(c, 7), 0, dp(c, 7));
+                TextView idx = mono(c, String.valueOf(i + 1), 11, ink(c), true);
+                row.addView(idx, new LinearLayout.LayoutParams(dp(c, 14),
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+                TextView txt = label(c, steps[i], 11, ink(c), false);
+                txt.setLineSpacing(dp(c, 2), 1f);
+                row.addView(txt, new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                list.addView(row, matchWrap());
+            }
+            box.addView(list, matchWrapTop(c, 9));
+        }
+        return box;
+    }
+
+    /**
+     * 端口映射示意（设计稿 .map）：左侧方框 ── 隧道 ──▶ 右侧方框。
+     *
+     * <p>两端文案由调用方给**真实端口值**，不在这里写死 3081/3080 ——
+     * 那两个数字在 SSH 档里是可改的，写死会与实际生效的隧道对不上。
+     */
+    static LinearLayout mapRow(Context c, String from, String to) {
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(dark(c) ? D_SUBTLE2 : SUBTLE_2);
+        bg.setCornerRadius(dp(c, R_CONTROL));
+        row.setBackground(bg);
+        row.setPadding(dp(c, 9), dp(c, 9), dp(c, 9), dp(c, 9));
+        row.addView(boxed(c, from));
+        TextView arrow = mono(c, "── 隧道 ──▶", 10, ink(c), true);
+        arrow.setPadding(dp(c, 8), 0, dp(c, 8), 0);
+        row.addView(arrow);
+        row.addView(boxed(c, to));
+        return row;
+    }
+
+    /** 映射示意图里的小方框（等宽、加粗、白底细边）。 */
+    private static TextView boxed(Context c, String text) {
+        TextView t = mono(c, text, 10, ink(c), true);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(card(c));
+        d.setCornerRadius(dp(c, R_CONTROL));
+        d.setStroke(Math.max(1, dp(c, 1)), line(c));
+        t.setBackground(d);
+        t.setPadding(dp(c, 9), dp(c, 5), dp(c, 9), dp(c, 5));
+        return t;
+    }
+
+    /**
+     * 分段控件（设计稿 .seg）：浅灰槽 + 反白选中块。
+     *
+     * <p>**只画选择态，不做假切换**：点击一律回调，由调用方决定是跳页还是重绘 ——
+     * 设计稿里两段分别对应两个真实页面（04 配对 / 05 SSH）。
+     */
+    static LinearLayout segmented(Context c, String[] names, int selected,
+                                  final OnIndexClick onClick) {
+        LinearLayout seg = new LinearLayout(c);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(subtle(c));
+        bg.setCornerRadius(dp(c, R_CONTROL));
+        bg.setStroke(Math.max(1, dp(c, 1)), line(c));
+        seg.setBackground(bg);
+        seg.setPadding(dp(c, 2), dp(c, 2), dp(c, 2), dp(c, 2));
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            boolean on = i == selected;
+            // 选中块是反白块（底色 = ink）：文字用 ink 常量本身 —— 深色下它是近黑、
+            // 浅色下是白，恰好都是 ink(c) 的反色。浅色下用 0xFFFFFFFF、深色下用 INK 常量。
+            TextView tab = label(c, names[i], 11.5f,
+                    on ? (dark(c) ? INK : 0xFFFFFFFF) : label(c), on);
+            tab.setGravity(Gravity.CENTER);
+            tab.setPadding(0, dp(c, 7), 0, dp(c, 7));
+            if (on) {
+                tab.setBackground(pillDrawable(c, ink(c)));
+            }
+            tab.setClickable(true);
+            tab.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (onClick != null && idx != -1) onClick.onIndex(idx);
+                }
+            });
+            pressable(tab);
+            seg.addView(tab, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        return seg;
+    }
+
+    /**
+     * 「固定头部 + 可滚动内容」的页面骨架（r145）。
+     *
+     * <p>04 配对页与 05 SSH 页共用：应用栏与分段控件**不进** {@link ScrollView}，
+     * 切换分段时顶部这一行像素级不动，也不会随表单滚动滚出屏幕。两页以前各画一份
+     * 头部（连分段控件的上边距都一个 14dp、一个 12dp），跳 Activity 时必然错位。
+     *
+     * @param page 交给 {@code Activity.setContentView} 的外层容器；本方法设置方向、
+     *             底色与 MATCH_PARENT 参数
+     * @return 内容容器，调用方照旧往里 {@code addView}
+     */
+    static LinearLayout fixedSegmentedPage(Context c, LinearLayout page, String title,
+                                           View.OnClickListener back,
+                                           int selected, OnIndexClick onTab) {
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(pageBg(c));
+        page.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        int pad = dp(c, 16);
+
+        LinearLayout head = new LinearLayout(c);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setPadding(pad, dp(c, 10), pad, 0);
+        head.addView(appBar(c, title, "‹", back, null, null), matchWrap());
+        head.addView(segmented(c, new String[] { "配对码", "SSH" }, selected, onTab),
+                matchWrapTop(c, 12));
+        page.addView(head, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(c);
+        scroll.setBackgroundColor(pageBg(c));
+        LinearLayout body = new LinearLayout(c);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(pad, 0, pad, dp(c, 18));
+        scroll.addView(body, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        page.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        return body;
+    }
+
+    /** 键值行（设计稿 .row + .rt）：左侧 12.5sp 名字，右侧任意视图。 */
+    static LinearLayout kvRow(Context c, String name, View value) {
+        LinearLayout row = rowBox(c);
+        row.addView(label(c, name, 12.5f, ink(c), true), new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(value);
+        return row;
+    }
+
+    /**
+     * 弹性空白：设计稿用 {@code .spacer} 把底部按钮压到屏底。
+     *
+     * <p>本项目所有页都在 ScrollView 里（内容可能长于屏高），weight 无处生效，
+     * 所以这里退化为一段固定 8dp 空白 —— 视觉上等价于「按钮组与内容留一口气」。
+     */
+    static View spacer(Context c) {
+        View v = new View(c);
+        v.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(c, 8)));
+        return v;
     }
 }

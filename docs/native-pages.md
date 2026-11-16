@@ -704,3 +704,18 @@ r134 实测输出 7 个（Main / Pair / Offline / HostSwitcher / Environment / E
   Engine / SshConfig），`EnvironmentActivity` 已不在其中。
 - 产物：`apk-out/DSH-Phone-1.0.0-r135-9screens-arm64-v8a-debug.apk`（655,750,723 B，
   versionCode 1306）。
+
+### 23.5 `scripts/check-native-pages.sh`（r135 新增）
+
+一个页面要在**三处**同时存在才算真的可用：源码 `.java`、`android-java/AndroidManifest.xml`
+（人读副本）、`01-modify-termux.sh` 的 6.9 字典（真正写进 termux 树的那份）。
+漏任何一处**编译期都不报错**，只会在真机点入口时 ActivityNotFound —— 所以把「事后 grep」
+固定成一步：
+
+```bash
+bash scripts/check-native-pages.sh        # 不一致 → 退出码 1
+```
+
+现已挂进 `test-java.sh` 第 3 步，与断言、整树编译一起跑。当前输出 6/6/6 一致。
+反向验证做过：临时加一个空 `ZZProbeActivity`，它同时报「清单漏声明」与「字典漏加」，
+删掉后恢复一致。

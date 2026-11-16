@@ -417,6 +417,39 @@ public final class DshSafBridge {
         }
     }
 
+    /**
+     * 壳层状态（只读，JSON）—— 给官方页面顶部「主机胶囊」用。
+     *
+     * <p>为什么不复用 {@link #pairStatus()}：那个回答的是「配对过没有」，胶囊要回答的
+     * 是「此刻在哪台机器上」（档案种类 + 显示名）。两者会不一致 —— 刚配对完还没切过去时
+     * {@code paired} 已经为真而档案仍是本机，混用一个字段会让胶囊说假话。
+     *
+     * <p>边界与 pairStatus 一致：不回令牌，也不回完整入口地址（胶囊只需要一个读得懂的名字）。
+     */
+    @JavascriptInterface
+    public String shellStatus() {
+        Activity a = act();
+        if (a == null) return "{}";
+        try {
+            HostProfile.Profile p = HostProfile.get(a).current();
+            String label;
+            if (HostProfile.KIND_LOCAL.equals(p.kind)) {
+                label = "这台手机";
+            } else if (HostProfile.KIND_SSH.equals(p.kind)) {
+                label = p.sshUser + "@" + p.sshHost;
+            } else {
+                label = (p.hostId == null || p.hostId.isEmpty()) ? "电脑" : p.hostId;
+            }
+            JSONObject o = new JSONObject();
+            o.put("kind", p.kind);
+            o.put("label", label);
+            o.put("paired", DshDeviceIdentity.lastHostDeviceId(a) != null);
+            return o.toString();
+        } catch (Throwable t) {
+            return "{}";
+        }
+    }
+
     /** 打开配对页。返回 1 已打开 / -1 拒绝或不可用。 */
     @JavascriptInterface
     public int openPairPage() {
@@ -433,6 +466,20 @@ public final class DshSafBridge {
     @JavascriptInterface
     public int openSwitcherPage() {
         return openNativePage("openSwitcherPage", HostSwitcherActivity.class);
+    }
+
+    /**
+     * 打开本机引擎页（设计稿 09，r136 独立入口）。
+     *
+     * <p>为什么需要这条桥：设计稿修订版把「本机」从连接流程里摘掉之后，09 页只剩
+     * 「08 连接失败」一个入口 —— 连接顺利的时候用户永远看不到它（看不到就不知道
+     * 引擎在不在跑、保活是不是真的生效）。用户拍板要「独立入口，而不是导航第三栏」，
+     * 于是在 {@code connection-entry.js} 注入的图标组里加了一枚芯片图标，走这条桥。
+     * 与其它原生页同一套 origin 校验。
+     */
+    @JavascriptInterface
+    public int openEnginePage() {
+        return openNativePage("openEnginePage", EngineActivity.class);
     }
 
     // openEnvironmentPage() 随「02 环境检查」整页一起删除（设计稿修订版 §4.1：

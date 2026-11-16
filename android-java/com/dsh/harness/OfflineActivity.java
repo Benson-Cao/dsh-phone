@@ -56,6 +56,8 @@ public class OfflineActivity extends Activity {
     public static final String EXTRA_CHOICE = "choice";
 
     private TextView stateView;
+    /** 错误卡里的地址行（设计稿 .err .addr）：地址写错是最常见的失败原因。 */
+    private TextView addrView;
     private View stateDot;
     private LinearLayout stepsBox;
     private TextView noStepsView;
@@ -90,8 +92,8 @@ public class OfflineActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = DshUi.dp(this, 18);
-        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 20));
+        int pad = DshUi.dp(this, 16);
+        root.setPadding(pad, DshUi.dp(this, 10), pad, DshUi.dp(this, 18));
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -109,7 +111,7 @@ public class OfflineActivity extends Activity {
                 DshUi.dp(this, 34), DshUi.dp(this, 34));
         backLp.rightMargin = DshUi.dp(this, 10);
         bar.addView(backTop, backLp);
-        bar.addView(DshUi.label(this, "连接电脑", 15, DshUi.ink(this), true));
+        bar.addView(DshUi.label(this, "连接电脑", 14, DshUi.ink(this), true));
         bar.addView(new View(this), new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         bar.addView(recheckButton);
@@ -135,9 +137,18 @@ public class OfflineActivity extends Activity {
         headRow.setGravity(Gravity.CENTER_VERTICAL);
         stateDot = dot(DshUi.AMBER);
         headRow.addView(stateDot, dotLp());
-        stateView = DshUi.label(this, "正在检查…", 13.5f, warnInk(), true);
+        stateView = DshUi.label(this, "正在检查…", 12.5f, warnInk(), true);
         headRow.addView(stateView);
         errCard.addView(headRow, DshUi.matchWrap());
+
+        // 地址行（设计稿 .err .addr）：把「此刻在连哪儿」直接摊在结论下面。
+        // 地址写错是这一页最常见的真因，而它此前只出现在下方的绑定卡里，
+        // 读起来像另一件事，排查时容易先怀疑心跳与保活。
+        String relayNow = DshDeviceIdentity.lastRelayUrl(this);
+        addrView = DshUi.mono(this,
+                relayNow == null || relayNow.length() == 0 ? "地址未记录" : relayNow,
+                10.5f, DshUi.label(this), false);
+        errCard.addView(addrView, DshUi.matchWrapTop(this, 6));
 
         stepsBox = new LinearLayout(this);
         stepsBox.setOrientation(LinearLayout.VERTICAL);
@@ -183,7 +194,7 @@ public class OfflineActivity extends Activity {
         snap.addView(snapshotRow("可用降级", "本机引擎", 2));
         root.addView(snap, DshUi.matchWrapTop(this, 2));
 
-        // ---- 动作 ----
+        // ---- 动作（设计稿 08：主按钮 + 两枚次按钮 + 一行链接 + 保活只读行）----
         enterButton = DshUi.button(this,
                 choiceMode ? "进入这台电脑" : "重新检查", DshUi.BTN_PRIMARY);
         enterButton.setOnClickListener(new View.OnClickListener() {
@@ -195,7 +206,7 @@ public class OfflineActivity extends Activity {
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row1, DshUi.matchWrapTop(this, 9));
+        root.addView(row1, DshUi.matchWrapTop(this, 8));
         TextView sw = DshUi.button(this, "换一台电脑", DshUi.BTN_SECONDARY);
         sw.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -209,55 +220,52 @@ public class OfflineActivity extends Activity {
         });
         row1.addView(local, DshUi.half(this, false));
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row2, DshUi.matchWrapTop(this, 9));
-        TextView pair = DshUi.button(this, "重新配对", DshUi.BTN_SECONDARY);
-        pair.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                startActivity(new Intent(OfflineActivity.this, PairActivity.class));
-            }
-        });
-        row2.addView(pair, DshUi.half(this, true));
-        // 第三台「电脑」不一定走 Relay：能 ssh 的机器用 SSH 档，不需要配对码。
-        // 这台电脑连不上时，用户最可能就在这一页找别的路。
-        TextView ssh = DshUi.button(this, "连 SSH 主机", DshUi.BTN_SECONDARY);
+        // 设计稿最后一条 ghost 把「连 SSH 主机 ›」与保活状态并成一行 —— 两者都是
+        // 「这条链路之外的事实」，各自占一个按钮位会把它们抬成主要动作。
+        // 「重新配对」也收进这一行：配对码失效时它是唯一自愈路径，但不是每次都要做，
+        // 不该和「换一台电脑」同权重。「本机引擎」同理（它是 09 页的兜底入口，
+        // WebView 起不来时注入的芯片图标点不到，所以这里必须留一条）。
+        LinearLayout ghostRow = new LinearLayout(this);
+        ghostRow.setOrientation(LinearLayout.HORIZONTAL);
+        ghostRow.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(ghostRow, DshUi.matchWrapTop(this, 10));
+
+        TextView ssh = DshUi.link(this, "连 SSH 主机 ›", 11, DshUi.ink(this), true);
         ssh.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(SshConfigActivity.intent(OfflineActivity.this));
             }
         });
-        row2.addView(ssh, DshUi.half(this, false));
+        ghostRow.addView(ssh);
 
-        // 「后台保活设置」按钮按设计稿修订版 §4.3 第 3 条改为**只读状态行**：
-        // 它原本指向已删除的「我的 / 设置」页，而真正要改的是系统省电白名单。
-        // 这里不再做成可点跳转 —— 一个跳系统设置的按钮放在失败页，会把
-        // 「连不上电脑」和「后台会不会被杀」两件事混在一起。
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row3, DshUi.matchWrapTop(this, 8));
-        boolean exempt = DshPowerGuard.isExempt(this);
-        TextView keep = DshUi.label(this,
-                exempt ? "前台服务保活中 · 已放行省电白名单" : "前台服务未放行 · 长任务可能被系统结束",
-                10.5f, exempt ? DshUi.label(this) : DshUi.ink2(this), false);
-        row3.addView(keep, DshUi.matchWrap());
+        TextView sep1 = DshUi.label(this, " · ", 11, DshUi.mute(this), false);
+        ghostRow.addView(sep1);
 
-        // 本机引擎页（设计稿 09）：走「在这台手机上用」这条路时，引擎在不在跑、
-        // 拿什么基线、保活怎么工作，此前只出现在通知栏与日志里，屏幕上看不到。
-        // 本页是它**唯一**的入口（连接电脑页按 §4.7 已不再提供本机选项）。
-        TextView engine = DshUi.button(this, "本机引擎状态", DshUi.BTN_GHOST);
+        TextView pair = DshUi.link(this, "重新配对 ›", 11, DshUi.ink(this), true);
+        pair.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new Intent(OfflineActivity.this, PairActivity.class));
+            }
+        });
+        ghostRow.addView(pair);
+
+        ghostRow.addView(DshUi.label(this, " · ", 11, DshUi.mute(this), false));
+
+        TextView engine = DshUi.link(this, "本机引擎 ›", 11, DshUi.ink(this), true);
         engine.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(OfflineActivity.this, EngineActivity.class));
             }
         });
-        root.addView(engine, DshUi.matchWrapTop(this, 2));
+        ghostRow.addView(engine);
 
-        TextView back = DshUi.button(this, "返回应用", DshUi.BTN_GHOST);
-        back.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { finish(); }
-        });
-        root.addView(back, DshUi.matchWrapTop(this, 2));
+        // 保活只读状态（设计稿修订版 §4.3 第 3 条：不做成跳系统设置的按钮，
+        // 「连不上电脑」与「后台会不会被杀」是两件事，别混在一起）。
+        boolean exempt = DshPowerGuard.isExempt(this);
+        TextView keep = DshUi.label(this,
+                exempt ? "前台服务保活中 · 已放行省电白名单" : "前台服务未放行 · 长任务可能被系统结束",
+                10.5f, exempt ? DshUi.label(this) : DshUi.ink2(this), false);
+        root.addView(keep, DshUi.matchWrapTop(this, 8));
 
         setContentView(scroll);
         try {
@@ -277,6 +285,11 @@ public class OfflineActivity extends Activity {
         final long at = DshDeviceIdentity.lastPairedAt(this);
 
         renderBinding(relay, host, at);
+        // 地址行跟着探针一起刷新：档案被改过（换了主机/改了端口）后重新检查，
+        // 卡里显示的必须是**这次**用的地址，否则排查会对着旧值打转。
+        if (addrView != null) {
+            addrView.setText(relay == null || relay.length() == 0 ? "地址未记录" : relay);
+        }
 
         if (relay == null) {
             setHead("还没有配对过", DshUi.AMBER);
@@ -307,7 +320,9 @@ public class OfflineActivity extends Activity {
     private void render(DshPairClient.Health h, String relay) {
         setEnabled(recheckButton, true);
         if (!h.reachable) {
-            setHead("连不上 " + relay, DshUi.DANGER);
+            // 标题只写结论，地址交给下面的等宽地址行 —— 两处都写会读成两个不同的地址，
+            // 而这一屏要传达的恰恰是「我在连这一个地址，它不通」。
+            setHead("连不上", DshUi.DANGER);
             setSteps("手机与电脑在同一网络（同一 Wi-Fi，或电脑开了热点）\n"
                     + "电脑上的 Relay 正在运行\n"
                     + "地址与端口没写错（可在电脑端配对码页面看到）");
@@ -434,7 +449,10 @@ public class OfflineActivity extends Activity {
             TextView t = DshUi.label(this, line, 11.5f, DshUi.ink(this), false);
             row.addView(t, new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            stepsBox.addView(row);
+            // ⚠️ 必须给 matchWrap：用 addView(row) 时 row 走默认 WRAP_CONTENT，
+            // 而正文是「宽 0 + weight 1」—— WRAP_CONTENT 父容器第一遍量不到它的宽度，
+            // 真机上正文被裁掉左侧一个字（r138 截图：「手机与电脑…」显示成「机与电脑…」）。
+            stepsBox.addView(row, DshUi.matchWrap());
         }
     }
 
@@ -537,6 +555,7 @@ public class OfflineActivity extends Activity {
 
     /** 改用本机引擎：把档案切回 local，然后让 MainActivity 重新走本机流程。 */
     private void useLocal() {
+        // r147：不清失败标记 —— 用户主动放弃这台连不上的电脑，切换器仍要显示「离线」。
         HostProfile hp = HostProfile.get(this);
         if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
             setHead("切回本机失败", DshUi.DANGER);

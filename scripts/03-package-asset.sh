@@ -84,9 +84,19 @@ else
 fi
 BZ="$ASSETS/dsh-bundle.tar.gz"
 # 临时文件（存条目列表）；trap 保证任何退出路径都清掉。
-TMP_ENTRIES="$(mktemp "${TMPDIR:-/tmp}/dsh-entries.XXXXXX" 2>/dev/null || echo "")"
-[ -n "$TMP_ENTRIES" ] || TMP_ENTRIES="$ASSETS/.dsh-entries.tmp"
-cleanup() { [ -n "${TMP_ENTRIES:-}" ] && rm -f "$TMP_ENTRIES"; return 0; }
+#
+# ⚠️ **不要用 mktemp**（2026-11-15 踩，代价是一整轮出包）：
+#   Git Bash 的 mktemp 返回的是 Windows 形式 `C:\Users\...\Temp/dsh-entries.XXXX`，
+#   而 rm 在本机是 safe-delete 闸门的包装函数，它把路径里内嵌的 `C:` 判成
+#   「embedded drive prefix」并**拒绝执行、返回非零**。本脚本是 set -euo pipefail，
+#   于是最后的 cleanup 把整个脚本的退出码变成 1 —— 而这一步在 00-build-apk.sh 里
+#   是 STEP 2，外层 set -e 立刻收工：**后面 5 步一步都没跑**，却已经打印了「完成」。
+#   症状极隐蔽：r136 就是这么出的包 —— assets 没同步（树里还是旧版 connection-entry.js），
+#   gradle 照样编得过，装到真机只是「新功能没出现」，看起来像 Java 侧没生效。
+#   所以：临时名单固定放 /tmp（POSIX 形式，闸门认），并且 rm 失败一律吞掉。
+TMP_ENTRIES="/tmp/dsh-entries.$$.$(date +%s)"
+: > "$TMP_ENTRIES" 2>/dev/null || TMP_ENTRIES="$ASSETS/.dsh-entries.tmp"
+cleanup() { [ -n "${TMP_ENTRIES:-}" ] && rm -f "$TMP_ENTRIES" 2>/dev/null || true; return 0; }
 trap cleanup EXIT
 if [ -s "$BZ" ]; then
   # ⚠️ 用 `gzip -t` 而不是 `tar -tzf` 做完整性校验：

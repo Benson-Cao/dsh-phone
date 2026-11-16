@@ -2,16 +2,13 @@ package com.dsh.harness;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -64,36 +61,64 @@ public class PairActivity extends Activity {
         prefill();
     }
 
+    /** 返回上一级也禁用转场动画：分段切换的两条路（点分段 / 按返回）顶部都不动。 */
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(0, 0);
+    }
+
+    /**
+     * r147：「‹」与系统返回键都回到**固定的上一级**（03 连接电脑页），不走历史栈。
+     *
+     * <p>以前是纯 {@code finish()}：分段切换用 {@code startActivity} 叠栈而不结束自己，
+     * 配对页 → SSH 页 → 配对页之后按返回，会在两个表单之间来回跳，甚至跳回连接失败页。
+     * {@code CLEAR_TOP | SINGLE_TOP} 把目标之上的所有 Activity 一次性收掉；
+     * 若上级页本来不在栈里（胶囊未配对时直接开本页），则新建一个 03 页作为落点。
+     */
+    private void goUp() {
+        startActivity(new Intent(this, HostSwitcherActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        overridePendingTransition(0, 0);
+        finish();
+    }
+
+    /** 分段是同级替换：栈里始终只留一个「添加电脑」页，返回就不会在表单之间打转。 */
+    private void replaceWith(Intent target) {
+        startActivity(target);
+        overridePendingTransition(0, 0);
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() { goUp(); }
+
     // 原本这里在 onResume 里刷新「后台保活」行。该行按设计稿修订版 §4.8 删除，
     // 本页不再展示放行状态（它在 08 连接失败页以只读方式出现），所以钩子一并去掉。
 
     // ---- UI ----
 
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(DshUi.pageBg(this));
+        // r145：应用栏 + 分段控件固定在 ScrollView 之外，与 05 SSH 页共用同一骨架。
+        // 切换分段只换内容，顶部「‹ 添加电脑」这一行不再随转场动画或表单滚动而动。
+        LinearLayout page = new LinearLayout(this);
+        LinearLayout root = DshUi.fixedSegmentedPage(this, page, "添加电脑",
+                new View.OnClickListener() {
+                    @Override public void onClick(View v) { goUp(); }
+                }, 0, new DshUi.OnIndexClick() {
+                    @Override public void onIndex(int index) {
+                        if (index == 1) replaceWith(SshConfigActivity.intent(PairActivity.this));
+                    }
+                });
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        int pad = DshUi.dp(this, 18);
-        root.setPadding(pad, DshUi.dp(this, 12), pad, DshUi.dp(this, 20));
-        scroll.addView(root, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // ---- 应用栏 ----
-        root.addView(DshUi.appBar(this, "添加电脑", "‹", new View.OnClickListener() {
-            @Override public void onClick(View v) { finish(); }
-        }, null, null), DshUi.matchWrap());
-
-        // ---- 三段 Tab ----
-        root.addView(tabBar(), DshUi.matchWrapTop(this, 14));
-
-        // ---- 标题与导语 ----
-        root.addView(DshUi.label(this, "用配对码连接", 21, DshUi.ink(this), true),
+        // ---- 标题与导语（设计稿 04：h1 22sp / lead 12.5sp）----
+        root.addView(DshUi.label(this, "用配对码连接", 22, DshUi.ink(this), true),
                 DshUi.matchWrapTop(this, 10));
-        root.addView(DshUi.label(this,
+        TextView lead = DshUi.label(this,
                 "在电脑端生成配对码，把显示的地址和 6 位数字填到这里。",
-                12.5f, DshUi.label(this), false), DshUi.matchWrapTop(this, 6));
+                12.5f, DshUi.label(this), false);
+        lead.setLineSpacing(DshUi.dp(this, 2), 1f);
+        root.addView(lead, DshUi.matchWrapTop(this, 6));
 
         // ---- 卡片：地址 + 配对码 ----
         LinearLayout card = DshUi.cardBox(this);
@@ -103,13 +128,17 @@ public class PairActivity extends Activity {
         baseInput = inputBox("192.168.0.5:8787",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         card.addView(baseInput);
-        card.addView(helpText("填电脑端配对页显示的局域网地址，", "不是手机的 127.0.0.1。"));
+        card.addView(helpText(
+                new String[] { "填", "电脑端配对页显示的局域网地址", "，不是手机的 127.0.0.1。" },
+                new boolean[] { false, true, false }));
         card.addView(DshUi.divider(this));
 
         card.addView(fieldLabel("6 位配对码", "?"));
         codeInput = inputBox("• • •   • • •", InputType.TYPE_CLASS_NUMBER);
         card.addView(codeInput);
-        card.addView(helpText("一次性使用 · ", "10 分钟", " 内有效 · 设备/IP 限速"));
+        card.addView(helpText(
+                new String[] { "一次性使用 · ", "10 分钟", " 内有效 · 设备/IP 限速" },
+                new boolean[] { false, true, false }));
 
         // 这里原本是「首次连接会做什么」分节 + 两枚 info 卡（指纹钉住 / 后台保活）。
         // 按设计稿修订版 §4.8（图60）整体删除，不补替补卡：指纹核对已经在表单下方
@@ -145,7 +174,7 @@ public class PairActivity extends Activity {
         TextView ssh = DshUi.button(this, "改用 SSH 连一台机器 ›", DshUi.BTN_GHOST);
         ssh.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                startActivity(SshConfigActivity.intent(PairActivity.this));
+                replaceWith(SshConfigActivity.intent(PairActivity.this));
             }
         });
         root.addView(ssh, DshUi.matchWrapTop(this, 6));
@@ -154,49 +183,12 @@ public class PairActivity extends Activity {
         fingerprintView = DshUi.diagBar(this, "正在读取设备身份…");
         root.addView(fingerprintView, DshUi.matchWrapTop(this, 14));
 
-        setContentView(scroll);
+        setContentView(page);
         applySystemBar();
     }
 
-    /** 分段控件（设计稿 .seg）：选中项**反白块**（近黑底白字），容器浅灰 + 发丝线。 */
-    private LinearLayout tabBar() {
-        LinearLayout seg = new LinearLayout(this);
-        seg.setOrientation(LinearLayout.HORIZONTAL);
-        GradientDrawable segBg = new GradientDrawable();
-        segBg.setColor(DshUi.subtle(this));
-        segBg.setCornerRadius(DshUi.dp(this, DshUi.R_CONTROL));
-        segBg.setStroke(Math.max(1, DshUi.dp(this, 1)), DshUi.line(this));
-        seg.setBackground(segBg);
-        seg.setPadding(DshUi.dp(this, 2), DshUi.dp(this, 2),
-                DshUi.dp(this, 2), DshUi.dp(this, 2));
-
-        // 设计稿修订版 §4.7：分段控件只留「配对码 / SSH」两条真路径。原来的第三段
-        // 「本机引擎」其实是**切换档案**，不是「添加一台电脑」，混在这里会让
-        // 「连电脑」这件事看起来还有一个本地选项。
-        String[] names = { "配对码", "SSH" };
-        for (int i = 0; i < names.length; i++) {
-            final int idx = i;
-            boolean on = i == 0;
-            TextView tab = DshUi.label(this, names[i], 11.5f,
-                    on ? 0xFFFFFFFF : DshUi.label(this), on);
-            tab.setGravity(Gravity.CENTER);
-            tab.setPadding(0, DshUi.dp(this, 8), 0, DshUi.dp(this, 8));
-            if (on) {
-                tab.setBackground(DshUi.pillDrawable(this, DshUi.ink(this)));
-            }
-            tab.setClickable(true);
-            tab.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    if (idx == 1) {
-                        startActivity(SshConfigActivity.intent(PairActivity.this));
-                    }
-                }
-            });
-            seg.addView(tab, new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        }
-        return seg;
-    }
+    // tabBar() 已删除：分段控件统一由 DshUi.fixedSegmentedPage 绘制（04 与 05 共用），
+    // 两页各自手绘时连选中文字色、上边距都漂移过，切换分段会看到顶部抖一下。
 
     /** 表单分组里的字段标题（设计稿 .lab）：11sp、加粗、label 色，右侧可带 ? 气泡。 */
     private LinearLayout fieldLabel(String text, String badge) {
@@ -240,15 +232,15 @@ public class PairActivity extends Activity {
         return in;
     }
 
-    /** 字段下方的说明：mute 10sp（设计稿 .help）。 */
-    private TextView helpText(String... parts) {
-        TextView t = DshUi.label(this, "", 10, DshUi.mute(this), false);
-        StringBuilder sb = new StringBuilder();
-        for (String p : parts) sb.append(p);
-        t.setText(sb.toString());
-        int h = DshUi.dp(this, 12);
-        t.setPadding(h, DshUi.dp(this, 5), h, DshUi.dp(this, 10));
-        return t;
+    /**
+     * 字段下方的说明（设计稿 .help）：mute 10sp，可标出要加粗加下划线的关键词。
+     *
+     * <p>设计稿把「电脑端配对页显示的局域网地址」和「10 分钟」做了强调 ——
+     * 这两处恰好是历史上最容易填错/误读的地方（拿手机的 127.0.0.1 来填、
+     * 以为码长期有效），所以不是装饰。
+     */
+    private TextView helpText(String[] parts, boolean[] bold) {
+        return DshUi.help(this, DshUi.emphasis(this, parts, bold));
     }
 
     // infoCard() 随「首次连接会做什么」两枚说明卡一并删除（设计稿修订版 §4.8 图60）。
@@ -278,10 +270,14 @@ public class PairActivity extends Activity {
             @Override
             public void run() {
                 String fp = DshDeviceKey.fingerprintOrNull();
+                // 第一行按设计稿 04 的协议口径写（TTL / 限速 / 一次性），
+                // 后面接本机真实身份 —— 设计稿那条 diag 只讲协议，而这一屏真正要
+                // 让用户核对的是「这台手机的指纹会被钉到电脑上」。
+                final String head = "wbsync/2.3 · 配对码 10 分钟 TTL · 设备/IP 限速";
                 final String text = fp == null
-                        ? "device " + phoneId + "\n指纹不可用：本次配对不提交指纹（电脑端不会钉住这台设备）"
-                        : "device " + phoneId + " · 指纹 " + fp.substring(0, 16) + "…"
-                          + "\n首次配对时把这串钉到那台电脑上";
+                        ? head + "\ndevice " + phoneId
+                          + "\n指纹不可用：本次配对不提交指纹（电脑端不会钉住这台设备）"
+                        : head + "\ndevice " + phoneId + " · 指纹 " + fp.substring(0, 16) + "…";
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {

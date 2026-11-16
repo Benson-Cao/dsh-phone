@@ -27,11 +27,14 @@ public final class OfficialShell {
 
     private static final String TAG = "OfficialShell";
 
-    /** 顺序有意义：官方桥先建立，切换 UI 后挂，连接入口最后（依赖 dshSaf 桥已存在）。 */
+    /** 顺序有意义：官方桥先建立，切换 UI 后挂，胶囊最后（依赖 dshSaf 桥已存在）。 */
     private static final String[] ASSETS = {
         "dsh/official-bridge.js",
         "dsh/engine-switcher.js",
-        "dsh/connection-entry.js"
+        // r142：connection-entry.js 移除 —— 右下角的两枚悬浮入口（链条/芯片）按用户
+        // 拍板去掉，连接入口由顶部主机胶囊（host-pill.js，仅首页）承担。
+        // 本机引擎页的入口随之只剩 08 失败页那条兜底路径。
+        "dsh/host-pill.js"
     };
 
     private static final Map<String, String> CACHE = new HashMap<>();

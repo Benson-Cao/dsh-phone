@@ -1,8 +1,6 @@
 package com.dsh.harness;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -12,6 +10,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.List;
 
 /**
@@ -47,20 +47,37 @@ import java.util.List;
  */
 public class HostSwitcherActivity extends Activity {
 
-    private TextView statusView;
     private TextView hostsSection;
     private LinearLayout listBox;
     private TextView refreshButton;
     private TextView diagBar;
+    /** 本机 / SSH 两张卡各留引用：探测结果回来后只重建卡内那一行，不整页重画。 */
+    private LinearLayout localCard;
+    private LinearLayout sshCard;
 
     private String relayOrigin;
     private String token;
+    /** 这台 SSH 主机当前不可用（失败页置位 + 本页 TCP 探测结果）。 */
+    private boolean sshLinkFailed;
+    /** SSH 主机 22 端口是否可达（null = 正在探测）。只写进副标题，不决定标签。 */
+    private Boolean sshPortReachable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         relayOrigin = DshDeviceIdentity.lastRelayUrl(this);
         token = DshTokenStore.load(this);
+        sshLinkFailed = LinkState.sshFailed(this);
+
+        // r145：上次 SSH 连接已确认失败时，这一页不能再把那台机器显示成「正在使用」。
+        // 直接回落到本机引擎：连不上的档留着只会停在失败页；SSH 配置仍在，
+        // 随时可从下面的「SSH 直连」卡切回去（switchToSsh 会清掉失败标记）。
+        // r147：失败标记**保留**——它是这台主机的事实，回落后下一屏还得据此显示「离线」。
+        if (HostProfile.KIND_SSH.equals(HostProfile.get(this).current().kind) && sshLinkFailed) {
+            toast("SSH 连接失败，已切回本机引擎。");
+            switchToLocal();
+            return;
+        }
         buildUi();
         reload();
     }
@@ -104,10 +121,35 @@ public class HostSwitcherActivity extends Activity {
         // 设计稿修订版 §4.8（图59）删除：应用栏已经写明「连接电脑」，再写一遍大标题
         // 属于解释性重复。删除后中部留白由下面的内容与底部按钮吸收，不补替补卡。
 
-        // ---- 状态行：只在有话说时占位（加载中 / 出错 / 提示）----
-        statusView = DshUi.label(this, "", 11.5f, DshUi.label(this), false);
-        statusView.setVisibility(View.GONE);
-        root.addView(statusView, DshUi.matchWrapTop(this, 10));
+        // r144：这里原本有一条常驻状态行，出错时套近黑虚线框。本机档下 /api/hosts
+        // 本来就会连不上电脑端 Relay，那条「连不上电脑」是纯粹的误报；按真机反馈整块删除。
+        // 操作反馈改走 Toast（不占布局、不常驻），链路体检仍由下面的诊断条承担。
+
+        // ---- 本机：这台手机自己也是一个「执行位置」----
+        // 设计稿修订版 §4.7 曾把本机从这一页摘掉（理由是「选一台电脑」和「切执行位置」
+        // 混在同一张卡里）。真机上暴露出反向问题：人在远端档案里想切回本机时，
+        // 这一页**没有任何本机条目** —— 只能退出应用，再去 08 失败页走兜底路径。
+        // 现在单独成组（不并进「已绑定」那张卡），两块各说一件事，互不混淆。
+        // 位置在本机优先：它是**此刻就有**的那一项，而远端清单可能是 0 台。
+        root.addView(DshUi.section(this, "本机"), DshUi.matchWrapTop(this, 12));
+        localCard = DshUi.cardBox(this);
+        localCard.addView(localRow());
+        root.addView(localCard, DshUi.matchWrapTop(this, 2));
+
+        // ---- SSH 直连主机：不经 Relay，/api/hosts 里根本不会有它 ----
+        // r141 补了这一行，但当时取的是 current()，只有「当前档就是 ssh」才画 ——
+        // 于是 r144 真机反馈「从 ssh 切换到本机后，ssh 连接就消失了」。
+        // setCurrent(local) 只换当前档指针，ssh 配置仍在 dsh_profiles.xml；
+        // savedSsh() 与当前档无关，用它常驻渲染。r147：只要当前档不是 ssh，
+        // 就说明此刻没有连到这台机器，标签一律「离线」，不再给「可切换」的假希望。
+        // 端口可达性只作为副标题的诊断信息（能连 22 端口 ≠ SSH 认证能过）。
+        HostProfile.Profile ssh = HostProfile.get(this).savedSsh();
+        if (ssh != null) {
+            root.addView(DshUi.section(this, "SSH 直连"), DshUi.matchWrapTop(this, 12));
+            sshCard = DshUi.cardBox(this);
+            sshCard.addView(directRow(ssh));
+            root.addView(sshCard, DshUi.matchWrapTop(this, 2));
+        }
 
         // ---- 已绑定：远端电脑清单 ----
         hostsSection = DshUi.section(this, "已绑定");
@@ -115,11 +157,6 @@ public class HostSwitcherActivity extends Activity {
         listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(listBox, DshUi.matchWrapTop(this, 2));
-
-        // 「本机」设备组与「归属与在线口径」卡按设计稿修订版 §4.7/§4.8 删除：
-        // 连接电脑列表里混入本机引擎，会让「选一台电脑」和「切执行位置」两件事混淆；
-        // 口径表则是技术解释，属于「界面上堆叠产品口径」被红框点掉的那一类。
-        // 本机引擎的入口仍在 08 失败页（兜底路径），本页不再提供。
 
         // ---- 诊断条（点按展开真实诊断）----
         diagBar = DshUi.diagBar(this, diagText());
@@ -148,23 +185,9 @@ public class HostSwitcherActivity extends Activity {
         });
         root.addView(refreshBtn, DshUi.matchWrapTop(this, 8));
 
-        // 「连 SSH 主机」是 r123 特意加的第三条路：SSH 不走 Relay 也就不需要配对码，
-        // 入口不能只挂在配对流程里。单色稿这一屏没有它，用下划线链接补，不占按钮位。
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        root.addView(row2, DshUi.matchWrapTop(this, 4));
-        TextView sshBtn = DshUi.button(this, "连 SSH 主机 ›", DshUi.BTN_GHOST);
-        sshBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                startActivity(SshConfigActivity.intent(HostSwitcherActivity.this));
-            }
-        });
-        row2.addView(sshBtn, DshUi.half(this, true));
-        TextView backBtn = DshUi.button(this, "返回应用", DshUi.BTN_GHOST);
-        backBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { finish(); }
-        });
-        row2.addView(backBtn, DshUi.half(this, false));
+        // r147：底部「返回应用」按真机反馈删除。应用栏左上角已有「‹」承担返回，
+        // 同一个动作在两处出现、中间还隔着两张按钮，只会让人以为下面那个另有用意。
+        // 「连 SSH 主机」早前按设计稿 03 删除，这里也不留替补卡。
 
         setContentView(scroll);
         try {
@@ -175,25 +198,23 @@ public class HostSwitcherActivity extends Activity {
         }
     }
 
-    // 这里原本有 factRow()（「归属与在线口径」三行）与 localRow()（「本机」设备行）。
-    // 两张卡都按设计稿修订版 §4.7/§4.8 删除，行构造函数一并移除 —— 留着不用等于给
-    // 下一个人「这里还有一块 UI」的错觉，而它在页面上根本不存在。
+    // 这里原本有 factRow()（「归属与在线口径」三行）。那张卡按设计稿修订版 §4.7/§4.8
+    // 删除，行构造函数一并移除 —— 留着不用等于给下一个人「这里还有一块 UI」的错觉。
 
-    /** 拉清单（后台线程）。令牌缺失时不去试空 Bearer。 */
+    /** 拉清单 + 探测 SSH 主机（后台线程）。缺凭据时静默收起「已绑定」，不弹「连不上电脑」。 */
     private void reload() {
         diagBar.setText(diagText());
-        if (relayOrigin == null) {
-            showStatus("还没配对过：点「添加电脑」填地址和配对码。", true);
-            setRefreshEnabled(false);
-            return;
-        }
-        if (token == null) {
-            showStatus("本机令牌不可用（可能被清除或来自别的设备）。重新配对一次。", true);
+        // 每次进页 / 点「刷新状态」都重新判一次 SSH 主机可达性：电脑恢复后
+        // 标签能自己从「离线」变回「可切换」，不必先切过去失败一次。
+        probeSsh();
+        if (relayOrigin == null || token == null) {
+            // 本机 / SSH 档下没配对过、令牌不可用都是常态；这条清单本来就是可选的。
+            hostsSection.setVisibility(View.GONE);
+            listBox.removeAllViews();
             setRefreshEnabled(false);
             return;
         }
         setRefreshEnabled(false);
-        showStatus("正在读取电脑列表…", false);
         listBox.removeAllViews();
 
         new Thread(new Runnable() {
@@ -220,24 +241,19 @@ public class HostSwitcherActivity extends Activity {
         setRefreshEnabled(true);
         listBox.removeAllViews();
         if (!r.ok()) {
-            HostsError.Finding f = r.finding();
-            // 空列表时**不画**「已绑定」小标题：一个没有任何卡的标题读起来像渲染失败，
-            // 改成用一张空态卡说话，标题只在真有内容时出现。
+            // 拉不到远端清单不是「用户做错了什么」：当前执行位置可能就是本机 / SSH，
+            // 电脑端 Relay 根本不必在跑。静默收起这一节，链路体检交给常驻诊断条。
             hostsSection.setVisibility(View.GONE);
-            showStatus(f.title + "：" + f.action, true);
-            listBox.addView(emptyCard("还没有可切换的电脑", "点下面的「添加电脑」，用配对码或 SSH 连一台。"));
             return;
         }
         List<DshHostsClient.Host> rows = r.rows;
         if (rows == null || rows.isEmpty()) {
             hostsSection.setVisibility(View.GONE);
-            showStatus("这台手机还看不到任何电脑。确认电脑端在运行并已连上同一个 Relay。", true);
-            listBox.addView(emptyCard("还没有可切换的电脑", "点下面的「添加电脑」，用配对码或 SSH 连一台。"));
+            listBox.addView(emptyCard("还没有绑定电脑", "点下面的「添加电脑」，用配对码或 SSH 连一台；上面的「本机」随时可用。"));
             return;
         }
         hostsSection.setVisibility(View.VISIBLE);
         hostsSection.setText("已绑定 · " + rows.size());
-        showStatus("", false);
         LinearLayout card = DshUi.cardBox(this);
         for (int i = 0; i < rows.size(); i++) {
             if (i > 0) card.addView(DshUi.divider(this));
@@ -262,6 +278,194 @@ public class HostSwitcherActivity extends Activity {
         return card;
     }
 
+    /**
+     * 本机一行：方块头像 + 名字/摘要 + 状态标签。
+     *
+     * <p>与远端行同构是刻意的 —— 用户在这一页做的判断是「在哪台机器上继续」，
+     * 本机只是其中一台，视觉上不该是另一套东西。
+     */
+    private View localRow() {
+        HostProfile.Profile cur = HostProfile.get(this).current();
+        boolean inUse = HostProfile.KIND_LOCAL.equals(cur.kind);
+
+        LinearLayout row = DshUi.rowBox(this);
+        row.addView(DshUi.avatar(this, "本", 0), avatarLp());
+        row.addView(deviceColumn("这台手机",
+                "127.0.0.1:" + DshProcessManager.DSH_PORT + " · 只绑回环 · 本机引擎", null));
+        row.addView(inUse ? DshUi.tagOn(this, "正在使用")
+                : DshUi.tagWait(this, sshLinkFailed ? "切回本机" : "可切换"));
+
+        // 已经在本机时不给点击：同档切换是无操作，点了只会让人怀疑没生效。
+        if (inUse) return row;
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                // 失败态一步直达，不再多一次确认；正常态保留确认（不迁移会话的口径要说到）。
+                if (sshLinkFailed) switchToLocal();
+                else confirmSwitchLocal();
+            }
+        });
+        DshUi.pressable(row);
+        return row;
+    }
+
+    /** SSH 直连一行：档案里就有全部信息，不需要网络请求；与当前档无关，始终显示。 */
+    private View directRow(final HostProfile.Profile p) {
+        final boolean inUse = HostProfile.KIND_SSH.equals(HostProfile.get(this).current().kind);
+        LinearLayout row = DshUi.rowBox(this);
+        String host = p.sshHost == null || p.sshHost.isEmpty() ? "?" : p.sshHost;
+        row.addView(DshUi.avatar(this, host.substring(0, 1), 0), avatarLp());
+        String meta = "127.0.0.1:" + p.localPort + " → 电脑:" + p.sshTargetPort + " · ssh 隧道"
+                + (sshPortReachable == null ? " · 检测中"
+                        : (sshPortReachable ? " · 22 端口可达" : " · 主机不可达"));
+        row.addView(deviceColumn(p.sshUser + "@" + host, meta, null));
+        // r147（真机二次修正）：**只有当前档就是 ssh 且隧道真通**才算「正在使用」。
+        // 只要当前档是本机/Relay，这条隧道此刻就不存在 —— 标签必须写「离线」。
+        // 首版曾用「TCP 探 22 端口是否通」决定「可切换 ↔ 离线」，真机上被证伪：
+        // 100.99.226.70:22 一直通，卡的是公钥没被 authorized_keys 接受，
+        // 失败页明确写着「隧道没有建起来」，切换器却说「可切换」，自相矛盾。
+        View tag = inUse
+                ? (sshLinkFailed ? DshUi.tagOff(this, "连接失败") : DshUi.tagOn(this, "正在使用"))
+                : DshUi.tagOff(this, "离线");
+        row.addView(tag);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (inUse) {
+                    toast(p.sshUser + "@" + p.sshHost
+                            + " 是当前档案指向的机器（SSH 直连，不经 Relay 清单）。");
+                } else {
+                    confirmSwitchSsh(p);
+                }
+            }
+        });
+        DshUi.pressable(row);
+        return row;
+    }
+
+    /** 只重画 SSH 卡内那一行（探测回来 / 标签状态变化时用）。 */
+    private void refreshSshCard() {
+        if (sshCard == null) return;
+        HostProfile.Profile p = HostProfile.get(this).savedSsh();
+        sshCard.removeAllViews();
+        if (p != null) sshCard.addView(directRow(p));
+    }
+
+    /** 本机卡的标签也受失败标记影响（「切回本机」↔「可切换」）。 */
+    private void refreshLocalCard() {
+        if (localCard == null) return;
+        localCard.removeAllViews();
+        localCard.addView(localRow());
+    }
+
+    /**
+     * 后台探测 SSH 主机可达性：只对 sshHost:sshPort 做一次 TCP 握手，不认证、不读数据。
+     *
+     * <p>为什么还要探：端口不可达是比「上次认证失败」更前置的故障，写进副标题
+     * 能让失败页那四条检查项有侧重点（先看网络还是先看公钥）。
+     *
+     * <p><b>关键口径（真机实测修正）</b>：探测结果<strong>只进副标题，不决定标签</strong>。
+     * 100.99.226.70:22 一直是通的，卡住的是公钥未被 authorized_keys 接受；
+     * 拿 TCP 握手当「可切换」的依据会与失败页自相矛盾。端口不通时顺手置失败标记，
+     * 端口通不动任何已记录的失败证据。超时 1.2s，不阻塞界面，不进 UI 线程。
+     */
+    private void probeSsh() {
+        final HostProfile.Profile p = HostProfile.get(this).savedSsh();
+        if (p == null || p.sshHost == null || p.sshHost.isEmpty()) return;
+        final int port = p.sshPort > 0 ? p.sshPort : 22;
+        sshPortReachable = null;
+        refreshSshCard();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                Socket s = null;
+                boolean reachable = false;
+                try {
+                    s = new Socket();
+                    s.connect(new InetSocketAddress(p.sshHost, port), 1200);
+                    reachable = true;
+                } catch (Throwable ignored) {
+                    // 超时 / 无路由 / 拒绝连接都等同「这台主机现在连不上」
+                } finally {
+                    try { if (s != null) s.close(); } catch (Throwable ignored) { }
+                }
+                final boolean ok = reachable;
+                runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        sshPortReachable = ok;
+                        if (!ok) {
+                            // 连 22 端口都不通：这台主机现在确实连不上。
+                            LinkState.markSshFailed(HostSwitcherActivity.this);
+                            sshLinkFailed = true;
+                        }
+                        // ok 时不动失败标记：端口通只说明网络层没断，不能推翻
+                        // 「上次隧道没建起来」这个已被失败页确认过的事实。
+                        refreshSshCard();
+                        refreshLocalCard();
+                    }
+                });
+            }
+        }, "dsh-ssh-probe").start();
+    }
+
+    /** 重连已存的 SSH 档：当前是离线态，先把「可能仍连不上」说在前面。 */
+    private void confirmSwitchSsh(final HostProfile.Profile p) {
+        String lead = sshLinkFailed
+                ? "上次连接没成功，现在这台主机仍是离线状态，切过去可能停在连接失败页。\n\n"
+                : "";
+        // r148：统一圆角卡片 + 项目单色按钮，替掉系统方角灰卡与红字按钮。
+        DshDialog.with(this)
+                .title("重连这台 SSH 主机？")
+                .message(lead + "重新连到 " + p.sshUser + "@" + p.sshHost + "，"
+                        + "会话与文件各自留在原来的机器上，不会互相带走。")
+                .negative("取消", null)
+                .positive("重试", new DshDialog.Action() {
+                    @Override public void run() { switchToSsh(); }
+                })
+                .show();
+    }
+
+    private void switchToSsh() {
+        HostProfile hp = HostProfile.get(this);
+        // 用户主动重连：旧失败标记不能留着，否则 MainActivity 尝试连隧道期间
+        // 再打开切换器会被判成「又失败了」而切回本机。
+        LinkState.clearSshFailed(this);
+        if (!hp.setCurrent(HostProfile.KIND_SSH)) {
+            toast("切不回 SSH：已存档案不可用，去「添加电脑」重新填一次。");
+            return;
+        }
+        // 与 SshConfigActivity「保存并连接」同一条路径：归零 cookie + 预热，
+        // 并重启到全新 MainActivity（带 enterRemote 跳过按需连接守卫）。
+        ProfileSession.resetRuntime();
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.EXTRA_ENTER_REMOTE, true));
+    }
+
+    /** 切到本机前确认一次：口径与远端切换一致（不迁移会话）。 */
+    private void confirmSwitchLocal() {
+        DshDialog.with(this)
+                .title("切到本机引擎？")
+                .message("本机是这台手机上另跑的一份 dsh，会话与文件都在本机。"
+                        + "切过去不会带走电脑上的会话，也不会删除电脑上的任何东西。")
+                .negative("取消", null)
+                .positive("切到本机", new DshDialog.Action() {
+                    @Override public void run() { switchToLocal(); }
+                })
+                .show();
+    }
+
+    private void switchToLocal() {
+        // r147：不清失败标记。切到本机是换执行位置，不是把那台电脑修好了；
+        // 下一屏的「SSH 直连」卡要继续如实显示「离线」。
+        HostProfile hp = HostProfile.get(this);
+        if (!hp.setCurrent(HostProfile.KIND_LOCAL)) {
+            toast("切不到本机：本机档案不可用。");
+            return;
+        }
+        // 切档必须归零 cookie 与预热实例（R-22：防跨主机串会话）
+        ProfileSession.resetRuntime();
+        // r144：原来用 finish()+startActivity()，栈里旧 MainActivity 不会重建，
+        // 返回键还能回到切档前的档案。统一走 restartInto（与 08 页 useLocal 一致）。
+        ProfileSession.restartInto(this, new Intent(this, MainActivity.class));
+    }
+
     /** 远端电脑一行：方块头像 + 名字/摘要 + 状态标签；整行可点。 */
     private View hostRow(final DshHostsClient.Host h) {
         LinearLayout row = DshUi.rowBox(this);
@@ -272,8 +476,8 @@ public class HostSwitcherActivity extends Activity {
             @Override public void onClick(View v) {
                 if (h.bound) {
                     // 已是绑定目标：不弹确认、不发请求（同主机 select 是 no-op）
-                    showStatus(displayName(h) + " 已经是这台手机的绑定目标"
-                            + "（归属，不代表此刻正在使用）。", false);
+                    toast(displayName(h) + " 已经是这台手机的绑定目标"
+                            + "（归属，不代表此刻正在使用）。");
                     return;
                 }
                 confirmSwitch(h);
@@ -349,26 +553,15 @@ public class HostSwitcherActivity extends Activity {
         return lp;
     }
 
-    // ---- 状态条 ----
+    // ---- 操作反馈 ----
 
     /**
-     * 状态行：出错用**虚线近黑边**（单色稿没有琥珀底），提示用透明底。
-     *
-     * <p>之所以不并进诊断条：诊断条是「链路体检」的常驻信息，
-     * 而这里说的是「刚才那次操作怎么了」，两者混在一起会互相淹没。
+     * 轻量反馈：r144 起顶部不再有常驻状态行（虚线错误框已删除）。
+     * 只用于「用户刚做的那个动作结果如何」，链路状态归下面的诊断条。
      */
-    private void showStatus(String msg, boolean error) {
-        if (msg == null || msg.isEmpty()) {
-            statusView.setVisibility(View.GONE);
-            return;
-        }
-        statusView.setVisibility(View.VISIBLE);
-        statusView.setText(msg);
-        statusView.setTextColor(error ? DshUi.ink(this) : DshUi.label(this));
-        statusView.setBackground(error ? DshUi.dashedCardDrawable(this, DshUi.ink2(this)) : null);
-        int h = DshUi.dp(this, error ? 10 : 2);
-        int v = DshUi.dp(this, error ? 9 : 2);
-        statusView.setPadding(h, v, h, v);
+    private void toast(String msg) {
+        if (msg == null || msg.isEmpty()) return;
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     // ---- 诊断 ----
@@ -406,15 +599,13 @@ public class HostSwitcherActivity extends Activity {
         sb.append("\n\n心跳口径：Relay 侧 20 秒收不到电脑上报即判离线；"
                 + "本页不显示「几秒前」这类时间戳，因为接口只给在线布尔值。");
 
-        new AlertDialog.Builder(this)
-                .setTitle("连接诊断")
-                .setMessage(sb.toString())
-                .setNegativeButton("复制", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int w) {
-                        copyToClipboard(diagText());
-                    }
+        DshDialog.with(this)
+                .title("连接诊断")
+                .message(sb.toString())
+                .negative("复制", new DshDialog.Action() {
+                    @Override public void run() { copyToClipboard(diagText()); }
                 })
-                .setPositiveButton("关闭", null)
+                .positive("关闭", null)
                 .show();
     }
 
@@ -424,9 +615,9 @@ public class HostSwitcherActivity extends Activity {
                     getSystemService(CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(
                     android.content.ClipData.newPlainText("dsh-diagnostics", text));
-            showStatus("诊断摘要已复制。", false);
+            toast("诊断摘要已复制。");
         } catch (Throwable t) {
-            showStatus("复制失败：" + t.getMessage(), true);
+            toast("复制失败：" + t.getMessage());
         }
     }
 
@@ -446,22 +637,19 @@ public class HostSwitcherActivity extends Activity {
      */
     private void confirmSwitch(final DshHostsClient.Host h) {
         String label = displayName(h);
-        new AlertDialog.Builder(this)
-                .setTitle("切换到「" + label + "」？")
-                .setMessage("切换主机不会带走会话、文件与插件。\n"
+        DshDialog.with(this)
+                .title("切换到「" + label + "」？")
+                .message("切换主机不会带走会话、文件与插件。\n"
                         + "切过去之后，界面会重建并显示这台电脑自己的内容。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("切换", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int which) {
-                        doSwitch(h);
-                    }
+                .negative("取消", null)
+                .positive("切换", new DshDialog.Action() {
+                    @Override public void run() { doSwitch(h); }
                 })
                 .show();
     }
 
     private void doSwitch(final DshHostsClient.Host h) {
-        showStatus("正在切换到 " + displayName(h) + "…", false);
+        // 刷新按钮压暗已经是加载态，不再往页面顶部塞一条常驻文字。
         setRefreshEnabled(false);
         new Thread(new Runnable() {
             @Override
@@ -481,7 +669,7 @@ public class HostSwitcherActivity extends Activity {
         setRefreshEnabled(true);
         if (!r.ok()) {
             HostsError.Finding f = r.finding();
-            showStatus(f.title + "：" + f.action, true);
+            toast(f.title + "：" + f.action);
             return;
         }
         // 服务端已重绑（令牌不变、绑定变）。本地档案要跟上，否则重启又回到旧主机。
@@ -489,7 +677,7 @@ public class HostSwitcherActivity extends Activity {
         HostProfile hp = HostProfile.get(this);
         hp.setRelay(relayOrigin, bound, token);
         if (!hp.setCurrent(HostProfile.KIND_RELAY)) {
-            showStatus("切换已生效，但本地档案没保存成功；重启后可能需要再切一次。", true);
+            toast("切换已生效，但本地档案没保存成功；重启后可能需要再切一次。");
             return;
         }
         ProfileSession.resetRuntime();

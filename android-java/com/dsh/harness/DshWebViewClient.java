@@ -101,21 +101,131 @@ public class DshWebViewClient extends WebViewClient {
      * 渲染出来，用户看到的就是「启动闪一下报错」。这里在第一次失败时立刻塞一个
      * 与启动页同风格的轻量文档，重试成功后被 loadUrl 覆盖；
      * {@link #onPageFinished} 的 clearHistory 会剪掉这段 data: 历史。
+     *
+     * <p><b>r138 起按设计稿 p7「连接中」重做</b>：不再是「一句话 + 一根呼吸条」，
+     * 而是「主机名 + 三步进度 + 预计落点」。理由是这一屏在慢网络上会停留十几秒，
+     * 一句「请稍候」在这里等于没有信息 —— 用户既不知道在做哪一步，
+     * 也不知道连的是哪台机器（多档案下这是最常见的困惑）。
      */
-    private static String connectingHtml(boolean dark) {
+    private static String connectingHtml(Context ctx, int attempt) {
+        boolean dark = DshPalette.isDark(ctx);
+        String ink = hex(DshUi.ink(ctx));
+        String ink2 = hex(DshUi.ink2(ctx));
+        String label = hex(DshUi.label(ctx));
+        String card = hex(DshUi.card(ctx));
+        String subtle = hex(DshUi.subtle(ctx));
+        String line = hex(DshUi.line(ctx));
+        String page = hex(DshUi.pageBg(ctx));
+
+        HostProfile.Profile p;
+        try {
+            p = HostProfile.get(ctx).current();
+        } catch (Throwable t) {
+            p = null;
+        }
+        String path = p == null ? "local" : p.kind;
+        String host = esc(hostLabel(p));
+        String target = p == null ? "—"
+                : HostProfile.KIND_SSH.equals(p.kind)
+                    ? esc("127.0.0.1:" + p.localPort + " → " + p.sshHost + ":" + p.sshTargetPort)
+                    : HostProfile.KIND_LOCAL.equals(p.kind)
+                        ? esc("127.0.0.1:" + DshProcessManager.DSH_PORT)
+                        : esc(p.origin == null ? "—" : p.origin);
+        // 第二步的说明按档案分：写死「Relay 反代」会让 ssh / local 档看到不存在的东西。
+        String step2 = HostProfile.KIND_SSH.equals(path)
+                ? "SSH 隧道转发到电脑侧端口"
+                : HostProfile.KIND_LOCAL.equals(path)
+                    ? "本机 dsh 引擎就绪探测"
+                    : "Relay 反代到该 Host 的 dsh web";
+        String tries = attempt > 0 ? " · 第 " + (attempt + 1) + " 次" : "";
+
         return "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            + "<style>html,body{height:100%;margin:0;background:" + pageBg(dark) + ";font-family:sans-serif;"
-            + "color:" + pageInk(dark) + ";display:flex;align-items:center;justify-content:center;text-align:center}"
-            + ".bar{margin:18px auto 0;height:3px;width:150px;border-radius:2px;"
-            // 原来是蓝→紫渐变。单色稿里换成一条近黑（深色下近白）实心条，
-            // 呼吸由 opacity 承担 —— 形状不变，只是不再有颜色。
-            + "background:" + pageInk(dark) + ";"
-            + "animation:p 1.2s ease-in-out infinite}@keyframes p{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}"
-            + "</style></head><body><div>"
-            + "<div style='font-size:17px;font-weight:600'>正在连接 dsh 服务…</div>"
-            + "<div style='font-size:13px;color:" + pageMute(dark)
-            + ";margin-top:8px'>首次启动需要几秒，请稍候</div>"
-            + "<div class='bar'></div></div></body></html>";
+            + "<style>"
+            + "html,body{margin:0;background:" + page + ";color:" + ink + ";"
+            + "font-family:system-ui,-apple-system,'Segoe UI',sans-serif;"
+            + "padding:10px 16px 18px;box-sizing:border-box}"
+            + ".top{display:flex;align-items:center;gap:9px;margin-bottom:6px}"
+            + ".x{width:26px;height:26px;border-radius:13px;border:1px solid " + line + ";"
+            + "color:" + label + ";font-size:15px;line-height:24px;text-align:center}"
+            + ".tt{font-size:14px;font-weight:700}"
+            + ".hero{text-align:center;padding:14px 0 12px}"
+            + ".logo{width:66px;height:66px;margin:0 auto;border-radius:21px;background:" + card
+            + ";border:1px solid " + line + ";font-size:30px;line-height:64px;color:" + ink
+            + ";animation:br 1.4s ease-in-out infinite}"
+            + "@keyframes br{0%{opacity:.55}50%{opacity:1}100%{opacity:.55}}"
+            + ".h2{font-size:17px;font-weight:700;margin-top:13px}"
+            + ".sub{font-size:11px;color:" + label + ";margin-top:5px}"
+            + ".card{background:" + card + ";border:1px solid " + line + ";border-radius:12px;"
+            + "overflow:hidden;margin-top:12px}"
+            + ".pst{display:flex;align-items:center;gap:11px;padding:10px 12px;"
+            + "border-bottom:1px solid " + line + "}"
+            + ".pst:last-child{border-bottom:0}"
+            + ".pn{width:22px;height:22px;flex:0 0 22px;border-radius:4px;background:" + subtle
+            + ";color:" + label + ";font-size:11px;font-weight:700;text-align:center;line-height:22px;"
+            + "font-family:ui-monospace,Menlo,monospace}"
+            + ".done .pn{color:" + ink + "}"
+            + ".now .pn{background:" + ink + ";color:" + page + "}"
+            + ".pt{font-size:12px;font-weight:700}"
+            + ".ps{font-size:10px;color:" + label + ";margin-top:2px}"
+            + ".pstat{margin-left:auto;font-size:10px;font-weight:700;color:" + label + ";"
+            + "font-family:ui-monospace,Menlo,monospace}"
+            + ".done .pstat,.now .pstat{color:" + ink + "}"
+            + ".now .pstat{text-decoration:underline}"
+            + ".sec{font-size:10.5px;font-weight:700;letter-spacing:.7px;color:" + label
+            + ";margin:16px 0 7px;text-transform:none}"
+            + ".diag{background:" + subtle + ";border:1px solid " + line + ";border-radius:8px;"
+            + "padding:8px 11px;font-size:10px;line-height:1.7;color:" + label + ";"
+            + "font-family:ui-monospace,Menlo,monospace;word-break:break-all}"
+            + ".diag span{color:" + ink + ";font-weight:700}"
+            + ".info{background:" + card + ";border:1px solid " + line + ";border-radius:8px;"
+            + "padding:10px 12px;font-size:11px;line-height:1.6;color:" + ink2 + ";margin-top:9px}"
+            + ".info b{color:" + ink + "}"
+            + ".foot{margin-top:14px;font-size:10.5px;color:" + label + ";text-align:center}"
+            + "</style></head><body>"
+            + "<div class='top'><div class='x'>×</div><div class='tt'>正在连接</div></div>"
+            + "<div class='hero'><div class='logo'>⌁</div>"
+            + "<div class='h2'>" + host + "</div>"
+            + "<div class='sub'>" + esc(path) + " · 正在建立链路" + tries + "</div></div>"
+            + "<div class='card'>"
+            + "<div class='pst done'><div class='pn'>✓</div><div>"
+            + "<div class='pt'>身份校验</div>"
+            + "<div class='ps'>配对凭据 / 指纹已钉住</div></div>"
+            + "<div class='pstat'>完成</div></div>"
+            + "<div class='pst now'><div class='pn'>2</div><div>"
+            + "<div class='pt'>建立传输链路</div>"
+            + "<div class='ps'>" + step2 + "</div></div>"
+            + "<div class='pstat'>进行中</div></div>"
+            + "<div class='pst'><div class='pn'>3</div><div>"
+            + "<div class='pt'>加载官方界面</div>"
+            + "<div class='ps'>390px 窄屏冒烟 · 不注入任何皮肤</div></div>"
+            + "<div class='pstat'>等待</div></div>"
+            + "</div>"
+            + "<div class='sec'>预计落点</div>"
+            + "<div class='diag'>activePath <span>" + esc(path) + "</span> · 目标 <span>"
+            + target + "</span><br>超时后自动放弃这一轮，可返回上一层取消</div>"
+            + "<div class='info'>连上后打开的是<b>官方 dsh web</b>，会话内容来自这台电脑。</div>"
+            + "<div class='foot'>首次加载需要几秒，请稍候</div>"
+            + "</body></html>";
+    }
+
+    /** 颜色转 CSS 十六进制：直接借用 DshUi 的明暗令牌，别在这类页面里再写一份调色板。 */
+    private static String hex(int color) {
+        return String.format(java.util.Locale.US, "#%06X", 0xFFFFFF & color);
+    }
+
+    /** 主机显示名：relay 用 hostId，ssh 用 user@host，local 说「这台手机」。 */
+    private static String hostLabel(HostProfile.Profile p) {
+        if (p == null) return "这台电脑";
+        if (HostProfile.KIND_LOCAL.equals(p.kind)) return "这台手机";
+        if (HostProfile.KIND_SSH.equals(p.kind)) return p.sshUser + "@" + p.sshHost;
+        if (p.hostId != null && p.hostId.length() > 0) return p.hostId;
+        return (p.origin == null || p.origin.isEmpty()) ? "这台电脑" : p.origin;
+    }
+
+    /** 极简 HTML 转义：主机名/地址来自用户输入，拼进文档前必须过一遍。 */
+    private static String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /**
@@ -279,7 +389,7 @@ public class DshWebViewClient extends WebViewClient {
             // loadData 才不会和后面的 loadUrl 抢顺序）。后续重试期间沿用这个占位页。
             if (attempt == 0 && view != null) {
                 view.loadDataWithBaseURL(null,
-                        connectingHtml(DshPalette.isDark(view.getContext())),
+                        connectingHtml(view.getContext(), attempt),
                         "text/html", "utf-8", null);
             }
             final long delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
