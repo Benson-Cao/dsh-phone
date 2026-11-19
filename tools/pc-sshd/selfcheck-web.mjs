@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** dsh-web-daemon 转发规则的确定性断言，不启动任何服务。 */
-import { rewritePath } from './web-proxy-rules.mjs'
+import { rewritePath, rewriteLocation } from './web-proxy-rules.mjs'
 
 const results = []
 function check(name, ok, detail = '') {
@@ -38,6 +38,13 @@ check('畸形 URL 不抛异常', (() => {
 })())
 check('跟随跳转后的裸根路径不再被注入',
   rewritePath('/', 'dsh-auth-abc=v1.xxx', NEW) === '/')
+check('相对 Location ./ 规整为绝对路径 /', rewriteLocation('./') === '/')
+check('相对 Location ./?x=1 保留查询串', rewriteLocation('./?x=1') === '/?x=1')
+check('相对 Location . 规整为 /', rewriteLocation('.') === '/')
+check('带路径的相对 Location 原样透传', rewriteLocation('./dashboard') === './dashboard')
+check('绝对 Location 原样透传', rewriteLocation('/dashboard') === '/dashboard')
+check('外部 Location 原样透传', rewriteLocation('https://example.com/x') === 'https://example.com/x')
+check('空 Location 不抛异常', rewriteLocation(null) === null && rewriteLocation('') === '')
 
 const failed = results.filter((r) => !r).length
 console.log(`\ndsh-web-daemon 规则：${results.length - failed} passed, ${failed} failed`)

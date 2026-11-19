@@ -30,7 +30,7 @@ import http from 'node:http'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { rewritePath } from './web-proxy-rules.mjs'
+import { rewritePath, rewriteLocation } from './web-proxy-rules.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SELF = fileURLToPath(import.meta.url)
@@ -155,7 +155,11 @@ const proxy = http.createServer((req, res) => {
     host: '127.0.0.1', port: UPSTREAM, path: forwardPath,
     method: req.method, headers
   }, (ur) => {
-    res.writeHead(ur.statusCode, ur.headers)
+    // 303 + Location: ./ 规整为绝对路径：语义等价，但手机 WebView 对相对跳转的
+    // 解析有歧义（真机出现过隧道转发一次 303 后就不再发第二跳 → 白屏）。
+    const headers = { ...ur.headers }
+    if (headers.location) headers.location = rewriteLocation(headers.location)
+    res.writeHead(ur.statusCode, headers)
     ur.pipe(res)
   })
   up.on('error', (e) => {
