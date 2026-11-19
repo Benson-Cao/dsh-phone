@@ -160,6 +160,9 @@ public class MainActivity extends Activity {
     /** WebView 是否已真正进入（用于避免 DSH_STATE 错误诊断覆盖正常界面）。 */
     private boolean webShown = false;
 
+    /** relay 档的顶部原生胶囊（仅该档创建，见 {@link #attachRelayPill()}）。 */
+    private TextView relayPill = null;
+
     private String dshUrl() {
         // 三引擎切换：本机直连 3080，电脑/服务器走 3082 本地反代。
         // 两者都是 loopback，A-02 的 DshOrigin 判定与 JS 桥信任边界保持不变。
@@ -859,7 +862,7 @@ public class MainActivity extends Activity {
         // 写法与 OfflineActivity 的 ghostRow 一致（同字号、同分隔符、同下划线）。
         LinearLayout ghostRow = new LinearLayout(this);
         ghostRow.setOrientation(LinearLayout.HORIZONTAL);
-        ghostRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        ghostRow.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(ghostRow, DshUi.matchWrapTop(this, 12));
 
         TextView sshOut = DshUi.link(this, "连 SSH 主机 ›", 11, DshUi.ink(this), true);
@@ -1170,6 +1173,103 @@ public class MainActivity extends Activity {
         // r106：原来这里直接 setContentView(webView) 硬切 —— 冷启十几秒后画面
         //   "啪"一下替换，深色下那一下白闪很明显。改为交叉淡入，见下。
         crossfadeSplashToWeb();
+        attachRelayPill();
+    }
+
+    // ==================================================================
+    // relay 档的原生档位入口（r150）
+    // ==================================================================
+
+    /**
+     * relay 档的顶部胶囊：**原生 View，不做 JS 注入**。
+     *
+     * <p>为什么必须有它：{@link com.dsh.harness.webview.OfficialShell#injectIfAllowed} 在
+     * relay 档不注入任何脚本（远端 origin 不能注我们的 JS，这是 A-02 安全边界，不改），
+     * 而 r142 又把右下角那两枚悬浮入口删了、把「换档」职责全交给了 `host-pill.js`。
+     * 两件事叠在一起的结果是：**relay 档变成单向门** —— 切进去之后既没有胶囊也没有
+     * 悬浮入口，只能清数据才出得来。这里用原生 View 把入口补回来，既守住边界，
+     * 也让胶囊语义在三个档位保持一致。
+     *
+     * <p>local / ssh 档不创建：那两个档位由 `host-pill.js` 注入，再加一个会变成两个胶囊。
+     * 幂等（{@code relayPill != null} 直接返回），重复调用安全。
+     */
+    private void attachRelayPill() {
+        HostProfile.Profile prof = HostProfile.get(this).current();
+        if (prof.bridgeAllowed()) return;      // local/ssh：有 JS 胶囊
+        if (relayPill != null) return;
+
+        final TextView tv = DshUi.mono(this, "● relay ›", 9f, DshUi.ink(this), true);
+        tv.setGravity(Gravity.CENTER_VERTICAL);
+        int padH = DshUi.dp(this, 8);
+        int padV = DshUi.dp(this, 4);
+        tv.setPadding(padH, padV, padH, padV);
+        tv.setSingleLine(true);
+        tv.setBackground(DshUi.chipDrawable(this, DshUi.card(this),
+                DshUi.lineStrong(this), false));
+        DshUi.pressable(tv);
+        tv.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, HostSwitcherActivity.class));
+            }
+        });
+
+        // android.R.id.content 是 FrameLayout，往里加就是浮在所有内容之上，
+        // 不用去改 splashRoot / crossfade 那套结构（改那里容易把淡入弄坏）。
+        ViewGroup content = null;
+        try {
+            content = (ViewGroup) findViewById(android.R.id.content);
+        } catch (Throwable ignored) {
+            // 极端情况下拿不到 content：入口缺席好过崩在启动路径上
+        }
+        if (content == null) return;
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.leftMargin = DshUi.dp(this, 44);            // 让开左侧栏图标
+        lp.topMargin = statusBarHeightPx() + DshUi.dp(this, 18);
+        content.addView(tv, lp);
+        relayPill = tv;
+
+        // 名字异步补：list() 是网络请求，绝不能在启动路径上同步等。
+        // 拿不到就保持 "● relay ›"，入口本身不受影响。
+        final String origin = prof.origin;
+        final String token = prof.deviceToken;
+        final String hostId = prof.hostId;
+        if (origin == null || origin.isEmpty() || token == null || token.isEmpty()) return;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final String name;
+                try {
+                    DshHostsClient.Result r = DshHostsClient.list(origin, token);
+                    if (!r.ok() || r.rows == null) return;
+                    String found = null;
+                    for (DshHostsClient.Host h : r.rows) {
+                        if (h.hostId != null && h.hostId.equals(hostId)) { found = h.name; break; }
+                    }
+                    name = found;
+                } catch (Throwable t) {
+                    return;
+                }
+                if (name == null || name.trim().isEmpty()) return;
+                runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        // 期间可能已经切档/销毁，别往一个已经脱离窗口的 View 上写字
+                        if (relayPill != tv) return;
+                        tv.setText("● relay · " + name.trim() + " ›");
+                    }
+                });
+            }
+        }, "relay-pill-name").start();
+    }
+
+    /** 状态栏高度（px）。拿不到就退回 0，胶囊只是上移一点，不影响可用性。 */
+    private int statusBarHeightPx() {
+        try {
+            int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Throwable ignored) { }
+        return 0;
     }
 
     /**

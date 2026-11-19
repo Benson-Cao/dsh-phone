@@ -42,7 +42,56 @@ public final class PairUrl {
             if (c <= 0x20 || c == '\\') return null;
         }
         if (authority.contains("@")) return null;   // 不在地址栏里处理凭据
+        String host = stripIpv4TrailingDot(authority);
+        if (!host.equals(authority)) {
+            s = s.substring(0, scheme + 3) + host
+                    + (slash < 0 ? "" : rest.substring(slash));
+        }
         return s;
+    }
+
+    /**
+     * 去掉 IPv4 末尾那个点（{@code 192.168.0.106.} → {@code 192.168.0.106}），端口原样保留。
+     *
+     * <p><b>为什么必须去</b>：末尾点在 DNS 里表示「绝对域名」，桌面 curl 能正确解析，
+     * 但 Android 的 {@code InetAddress.getByName()} 对 {@code 192.168.0.106.} 直接抛
+     * {@code UnknownHostException}（真机实测 {@code ping: unknown host 192.168.0.106.}）。
+     *
+     * <p>症状极其难查：配对走 {@link DshHttp} 的裸 Socket 能成功（那条路径没走这个解析），
+     * 于是「配对成功」，但 relay 档的 WebView {@code loadUrl} 判成「地址不通」并回落到
+     * 别的档位——用户看到的是「配得上却进不去」，而地址栏里那个点小到看不见。
+     * **在入口处规整掉，比事后教用户不要输入末尾点可靠得多。**
+     *
+     * <p>只处理「四段数字 + 尾点」这种明确形态，{@code relay.example.com.} 这类
+     * 合法 FQDN 原样保留。
+     */
+    private static String stripIpv4TrailingDot(String authority) {
+        int colon = authority.lastIndexOf(':');
+        String hostPart = colon < 0 ? authority : authority.substring(0, colon);
+        String portPart = colon < 0 ? "" : authority.substring(colon);
+        if (hostPart.length() < 2 || !hostPart.endsWith(".")) return authority;
+        String bare = hostPart.substring(0, hostPart.length() - 1);
+        if (!isIpv4(bare)) return authority;
+        return bare + portPart;
+    }
+
+    /** 是否形如 {@code a.b.c.d} 且每段 1~3 位数字（不做 0~255 校验，那是 InetAddress 的事）。 */
+    private static boolean isIpv4(String s) {
+        int dots = 0;
+        int digits = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '.') {
+                if (digits == 0 || digits > 3) return false;
+                dots++;
+                digits = 0;
+            } else if (c >= '0' && c <= '9') {
+                digits++;
+            } else {
+                return false;
+            }
+        }
+        return dots == 3 && digits >= 1 && digits <= 3;
     }
 
     /** 拼端点：{@code base + path}，base 必须先经 {@link #normalizeBase}。 */

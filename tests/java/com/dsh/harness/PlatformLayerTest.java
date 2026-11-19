@@ -302,6 +302,20 @@ public final class PlatformLayerTest {
         check("非回环·Tailscale IP", !PairUrl.isLoopback("http://100.99.226.70:8899"));
         check("非回环·域名", !PairUrl.isLoopback("https://relay.example.com"));
         check("非回环·空值不算回环", !PairUrl.isLoopback(null) && !PairUrl.isLoopback("  "));
+
+        // IPv4 末尾点：Android 的 InetAddress 解析不了 192.168.0.106.（unknown host），
+        // 但配对走裸 Socket 能过 —— 症状是「配得上却进不去」，必须在入口规整掉。
+        check("去 IPv4 末尾点·带端口",
+                "http://192.168.0.106:8899".equals(PairUrl.normalizeBase("192.168.0.106.:8899")));
+        check("去 IPv4 末尾点·完整 scheme",
+                "http://10.0.0.1:8899".equals(PairUrl.normalizeBase("http://10.0.0.1.:8899")));
+        check("去 IPv4 末尾点·带路径",
+                "http://192.168.0.106:8899/app".equals(PairUrl.normalizeBase("http://192.168.0.106.:8899/app")));
+        check("去 IPv4 末尾点·无端口",
+                "http://192.168.0.106".equals(PairUrl.normalizeBase("http://192.168.0.106.")));
+        check("保留合法 FQDN 末尾点",
+                "https://relay.example.com.".equals(PairUrl.normalizeBase("https://relay.example.com.")));
+        check("去点后仍判非回环", !PairUrl.isLoopback("http://192.168.0.106.:8899"));
     }
 
     // ---- SSH 配置页校验（r123）----
