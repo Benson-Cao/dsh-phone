@@ -474,10 +474,12 @@ public class HostSwitcherActivity extends Activity {
         row.addView(stateTag(h));
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (h.bound) {
-                    // 已是绑定目标：不弹确认、不发请求（同主机 select 是 no-op）
-                    toast(displayName(h) + " 已经是这台手机的绑定目标"
-                            + "（归属，不代表此刻正在使用）。");
+                // ⚠ 判据必须是「当前档案是否指向这台主机」，不能用 h.bound。
+                // `bound` 只表示「归属这台手机」，与「此刻在用」是两件事（见 stateTag 的三态）：
+                // 已绑定但当前走本机/SSH 档时，用户点它就是**想切过去**的地方。
+                // 之前按 bound 提前 return，配好之后怎么点都只弹一句 toast，等于把路堵死。
+                if (isInUse(h)) {
+                    toast(displayName(h) + " 正在使用中。");
                     return;
                 }
                 confirmSwitch(h);
@@ -516,11 +518,21 @@ public class HostSwitcherActivity extends Activity {
      *   <li>离线 → 灰虚线 + 空心圈；在线 → 浅底实心点。</li>
      * </ul>
      */
-    private View stateTag(DshHostsClient.Host h) {
+    /**
+     * 当前档案是否确实指向这台主机（relay 档 + hostId 相等）。
+     *
+     * <p>与 {@code Host.bound} 的区别：{@code bound} 是「归属」，跨档案不变的绑定关系；
+     * 本方法是「此刻在用」，随用户切换档案而变。三态标签与点击处置都靠它，
+     * 两处必须同源，否则会出现「标着绑定目标却点不动」这种自相矛盾的界面。
+     */
+    private boolean isInUse(DshHostsClient.Host h) {
         HostProfile.Profile cur = HostProfile.get(this).current();
-        boolean inUse = HostProfile.KIND_RELAY.equals(cur.kind)
+        return HostProfile.KIND_RELAY.equals(cur.kind)
                 && cur.hostId != null && cur.hostId.equals(h.hostId);
-        if (inUse) return DshUi.tagOn(this, "正在使用");
+    }
+
+    private View stateTag(DshHostsClient.Host h) {
+        if (isInUse(h)) return DshUi.tagOn(this, "正在使用");
         if (h.bound) return DshUi.tagWait(this, "绑定目标");
         if (!h.online) return DshUi.tagOff(this, "离线");
         return DshUi.tagOn(this, "在线");

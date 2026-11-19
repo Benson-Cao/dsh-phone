@@ -49,11 +49,15 @@ public final class DshDeviceIdentity {
 
     /** 配对成功后记下「配到哪台电脑」，供切换器与离线页使用。 */
     public static void rememberBinding(Context ctx, String hostDeviceId, String relayUrl) {
-        prefs(ctx).edit()
+        SharedPreferences.Editor e = prefs(ctx).edit()
                 .putString(K_LAST_HOST, hostDeviceId)
-                .putString(K_LAST_RELAY, relayUrl)
-                .putLong(K_LAST_AT, System.currentTimeMillis())
-                .apply();
+                .putLong(K_LAST_AT, System.currentTimeMillis());
+        // 回环地址不落盘：Relay 按请求 Host 头回填 relayUrl，电脑侧自测/端口转发时会是
+        // 127.0.0.1 —— 存下来只会让配对页预填一个手机上必然连不上的地址（PairUrl.isLoopback）。
+        if (relayUrl != null && !PairUrl.isLoopback(relayUrl)) {
+            e.putString(K_LAST_RELAY, relayUrl);
+        }
+        e.apply();
     }
 
     public static String lastHostDeviceId(Context ctx) {
@@ -61,7 +65,15 @@ public final class DshDeviceIdentity {
     }
 
     public static String lastRelayUrl(Context ctx) {
-        return prefs(ctx).getString(K_LAST_RELAY, null);
+        SharedPreferences p = prefs(ctx);
+        String v = p.getString(K_LAST_RELAY, null);
+        // 历史脏数据就地清理：早期版本会把回环地址存进来，读到就删，
+        // 否则配对页永远预填「http://127.0.0.1:8899」，用户点几次都以为是自己填错。
+        if (v != null && PairUrl.isLoopback(v)) {
+            p.edit().remove(K_LAST_RELAY).apply();
+            return null;
+        }
+        return v;
     }
 
     public static long lastPairedAt(Context ctx) {

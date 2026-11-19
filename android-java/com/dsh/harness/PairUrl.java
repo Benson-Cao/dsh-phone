@@ -53,4 +53,34 @@ public final class PairUrl {
         if (!p.startsWith("/")) p = "/" + p;
         return b + p;
     }
+
+    /**
+     * 是否是「手机上的回环 / 未指定地址」——在手机上永远连不到电脑。
+     *
+     * <p>为什么需要这个判断：Relay 回给客户端的 {@code relayUrl} 是**按请求 Host 头回填**的，
+     * 所以只要历史上从回环地址成功配对过一次（例如电脑侧自测、或经端口转发），
+     * 手机就会把 {@code http://127.0.0.1:8899} 记成「上次用的地址」，
+     * 之后每次打开配对页都预填这个死地址 —— 用户点十次也连不上，还以为是码的问题。
+     * 写入与读取两侧都要挡：写入侧不落盘，读取侧清掉历史脏数据。
+     */
+    public static boolean isLoopback(String raw) {
+        String b = normalizeBase(raw);
+        if (b == null) return false;
+        String rest = b.substring(b.indexOf("://") + 3);
+        int slash = rest.indexOf('/');
+        String authority = slash < 0 ? rest : rest.substring(0, slash);
+        String host;
+        if (authority.startsWith("[")) {          // IPv6 字面量：[::1]:8899
+            int close = authority.indexOf(']');
+            if (close < 0) return false;
+            host = authority.substring(1, close);
+        } else {
+            int colon = authority.lastIndexOf(':');   // 去端口（可能没有）
+            host = colon < 0 ? authority : authority.substring(0, colon);
+        }
+        host = host.trim().toLowerCase(java.util.Locale.ROOT);
+        if (host.isEmpty()) return false;
+        return host.equals("localhost") || host.equals("::1") || host.equals("0.0.0.0")
+                || host.equals("127.0.0.1") || host.startsWith("127.");
+    }
 }

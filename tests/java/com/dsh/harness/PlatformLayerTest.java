@@ -288,6 +288,20 @@ public final class PlatformLayerTest {
         check("端点拼接无重复斜杠",
                 "http://h:1/pair/verify".equals(PairUrl.endpoint("h:1/", "pair/verify")));
         check("非法 base 拼出 null", PairUrl.endpoint("   ", "/pair") == null);
+
+        // 回环判定：手机上的 127.0.0.1 是手机自己，不该被当成「上次用的电脑地址」预填。
+        // 现场就是被这条坑到：配对页预填 http://127.0.0.1:8899，用户点几次都连不上。
+        check("回环·127.0.0.1 含端口", PairUrl.isLoopback("http://127.0.0.1:8899"));
+        check("回环·127.0.0.1 无 scheme", PairUrl.isLoopback("127.0.0.1:8899"));
+        check("回环·127.x 整段", PairUrl.isLoopback("http://127.1.2.3:8899"));
+        check("回环·localhost", PairUrl.isLoopback("http://localhost:8899"));
+        check("回环·IPv6 ::1", PairUrl.isLoopback("http://[::1]:8899"));
+        check("回环·0.0.0.0", PairUrl.isLoopback("http://0.0.0.0:8899"));
+        check("回环·带路径前缀", PairUrl.isLoopback("http://127.0.0.1:8899/relay"));
+        check("非回环·局域网 IP", !PairUrl.isLoopback("http://192.168.0.106:8899"));
+        check("非回环·Tailscale IP", !PairUrl.isLoopback("http://100.99.226.70:8899"));
+        check("非回环·域名", !PairUrl.isLoopback("https://relay.example.com"));
+        check("非回环·空值不算回环", !PairUrl.isLoopback(null) && !PairUrl.isLoopback("  "));
     }
 
     // ---- SSH 配置页校验（r123）----
